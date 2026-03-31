@@ -3,11 +3,11 @@ import type { Conversation } from "@/types";
 import { getOtherParticipant, formatDuration, formatRelativeTime } from "@/lib/mock";
 import Avatar from "./Avatar";
 
-interface ConversationItemProps {
+interface ConversationCardProps {
   conversation: Conversation;
 }
 
-export default function ConversationItem({ conversation }: ConversationItemProps) {
+export default function ConversationCard({ conversation }: ConversationCardProps) {
   const other = getOtherParticipant(conversation);
   const last = conversation.messages[conversation.messages.length - 1];
   const unread = conversation.messages.filter(
@@ -40,6 +40,8 @@ export default function ConversationItem({ conversation }: ConversationItemProps
             <span className="text-xs text-gray-500 truncate">
               {last.senderId === "me" ? "You · " : ""}
               {formatDuration(last.duration)}
+              {" · "}
+              {conversation.messages.length} messages
             </span>
           </div>
         </div>

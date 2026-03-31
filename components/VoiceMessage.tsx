@@ -8,9 +8,10 @@ import Waveform from "./Waveform";
 interface VoiceMessageProps {
   message: VoiceMessageType;
   mine: boolean;
+  senderName?: string;
 }
 
-export default function VoiceMessage({ message, mine }: VoiceMessageProps) {
+export default function VoiceMessage({ message, mine, senderName }: VoiceMessageProps) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -27,7 +28,6 @@ export default function VoiceMessage({ message, mine }: VoiceMessageProps) {
     setPlaying(true);
     const totalMs = message.duration * 1000;
     const startTime = Date.now() - progress * totalMs;
-
     intervalRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
       const next = elapsed / totalMs;
@@ -47,19 +47,25 @@ export default function VoiceMessage({ message, mine }: VoiceMessageProps) {
 
   return (
     <div className={`flex gap-2 ${mine ? "flex-row-reverse" : "flex-row"}`}>
-      <div
-        className={`flex flex-col gap-1 max-w-[75%] ${mine ? "items-end" : "items-start"}`}
-      >
+      <div className={`flex flex-col gap-1 max-w-[78%] ${mine ? "items-end" : "items-start"}`}>
+        {senderName && (
+          <span className="text-xs text-gray-400 px-1">{senderName}</span>
+        )}
+
         <div
           className={`flex items-center gap-3 px-3 py-2 rounded-2xl ${
-            mine ? "bg-gray-900 text-white rounded-br-sm" : "bg-gray-100 text-gray-900 rounded-bl-sm"
+            mine
+              ? "bg-gray-900 text-white rounded-br-sm"
+              : "bg-gray-100 text-gray-900 rounded-bl-sm"
           }`}
         >
           <button
             onClick={togglePlay}
-            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-              mine ? "bg-white/20 hover:bg-white/30" : "bg-gray-900/10 hover:bg-gray-900/20"
-            } transition-colors`}
+            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+              mine
+                ? "bg-white/20 hover:bg-white/30"
+                : "bg-gray-900/10 hover:bg-gray-900/20"
+            }`}
             aria-label={playing ? "Pause" : "Play"}
           >
             {playing ? (
@@ -69,7 +75,7 @@ export default function VoiceMessage({ message, mine }: VoiceMessageProps) {
             )}
           </button>
 
-          <div className="flex flex-col gap-1 min-w-[120px]">
+          <div className="flex flex-col gap-1 min-w-[110px]">
             <Waveform bars={message.waveform} progress={progress} mine={mine} />
             <span className={`text-xs ${mine ? "text-white/60" : "text-gray-400"}`}>
               {formatDuration(message.duration)}
@@ -77,7 +83,7 @@ export default function VoiceMessage({ message, mine }: VoiceMessageProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 px-1">
           <span className="text-xs text-gray-400">
             {formatRelativeTime(message.createdAt)}
           </span>
@@ -92,13 +98,7 @@ export default function VoiceMessage({ message, mine }: VoiceMessageProps) {
 
 function PlayIcon({ className }: { className?: string }) {
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="currentColor"
-      className={className}
-    >
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={className}>
       <path d="M2 1.5l9 4.5-9 4.5V1.5z" />
     </svg>
   );
@@ -106,13 +106,7 @@ function PlayIcon({ className }: { className?: string }) {
 
 function PauseIcon({ className }: { className?: string }) {
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="currentColor"
-      className={className}
-    >
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={className}>
       <rect x="2" y="1" width="3" height="10" rx="1" />
       <rect x="7" y="1" width="3" height="10" rx="1" />
     </svg>

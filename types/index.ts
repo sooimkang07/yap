@@ -10,7 +10,8 @@ export interface VoiceMessage {
   duration: number; // seconds
   createdAt: string; // ISO string
   listened: boolean;
-  waveform: number[]; // normalized 0–1 values for visual
+  waveform: number[]; // normalized 0–1 values
+  replyToId?: string; // parent message id
 }
 
 export interface Conversation {
@@ -18,4 +19,9 @@ export interface Conversation {
   participants: User[];
   messages: VoiceMessage[];
   lastActivity: string;
+}
+
+export interface MessageNode {
+  message: VoiceMessage;
+  children: MessageNode[];
 }

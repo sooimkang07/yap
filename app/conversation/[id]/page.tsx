@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import Header from "@/components/Header";
-import VoiceMessage from "@/components/VoiceMessage";
-import RecordButton from "@/components/RecordButton";
 import Avatar from "@/components/Avatar";
+import ConversationView from "@/components/ConversationView";
 import { getConversation, getOtherParticipant } from "@/lib/mock";
 
 interface Props {
@@ -22,20 +21,7 @@ export default function ConversationPage({ params }: Props) {
         back="/"
         right={<Avatar label={other.avatar} size="sm" />}
       />
-
-      <main className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
-        {conversation.messages.map((msg) => (
-          <VoiceMessage
-            key={msg.id}
-            message={msg}
-            mine={msg.senderId === "me"}
-          />
-        ))}
-      </main>
-
-      <footer className="px-4 py-5 border-t border-gray-100 flex items-center justify-center">
-        <RecordButton />
-      </footer>
+      <ConversationView conversation={conversation} />
     </>
   );
 }

@@ -9,10 +9,11 @@ import AudioPlayer from './AudioPlayer'
 interface SegmentCardProps {
   item: OrganizedSegmentWithDepth
   sourceMessage: VoiceMessage | undefined
-  replyToSegment?: { text: string; speaker: string } // parent context label
+  replyToSegment?: { text: string; speaker: string }
+  isActive?: boolean
 }
 
-export default function SegmentCard({ item, sourceMessage, replyToSegment }: SegmentCardProps) {
+export default function SegmentCard({ item, sourceMessage, replyToSegment, isActive = false }: SegmentCardProps) {
   const [audioOpen, setAudioOpen] = useState(false)
   const mine = item.segment.speaker === 'me'
   const p = getParticipant(item.segment.speaker)
@@ -30,22 +31,27 @@ export default function SegmentCard({ item, sourceMessage, replyToSegment }: Seg
       )}
 
       <div
-        className={`rounded-xl px-3 py-2 w-full max-w-[88%] flex flex-col gap-2 ${
-          mine ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'
+        className={`rounded-xl px-3 py-2 w-full max-w-[88%] flex flex-col gap-2 transition-all ${
+          mine
+            ? `bg-gray-900 text-white ${isActive ? 'ring-2 ring-gray-500' : ''}`
+            : `bg-gray-100 text-gray-900 ${isActive ? 'ring-2 ring-gray-300' : ''}`
         }`}
       >
         {/* Speaker + time */}
         <div className={`flex items-center justify-between gap-2 text-xs ${mine ? 'text-white/50' : 'text-gray-400'}`}>
-          <span className="font-medium">{p.name}</span>
+          <span className={`font-medium ${isActive ? (mine ? 'text-white/80' : 'text-gray-700') : ''}`}>
+            {p.name}
+            {isActive && <span className="ml-1 text-gray-400">· speaking</span>}
+          </span>
           <span>{formatRelativeTime(item.createdAt)}</span>
         </div>
 
-        {/* Segment text (primary content) */}
+        {/* Segment text (primary) */}
         <p className={`text-sm leading-relaxed ${mine ? 'text-white/90' : 'text-gray-800'}`}>
           {item.segment.text}
         </p>
 
-        {/* Play source message — expandable */}
+        {/* Source audio — expandable */}
         {sourceMessage && (
           <div>
             <button
@@ -57,15 +63,14 @@ export default function SegmentCard({ item, sourceMessage, replyToSegment }: Seg
               <span>{audioOpen ? '▾' : '▸'}</span>
               <span>Full message · {sourceMessage.duration}s</span>
             </button>
-            {audioOpen && sourceMessage.audioUrl && (
+            {audioOpen && (
               <div className="mt-1.5">
-                <AudioPlayer url={sourceMessage.audioUrl} duration={sourceMessage.duration} light={mine} />
+                {sourceMessage.audioUrl ? (
+                  <AudioPlayer url={sourceMessage.audioUrl} duration={sourceMessage.duration} light={mine} />
+                ) : (
+                  <span className={`text-xs ${mine ? 'text-white/30' : 'text-gray-400'}`}>Audio generating…</span>
+                )}
               </div>
-            )}
-            {audioOpen && !sourceMessage.audioUrl && (
-              <span className={`text-xs ${mine ? 'text-white/30' : 'text-gray-400'}`}>
-                No audio (seed message)
-              </span>
             )}
           </div>
         )}

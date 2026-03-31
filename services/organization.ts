@@ -1,43 +1,41 @@
 // ── Organization Service ─────────────────────────────────────────────────────
 //
-// Takes a flat list of VoiceMessages (each with segments) and infers a
-// reply-tree across segments from different senders.
+// Takes transcribed VoiceMessages and infers reply relationships across segments.
 //
-// Algorithm (first-pass heuristic):
-//   For each segment Si, find the prior segment Sj (from a different sender)
-//   with the highest Jaccard similarity over non-stop-word tokens.
-//   If similarity ≥ threshold → Si replies to Sj.
-//   Otherwise → Si is a new root.
+// Multi-signal scoring (all signals combined into 0–1 score):
+//   - keyword-overlap   : Jaccard similarity over non-stop-word tokens
+//   - topic-overlap     : shared named topics (capitalized mid-sentence words)
+//   - question-response : prior segment ends with '?'
+//   - discourse-ref     : candidate starts with a reply word (yeah, right, about that…)
 //
-// To upgrade: replace inferReplyTarget() with an LLM call that returns
-// structured reply pairs. organizeMessages() and buildThreads() stay the same.
+// To upgrade: replace scoreMatch() with an LLM call returning { segmentId, confidence }[]
+// organizeMessages() and buildThreads() stay the same.
 
-import type { VoiceMessage, VoiceSegment, OrganizedSegment } from '@/types'
+import type { VoiceMessage, VoiceSegment, OrganizedSegment, OrganizedSegmentWithDepth } from '@/types'
 
-// ── Keyword extraction ───────────────────────────────────────────────────────
+// ── Stop words ───────────────────────────────────────────────────────────────
 
 const STOP_WORDS = new Set([
-  'i', 'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'and', 'or', 'but', 'so', 'yet', 'nor', 'to', 'of', 'in', 'it', 'its',
-  'that', 'this', 'for', 'on', 'with', 'as', 'at', 'by', 'from', 'into',
-  'we', 'you', 'they', 'he', 'she', 'my', 'your', 'our', 'their', 'its',
-  'have', 'has', 'had', 'do', 'did', 'does', 'will', 'would', 'could',
-  'should', 'may', 'might', 'shall', 'not', 'also', 'just', 'up', 'out',
-  'if', 'about', 'then', 'there', 'here', 'when', 'what', 'which', 'who',
-  'how', 'all', 'any', 'one', 'two', 'three', 'some', 'more', 'very',
-  'really', 'think', 'know', 'want', 'need', 'going', 'get', 'got',
+  'i','a','an','the','is','are','was','were','be','been','being',
+  'and','or','but','so','yet','nor','to','of','in','it','its',
+  'that','this','for','on','with','as','at','by','from','into',
+  'we','you','they','he','she','my','your','our','their',
+  'have','has','had','do','did','does','will','would','could',
+  'should','may','might','shall','not','also','just','up','out',
+  'if','about','then','there','here','when','what','which','who',
+  'how','all','any','one','two','three','some','more','very',
+  'really','think','know','want','need','going','get','got','let',
+  'look','looks','like','just','actually','basically','right',
+  'yeah','yes','okay','ok','so','well','hey','hi',
 ])
 
-function extractKeywords(text: string): Set<string> {
+function keywords(text: string): Set<string> {
   return new Set(
-    text
-      .toLowerCase()
-      .split(/\W+/)
-      .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+    text.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w))
   )
 }
 
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0
   const aArr = Array.from(a)
   const bArr = Array.from(b)
@@ -46,77 +44,117 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   return intersection / union
 }
 
-// ── Core inference ───────────────────────────────────────────────────────────
-
-type AnnotatedSegment = VoiceSegment & { senderId: string; createdAt: string }
-
-function inferReplyTarget(
-  candidate: AnnotatedSegment,
-  priors: AnnotatedSegment[],
-  threshold = 0.12
-): { match: AnnotatedSegment | null; score: number } {
-  const candKeys = extractKeywords(candidate.text)
-
-  let bestScore = threshold
-  let bestMatch: AnnotatedSegment | null = null
-
-  for (const prior of priors) {
-    // Only link across different senders
-    if (prior.senderId === candidate.senderId) continue
-
-    const score = jaccardSimilarity(candKeys, extractKeywords(prior.text))
-    if (score > bestScore) {
-      bestScore = score
-      bestMatch = prior
-    }
-  }
-
-  return { match: bestMatch, score: bestScore }
+// Capitalized words that appear mid-sentence → likely named topics
+function namedTopics(text: string): string[] {
+  return text
+    .split(/\s+/)
+    .slice(1) // skip first word (always capitalized)
+    .map((w) => w.replace(/[^a-zA-Z]/g, ''))
+    .filter((w) => w.length > 3 && w[0] === w[0].toUpperCase() && /[a-z]/.test(w))
+    .map((w) => w.toLowerCase())
 }
 
-// ── Public API ───────────────────────────────────────────────────────────────
+// Words that signal the candidate is responding to something
+const REPLY_STARTERS = [
+  'yeah', 'right', 'exactly', 'totally', 'true', 'agreed', 'no,', 'yes,',
+  'for that', 'about that', 'on that', 'to your point', 'regarding',
+  'speaking of', 're:', 'and about', 'about the', 'about bali', 'about ubud',
+  'about september', 'about the villa', 'about the flights',
+]
+
+// ── Scoring ───────────────────────────────────────────────────────────────────
+
+type AnnotatedSegment = VoiceSegment & { createdAt: string }
+
+function scoreMatch(
+  candidate: AnnotatedSegment,
+  prior: AnnotatedSegment
+): { score: number; signals: string[] } {
+  const signals: string[] = []
+  let score = 0
+
+  // 1. Keyword overlap
+  const kwScore = jaccard(keywords(candidate.text), keywords(prior.text))
+  if (kwScore >= 0.08) {
+    score += kwScore * 1.4
+    signals.push(`keyword-overlap(${(kwScore * 100).toFixed(0)}%)`)
+  }
+
+  // 2. Named topic overlap
+  const sharedTopics = namedTopics(prior.text).filter((t) =>
+    namedTopics(candidate.text).includes(t)
+  )
+  if (sharedTopics.length > 0) {
+    const topicScore = Math.min(sharedTopics.length * 0.18, 0.45)
+    score += topicScore
+    signals.push(`topic-overlap(${sharedTopics.join(',')})`)
+  }
+
+  // 3. Question-response
+  if (prior.text.trim().endsWith('?')) {
+    score += 0.28
+    signals.push('question-response')
+  }
+
+  // 4. Discourse reference at start of candidate
+  const candLower = candidate.text.toLowerCase()
+  if (REPLY_STARTERS.some((w) => candLower.startsWith(w))) {
+    score += 0.22
+    signals.push('discourse-ref')
+  }
+
+  return { score: Math.min(score, 1.0), signals }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export function organizeMessages(messages: VoiceMessage[]): OrganizedSegment[] {
-  // Flatten all segments across messages in chronological order
-  const flat: AnnotatedSegment[] = messages
+  const sorted = messages
     .slice()
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    .flatMap((msg) =>
-      msg.segments.map((seg) => ({
-        ...seg,
-        senderId: msg.senderId,
-        createdAt: msg.createdAt,
-      }))
-    )
+
+  // Flatten to annotated segments in chronological order
+  const flat: AnnotatedSegment[] = sorted.flatMap((msg) =>
+    msg.segments.map((seg) => ({ ...seg, createdAt: msg.createdAt }))
+  )
+
+  const THRESHOLD = 0.18
 
   return flat.map((current, i) => {
-    const priors = flat.slice(0, i)
-    const { match, score } = inferReplyTarget(current, priors)
+    const priors = flat.slice(0, i).filter((p) => p.speaker !== current.speaker)
 
-    const reason = match
-      ? `${(score * 100).toFixed(0)}% keyword overlap with "${match.text.slice(0, 55)}${match.text.length > 55 ? '…' : ''}"`
-      : 'no matching prior segment — treated as new thread root'
+    let bestScore = THRESHOLD
+    let bestMatch: AnnotatedSegment | null = null
+    let bestSignals: string[] = []
+
+    for (const prior of priors) {
+      const { score, signals } = scoreMatch(current, prior)
+      if (score > bestScore) {
+        bestScore = score
+        bestMatch = prior
+        bestSignals = signals
+      }
+    }
+
+    const reason = bestMatch
+      ? `[${bestSignals.join(' + ')}] → "${bestMatch.text.slice(0, 60)}${bestMatch.text.length > 60 ? '…' : ''}"`
+      : 'no match above threshold — new thread root'
 
     return {
-      segment: { id: current.id, messageId: current.messageId, index: current.index, text: current.text },
-      senderId: current.senderId,
+      segment: current,
       createdAt: current.createdAt,
-      replyToSegmentId: match?.id ?? null,
-      replyToMessageId: match?.messageId ?? null,
-      confidence: match ? score : 1.0,
+      replyToSegmentId: bestMatch?.id ?? null,
+      replyToMessageId: bestMatch?.sourceMessageId ?? null,
+      confidence: bestMatch ? bestScore : 1.0,
+      signals: bestSignals,
       reason,
     }
   })
 }
 
-// ── Thread builder ───────────────────────────────────────────────────────────
+// ── Thread builder ──��─────────────────────────────────────────────────────────
+// Returns segments in DFS order with depth annotation, ready for sequential rendering.
 
-export interface OrganizedSegmentWithDepth extends OrganizedSegment {
-  depth: number
-}
-
-// Converts a flat OrganizedSegment[] into a depth-annotated list in tree order.
-// Roots first, then their children in DFS order — ready for sequential rendering.
 export function buildThreads(organized: OrganizedSegment[]): OrganizedSegmentWithDepth[] {
   const result: OrganizedSegmentWithDepth[] = []
   const visited = new Set<string>()
@@ -136,8 +174,7 @@ export function buildThreads(organized: OrganizedSegment[]): OrganizedSegmentWit
     }
   }
 
-  const roots = organized.filter((s) => s.replyToSegmentId === null)
-  for (const root of roots) {
+  for (const root of organized.filter((s) => s.replyToSegmentId === null)) {
     visit(root.segment.id, 0)
   }
 

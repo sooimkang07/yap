@@ -1,87 +1,56 @@
 import type { VoiceMessage } from '@/types'
-import type { OrganizedSegmentWithDepth } from '@/services/organization'
 import { organizeMessages, buildThreads } from '@/services/organization'
-import { formatRelativeTime } from '@/lib/utils'
+import SegmentCard from './SegmentCard'
 
 interface OrganizedFeedProps {
   messages: VoiceMessage[]
 }
 
-const SENDER_LABELS: Record<string, string> = {
-  me: 'You',
-  alex: 'Alex',
-}
-
 export default function OrganizedFeed({ messages }: OrganizedFeedProps) {
   const transcribed = messages.filter((m) => m.status === 'transcribed' && m.segments.length > 0)
+
+  if (transcribed.length === 0) {
+    return <p className="text-sm text-gray-400 text-center py-8">No transcribed messages yet.</p>
+  }
+
+  const messageMap = new Map(messages.map((m) => [m.id, m]))
+  const segmentMap = new Map(
+    transcribed.flatMap((m) => m.segments.map((s) => [s.id, s]))
+  )
+
   const organized = organizeMessages(transcribed)
   const threaded = buildThreads(organized)
 
-  if (threaded.length === 0) {
-    return (
-      <p className="text-sm text-gray-400 text-center py-8">
-        No transcribed messages yet.
-      </p>
-    )
-  }
-
-  // Insert thread-header markers before each root (depth === 0)
-  const items: Array<{ type: 'header'; index: number } | { type: 'segment'; item: OrganizedSegmentWithDepth }> = []
-  let threadIndex = 0
-  for (const item of threaded) {
-    if (item.depth === 0) {
-      threadIndex++
-      items.push({ type: 'header', index: threadIndex })
-    }
-    items.push({ type: 'segment', item })
-  }
+  // Build a lookup from segmentId → OrganizedSegment for reply context labels
+  const organizedMap = new Map(organized.map((o) => [o.segment.id, o]))
 
   return (
-    <div className="flex flex-col gap-1">
-      {items.map((entry, i) => {
-        if (entry.type === 'header') {
-          return (
-            <div key={`header-${i}`} className="pt-4 pb-1 first:pt-0">
-              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
-                Thread {entry.index}
-              </span>
-            </div>
-          )
+    <div className="flex flex-col gap-2">
+      {threaded.map((item) => {
+        const sourceMessage = messageMap.get(item.segment.sourceMessageId)
+
+        // Build reply context label
+        let replyToSegment: { text: string; speaker: string } | undefined
+        if (item.replyToSegmentId) {
+          const parent = segmentMap.get(item.replyToSegmentId)
+          if (parent) {
+            replyToSegment = { text: parent.text, speaker: parent.speaker }
+          }
         }
 
-        const { item } = entry
-        const mine = item.senderId === 'me'
-        const label = SENDER_LABELS[item.senderId] ?? item.senderId
-        const indentPx = item.depth * 16
+        const indentPx = Math.min(item.depth, 3) * 16
 
         return (
           <div
             key={item.segment.id}
-            className="flex flex-col gap-0.5 mb-2"
             style={{ marginLeft: indentPx }}
+            className={item.depth > 0 ? 'border-l-2 border-gray-100 pl-3' : ''}
           >
-            {item.depth > 0 && (
-              <div
-                className="border-l-2 border-gray-200 absolute"
-                style={{ marginLeft: -indentPx }}
-              />
-            )}
-
-            <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-              <div className={`rounded-xl px-3 py-2 text-sm max-w-[85%] ${
-                mine ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'
-              }`}>
-                {item.depth > 0 && (
-                  <div className={`text-xs mb-1 ${mine ? 'text-white/40' : 'text-gray-400'}`}>
-                    ↩ replying
-                  </div>
-                )}
-                {item.segment.text}
-                <div className={`text-xs mt-1.5 ${mine ? 'text-white/40' : 'text-gray-400'}`}>
-                  {label} · {formatRelativeTime(item.createdAt)}
-                </div>
-              </div>
-            </div>
+            <SegmentCard
+              item={item}
+              sourceMessage={sourceMessage}
+              replyToSegment={replyToSegment}
+            />
           </div>
         )
       })}

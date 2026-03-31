@@ -3,24 +3,22 @@
 import { useState } from 'react'
 import type { VoiceMessage } from '@/types'
 import { organizeMessages } from '@/services/organization'
+import { getParticipant } from '@/lib/participants'
 
-interface DebugPanelProps {
-  messages: VoiceMessage[]
-}
+type Tab = 'messages' | 'organization'
 
-export default function DebugPanel({ messages: allMessages }: DebugPanelProps) {
+export default function DebugPanel({ messages }: { messages: VoiceMessage[] }) {
   const [open, setOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'messages' | 'organization'>('messages')
+  const [tab, setTab] = useState<Tab>('messages')
 
-  const transcribed = allMessages.filter((m) => m.status === 'transcribed')
+  const transcribed = messages.filter((m) => m.status === 'transcribed')
   const organized = organizeMessages(transcribed)
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden text-xs font-mono">
-      {/* Header / toggle */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200 text-left"
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 text-left hover:bg-gray-100 transition-colors"
       >
         <span className="font-semibold text-gray-600">Debug Panel</span>
         <span className="text-gray-400">{open ? '▾' : '▸'}</span>
@@ -28,81 +26,45 @@ export default function DebugPanel({ messages: allMessages }: DebugPanelProps) {
 
       {open && (
         <>
-          {/* Tab bar */}
           <div className="flex border-b border-gray-200">
-            {(['messages', 'organization'] as const).map((tab) => (
+            {(['messages', 'organization'] as Tab[]).map((t) => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-1.5 text-center capitalize transition-colors ${
-                  activeTab === tab
-                    ? 'bg-white text-gray-800 font-medium border-b-2 border-gray-900'
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex-1 py-1.5 capitalize transition-colors ${
+                  tab === t
+                    ? 'bg-white text-gray-900 font-semibold border-b-2 border-gray-900'
                     : 'text-gray-400 hover:text-gray-600'
                 }`}
               >
-                {tab}
+                {t}
               </button>
             ))}
           </div>
 
-          <div className="overflow-y-auto max-h-72 p-3 flex flex-col gap-4 bg-white">
-            {/* ── Messages tab ───────────────────────────────────────────── */}
-            {activeTab === 'messages' && (
-              <>
-                {allMessages.length === 0 && (
-                  <p className="text-gray-400">No messages yet.</p>
-                )}
-                {allMessages.map((m) => (
-                  <div key={m.id} className="flex flex-col gap-1 border-b border-gray-100 pb-3 last:border-0">
-                    <div className="text-gray-500">
-                      <span className="text-gray-800 font-semibold">[{m.senderId}]</span>
-                      {' '}id:{m.id}
-                      {' '}status:<span className={statusColor(m.status)}>{m.status}</span>
-                      {' '}dur:{m.duration}s
-                    </div>
+          <div className="overflow-y-auto max-h-80 p-3 flex flex-col gap-4 bg-white">
 
-                    {m.transcript && (
-                      <div>
-                        <div className="text-gray-400">transcript:</div>
-                        <div className="text-gray-700 whitespace-pre-wrap pl-2 border-l border-gray-200">
-                          {m.transcript}
-                        </div>
-                      </div>
-                    )}
-
-                    {m.segments.length > 0 && (
-                      <div>
-                        <div className="text-gray-400">segments ({m.segments.length}):</div>
-                        {m.segments.map((s) => (
-                          <div key={s.id} className="pl-2 text-gray-600">
-                            [{s.index}] {s.text}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {m.error && (
-                      <div className="text-red-500">error: {m.error}</div>
-                    )}
-                  </div>
-                ))}
-              </>
+            {/* ── Messages tab ─────────────────────────────────────────── */}
+            {tab === 'messages' && (
+              messages.length === 0
+                ? <p className="text-gray-400">No messages yet.</p>
+                : messages.map((m) => (
+                  <MessageDebug key={m.id} message={m} />
+                ))
             )}
 
-            {/* ── Organization tab ────────────────────────────────────────── */}
-            {activeTab === 'organization' && (
-              <>
-                {organized.length === 0 && (
-                  <p className="text-gray-400">No transcribed messages to organize.</p>
-                )}
-                {organized.map((o) => (
-                  <div key={o.segment.id} className="border-b border-gray-100 pb-2 last:border-0">
-                    <div className="text-gray-800">
-                      <span className="font-semibold">{o.segment.id}</span>
+            {/* ── Organization tab ──────────────────────────────────────── */}
+            {tab === 'organization' && (
+              organized.length === 0
+                ? <p className="text-gray-400">No transcribed messages to organize.</p>
+                : organized.map((o) => (
+                  <div key={o.segment.id} className="border-b border-gray-100 pb-2 last:border-0 flex flex-col gap-0.5">
+                    <div>
+                      <span className="font-semibold text-gray-800">{o.segment.id}</span>
                       {' '}
-                      <span className="text-gray-500">({o.senderId})</span>
+                      <span className="text-gray-500">({getParticipant(o.segment.speaker).name})</span>
                     </div>
-                    <div className="pl-2 text-gray-600">text: {o.segment.text}</div>
+                    <div className="pl-2 text-gray-600 leading-snug">"{o.segment.text}"</div>
                     <div className="pl-2 text-gray-500">
                       reply_to:{' '}
                       {o.replyToSegmentId
@@ -112,12 +74,15 @@ export default function DebugPanel({ messages: allMessages }: DebugPanelProps) {
                     </div>
                     <div className="pl-2 text-gray-500">
                       confidence: {(o.confidence * 100).toFixed(0)}%
+                      {o.signals.length > 0 && (
+                        <span className="text-gray-400 ml-1">· {o.signals.join(', ')}</span>
+                      )}
                     </div>
                     <div className="pl-2 text-gray-400 italic">{o.reason}</div>
                   </div>
-                ))}
-              </>
+                ))
             )}
+
           </div>
         </>
       )}
@@ -125,9 +90,64 @@ export default function DebugPanel({ messages: allMessages }: DebugPanelProps) {
   )
 }
 
-function statusColor(status: string) {
-  if (status === 'transcribed') return ' text-green-600'
-  if (status === 'transcribing') return ' text-yellow-600'
-  if (status === 'error') return ' text-red-600'
-  return ' text-gray-600'
+function MessageDebug({ message: m }: { message: VoiceMessage }) {
+  const [rawOpen, setRawOpen] = useState(false)
+  const [cleanOpen, setCleanOpen] = useState(false)
+
+  return (
+    <div className="border-b border-gray-100 pb-3 last:border-0 flex flex-col gap-1">
+      <div className="text-gray-700">
+        <span className="font-semibold">[{getParticipant(m.speaker).name}]</span>
+        {' '}id:{m.id}
+        {' '}
+        <span className={
+          m.status === 'transcribed' ? 'text-green-600'
+          : m.status === 'transcribing' ? 'text-yellow-600'
+          : m.status === 'error' ? 'text-red-600'
+          : 'text-gray-500'
+        }>{m.status}</span>
+        {' '}{m.duration}s
+        {m.segments.length > 0 && ` · ${m.segments.length} segments`}
+      </div>
+
+      {m.rawTranscript && (
+        <div>
+          <button onClick={() => setRawOpen((o) => !o)} className="text-gray-400 hover:text-gray-600">
+            {rawOpen ? '▾' : '▸'} raw transcript
+          </button>
+          {rawOpen && (
+            <div className="pl-2 mt-0.5 text-gray-600 border-l border-gray-200 leading-snug whitespace-pre-wrap">
+              {m.rawTranscript}
+            </div>
+          )}
+        </div>
+      )}
+
+      {m.cleanTranscript && (
+        <div>
+          <button onClick={() => setCleanOpen((o) => !o)} className="text-gray-400 hover:text-gray-600">
+            {cleanOpen ? '▾' : '▸'} clean transcript
+          </button>
+          {cleanOpen && (
+            <div className="pl-2 mt-0.5 text-gray-700 border-l border-gray-200 leading-snug whitespace-pre-wrap">
+              {m.cleanTranscript}
+            </div>
+          )}
+        </div>
+      )}
+
+      {m.segments.length > 0 && (
+        <div className="pl-2 flex flex-col gap-0.5 mt-0.5">
+          <span className="text-gray-400">segments:</span>
+          {m.segments.map((s) => (
+            <div key={s.id} className="text-gray-600">
+              [{s.index}] {s.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {m.error && <div className="text-red-500 pl-2">error: {m.error}</div>}
+    </div>
+  )
 }

@@ -9,36 +9,22 @@
 
 // ── Stub transcripts (rotate on each call) ───────────────────────────────────
 
-// ── Stub transcripts (rotate on each call) ───────────────────────────────────
-// These represent things the user might say into the besties💛 group chat.
+export async function transcribeBlob(blob: Blob): Promise<string> {
+  const form = new FormData()
+  form.append('file', blob, blob.type.includes('wav') ? 'recording.wav' : 'recording.webm')
 
-const STUB_TRANSCRIPTS = [
-  "Omg yes the pics were so good. I'm gonna need everyone to approve before I post anything though. Also Chloe I cannot believe that patient story, like only you could pull that off.",
-  "Wait we should plan the next dinner soon. I was thinking that new place on Mulberry. Also someone remind me to send those pics I took on my phone.",
-  "Chloe that story is sending me. Like did he just fully think you were his actual mom the whole time. Also the album pics are everything, Maria you did that.",
-  "I'm still thinking about last night honestly it was so fun. Also I need to do the insta dump tonight before I lose motivation. Everyone pick your favorites.",
-]
+  const response = await fetch('/api/transcribe', {
+    method: 'POST',
+    body: form,
+  })
 
-let stubIndex = 0
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || 'Transcription failed')
+  }
 
-export async function transcribeBlob(_blob: Blob): Promise<string> {
-  // TODO: swap body with real provider, e.g.:
-  //
-  //   const form = new FormData()
-  //   form.append('file', blob, 'audio.webm')
-  //   form.append('model', 'whisper-1')
-  //   const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-  //     method: 'POST',
-  //     headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_KEY}` },
-  //     body: form,
-  //   })
-  //   const json = await res.json()
-  //   return json.text
-
-  await new Promise((r) => setTimeout(r, 1400))
-  const text = STUB_TRANSCRIPTS[stubIndex % STUB_TRANSCRIPTS.length]
-  stubIndex++
-  return text
+  const json = (await response.json()) as { text?: string }
+  return json.text?.trim() ?? ''
 }
 
 // ── Transcript normalization ──────────────────────────────────────────────────

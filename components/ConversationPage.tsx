@@ -897,26 +897,27 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
   const recorder = useRecorder()
   const reviewRef = useRef<{ blob: Blob; duration: number; url: string } | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
-  const pendingPlayRef = useRef(false)
+  const pendingPlaybackMessageIdRef = useRef<string | null>(null)
 
-  // Auto-advance through analyzing steps, then auto-close
+  // Auto-advance through analyzing steps while the pipeline is running.
   useEffect(() => {
     if (recordMode !== 'analyzing' && recordMode !== 'analyzing2' && recordMode !== 'analyzing3' && recordMode !== 'analyzing4') return
-    const next: RecordMode = recordMode === 'analyzing' ? 'analyzing2' : recordMode === 'analyzing2' ? 'analyzing3' : recordMode === 'analyzing3' ? 'analyzing4' : 'off'
+    if (recordMode === 'analyzing4') return
+    const next: RecordMode = recordMode === 'analyzing' ? 'analyzing2' : recordMode === 'analyzing2' ? 'analyzing3' : 'analyzing4'
     const t = setTimeout(() => setRecordMode(next), 1500)
     return () => clearTimeout(t)
   }, [recordMode])
 
-  // After analyzing auto-closes, start playback from the first new message
   useEffect(() => {
-    if (recordMode !== 'off' || !pendingPlayRef.current) return
-    pendingPlayRef.current = false
-    const newMsgs = messages
-      .filter(m => !m.id.startsWith('seed-'))
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    if (newMsgs.length > 0) player.playFrom(newMsgs[0].id)
-    else player.playAll()
-  }, [recordMode]) // eslint-disable-line react-hooks/exhaustive-deps
+    const pendingMessageId = pendingPlaybackMessageIdRef.current
+    if (recordMode !== 'off' || !pendingMessageId) return
+
+    const pendingMessage = messages.find((message) => message.id === pendingMessageId)
+    if (!pendingMessage || pendingMessage.status !== 'transcribed') return
+
+    pendingPlaybackMessageIdRef.current = null
+    player.playFrom(pendingMessageId)
+  }, [messages, player, recordMode])
 
   // Sync hero cluster from player state
   useEffect(() => {
@@ -973,14 +974,20 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
     audio.play().catch(() => { previewAudioRef.current = null })
   }
 
-  function handleSend() {
+  async function handleSend() {
     const review = reviewRef.current
     if (!review) return
     if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null }
-    pendingPlayRef.current = true
     setRecordMode('analyzing')
-    addRecording(review.blob, review.duration, review.url)
     reviewRef.current = null
+
+    const result = await addRecording(review.blob, review.duration, review.url)
+
+    setReviewDuration(0)
+    setRecordMode('off')
+
+    if (result.startPlaybackFromId) pendingPlaybackMessageIdRef.current = result.startPlaybackFromId
+    else if (audioReady) player.playAll()
   }
 
   function handleClose() {

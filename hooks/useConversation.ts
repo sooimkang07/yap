@@ -3,9 +3,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { VoiceMessage, VoiceSegment } from '@/types'
 import { transcribeBlob, cleanTranscript } from '@/services/transcription'
+import { requestReplies } from '@/services/reply'
+import { synthesizeSpeech } from '@/services/tts'
 import { splitIntoSegments } from '@/services/segmentation'
 import { generateBatch } from '@/lib/audioGen'
-import { selectReplies, buildReplyMessage, detectTopics } from '@/lib/replyEngine'
+import { buildReplyMessage, detectTopics } from '@/lib/replyEngine'
 import type { SelectedReply } from '@/lib/replyEngine'
 import { makeId } from '@/lib/utils'
 
@@ -89,7 +91,7 @@ export interface ReplyDebugEntry {
 export interface UseConversationReturn {
   messages: VoiceMessage[]
   audioReady: boolean        // true once seed audio is generated
-  addRecording: (blob: Blob, duration: number, url: string) => Promise<void>
+  addRecording: (blob: Blob, duration: number, url: string) => Promise<{ startPlaybackFromId: string | null }>
   replyDebugLog: ReplyDebugEntry[]
 }
 
@@ -125,6 +127,7 @@ export function useConversation(): UseConversationReturn {
   const addRecording = useCallback(
     async (blob: Blob, duration: number, url: string) => {
       const id = makeId()
+      const createdAt = new Date().toISOString()
 
       // Optimistic add — audio plays immediately
       setMessages((prev) => [
@@ -132,7 +135,7 @@ export function useConversation(): UseConversationReturn {
         {
           id,
           speaker: 'me',
-          createdAt: new Date().toISOString(),
+          createdAt,
           audioUrl: url,
           duration,
           status: 'transcribing',
@@ -152,7 +155,22 @@ export function useConversation(): UseConversationReturn {
 
         // 2. Detect topics + select replies
         const topics = detectTopics(clean)
-        const selected = selectReplies(clean, messagesRef.current)
+        const conversationForReplies = [
+          ...messagesRef.current.filter((message) => message.id !== id),
+          {
+            id,
+            speaker: 'me',
+            createdAt,
+            audioUrl: url,
+            duration,
+            status: 'transcribed',
+            rawTranscript: raw,
+            cleanTranscript: clean,
+            segments,
+            error: null,
+          } satisfies VoiceMessage,
+        ]
+        const selected = await requestReplies(clean, conversationForReplies)
 
         // 3. Log debug info
         setReplyDebugLog((prev) => [
@@ -160,17 +178,35 @@ export function useConversation(): UseConversationReturn {
           { timestamp: new Date().toISOString(), userTranscript: clean, detectedTopics: topics, selectedReplies: selected },
         ])
 
-        // 4. Insert 1 mocked reply after a short delay (no audio)
-        const reply = selected[0]
-        if (reply) {
-          await new Promise((r) => setTimeout(r, 1500))
-          setMessages((prev) => [...prev, buildReplyMessage(reply.option, '', id)])
+        // 4. Generate voice replies and insert them in order
+        if (selected.length > 0) {
+          const replyMessages: VoiceMessage[] = []
+
+          for (let i = 0; i < selected.length; i++) {
+            const reply = selected[i]
+            const audio = await synthesizeSpeech(
+              reply.option.speaker,
+              reply.option.text,
+              reply.option.duration
+            )
+
+            replyMessages.push({
+              ...buildReplyMessage(reply.option, audio.url, id),
+              createdAt: new Date(Date.now() + (i + 1) * 1000).toISOString(),
+              duration: audio.duration,
+            })
+          }
+
+          setMessages((prev) => [...prev, ...replyMessages])
         }
+
+        return { startPlaybackFromId: id }
       } catch (err) {
         patch(id, {
           status: 'error',
           error: err instanceof Error ? err.message : 'Transcription failed',
         })
+        return { startPlaybackFromId: null }
       }
     },
     [patch]

@@ -207,7 +207,8 @@ export interface SelectedReply {
 
 export function selectReplies(
   transcript: string,
-  recentMessages: VoiceMessage[]
+  recentMessages: VoiceMessage[],
+  maxReplies = 2
 ): SelectedReply[] {
   const lower = transcript.toLowerCase()
 
@@ -224,7 +225,7 @@ export function selectReplies(
   const usedSpeakers = new Set<string>()
 
   for (const candidate of scored) {
-    if (selected.length >= 1) break
+    if (selected.length >= maxReplies) break
     if (usedSpeakers.has(candidate.reply.speaker)) continue
     if (recentSpeakers.has(candidate.reply.speaker) && selected.length === 0 && scored.indexOf(candidate) > 3) continue
     selected.push(candidate)

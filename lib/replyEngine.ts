@@ -1,11 +1,11 @@
 // ── Reply Engine ──────────────────────────────────────────────────────────────
 // After the user records and transcription completes, this module selects
-// contextually appropriate replies from fake participants.
+// contextually appropriate replies from AI participants.
 //
 // Pipeline:
 //   1. detectTopics(transcript)    → string[]
 //   2. selectReplies(topics, pool) → SelectedReply[]
-//   3. Caller generates audio + inserts messages with delay
+//   3. Caller inserts messages with delay
 //
 // To upgrade: replace selectReplies() with an LLM call that returns
 // structured reply selections. Output shape stays the same.
@@ -18,7 +18,7 @@ import { makeId } from '@/lib/utils'
 
 export interface ReplyOption {
   id: string
-  speaker: 'priya' | 'dani' | 'alex'
+  speaker: 'chloe' | 'maria' | 'sarah' | 'lainey'
   text: string
   category: string
   triggerKeywords: string[]
@@ -26,174 +26,168 @@ export interface ReplyOption {
 }
 
 export const REPLY_POOL: ReplyOption[] = [
-  // ── Budget ──────────────────────────────────────────────────────────────
+  // ── Photos / Insta dump ─────────────────────────────────────────────────
   {
-    id: 'r-budget-alex',
-    speaker: 'alex',
-    text: "Yeah fifteen hundred sounds totally reasonable. If we split the villa four ways we should come in well under budget.",
-    category: 'budget',
-    triggerKeywords: ['budget', 'fifteen', 'hundred', 'cost', 'afford', 'money', 'spend', 'price', 'cheap', 'expensive'],
-    duration: 7,
-  },
-  {
-    id: 'r-budget-dani',
-    speaker: 'dani',
-    text: "Splitting the villa cost between four people makes such a difference. I was a bit worried about budget but that actually works.",
-    category: 'budget',
-    triggerKeywords: ['budget', 'split', 'cost', 'afford', 'four', 'divide', 'share', 'expensive'],
-    duration: 8,
-  },
-
-  // ── Timing / September ──────────────────────────────────────────────────
-  {
-    id: 'r-timing-priya',
-    speaker: 'priya',
-    text: "Late September actually works better for me too. The weather in Bali is also a bit more predictable at the end of the month.",
-    category: 'timing',
-    triggerKeywords: ['september', 'late', 'timing', 'dates', 'calendar', 'schedule', 'conference', 'work trip', 'leave'],
+    id: 'r-photos-chloe',
+    speaker: 'chloe',
+    text: "The pics are so good omg I'm already planning my captions. Someone send me that one of all of us outside.",
+    category: 'photos',
+    triggerKeywords: ['pics', 'photos', 'insta', 'dump', 'album', 'pictures', 'camera', 'post'],
     duration: 9,
   },
   {
-    id: 'r-timing-dani',
-    speaker: 'dani',
-    text: "Just checked and I'm free from the 20th onwards. Late September is perfect, let's lock those dates.",
-    category: 'timing',
-    triggerKeywords: ['september', 'dates', 'calendar', 'late', 'free', 'timing', 'schedule', '20th'],
+    id: 'r-photos-maria',
+    speaker: 'maria',
+    text: "I already put a bunch in the shared album, go check. The ones from outside the restaurant came out so well.",
+    category: 'photos',
+    triggerKeywords: ['pics', 'photos', 'album', 'shared', 'pictures', 'insta', 'dump', 'camera'],
+    duration: 9,
+  },
+  {
+    id: 'r-photos-lainey',
+    speaker: 'lainey',
+    text: "Please do the insta dump I need it. Also tag me in everything obviously.",
+    category: 'photos',
+    triggerKeywords: ['insta', 'dump', 'post', 'tag', 'pics', 'photos'],
     duration: 6,
   },
   {
-    id: 'r-timing-alex',
-    speaker: 'alex',
-    text: "Conference ends on the 14th. So if we leave the 15th or 16th of September that gives us a full week in Bali.",
-    category: 'timing',
-    triggerKeywords: ['conference', 'september', 'leave', 'dates', '12th', '14th', 'after', 'timing'],
+    id: 'r-photos-sarah',
+    speaker: 'sarah',
+    text: "Wait I took some on my phone too let me check. But yes please post, I look good in that one by the bar.",
+    category: 'photos',
+    triggerKeywords: ['pics', 'photos', 'post', 'insta', 'dump', 'pictures', 'input'],
     duration: 8,
   },
 
-  // ── Accommodation / Villa ────────────────────────────────────────────────
+  // ── Chloe's work story ───────────────────────────────────────────────────
   {
-    id: 'r-villa-priya',
-    speaker: 'priya',
-    text: "I found a four-bedroom villa in Ubud on Airbnb with a private pool. It actually fits our budget split four ways.",
-    category: 'accommodation',
-    triggerKeywords: ['villa', 'ubud', 'airbnb', 'accommodation', 'rooms', 'stay', 'pool', 'bedroom', 'house'],
-    duration: 8,
+    id: 'r-work-chloe',
+    speaker: 'chloe',
+    text: "He literally called me mom for like two hours straight. I had to fully lean in at that point. The eval took forever because I kept having to stay in character.",
+    category: 'work',
+    triggerKeywords: ['patient', 'mom', 'work', 'eval', 'session', 'erratic', 'pretend', 'character'],
+    duration: 12,
   },
   {
-    id: 'r-villa-alex',
-    speaker: 'alex',
-    text: "The Airbnb options in Ubud are way better than I expected. Private pool villas are really affordable when you split them.",
-    category: 'accommodation',
-    triggerKeywords: ['villa', 'airbnb', 'ubud', 'pool', 'split', 'accommodation', 'affordable', 'private'],
-    duration: 8,
+    id: 'r-work-sarah',
+    speaker: 'sarah',
+    text: "That would genuinely send me. Like what do you even say? Do you just go full mom mode or try to redirect?",
+    category: 'work',
+    triggerKeywords: ['patient', 'mom', 'work', 'session', 'insane', 'crazy', 'new', 'happen'],
+    duration: 10,
   },
   {
-    id: 'r-villa-dani',
-    speaker: 'dani',
-    text: "Definitely prefer a villa over separate rooms. More space, more social, and we can cook some meals to save money.",
-    category: 'accommodation',
-    triggerKeywords: ['villa', 'rooms', 'separate', 'accommodation', 'stay', 'space', 'social', 'cook'],
-    duration: 8,
-  },
-
-  // ── Surfing / Canggu ─────────────────────────────────────────────────────
-  {
-    id: 'r-surf-dani',
-    speaker: 'dani',
-    text: "The Canggu surf spot is absolutely incredible in late September. We can do a day trip from Ubud, it's only about an hour each way.",
-    category: 'activities',
-    triggerKeywords: ['canggu', 'surf', 'surfing', 'waves', 'beach', 'board', 'ride', 'sport'],
+    id: 'r-work-lainey',
+    speaker: 'lainey',
+    text: "Chloe I'm sorry but cosplaying someone's mom at work is the funniest thing I have ever heard. I'm actually deceased.",
+    category: 'work',
+    triggerKeywords: ['patient', 'mom', 'work', 'cosplay', 'pretend', 'session', 'eval'],
     duration: 9,
   },
   {
-    id: 'r-surf-priya',
-    speaker: 'priya',
-    text: "I've never tried surfing but I'm absolutely down to learn. Dani can you teach us the basics before we go?",
-    category: 'activities',
-    triggerKeywords: ['surf', 'surfing', 'canggu', 'learn', 'try', 'waves', 'never', 'basics'],
+    id: 'r-work-maria',
+    speaker: 'maria',
+    text: "Oh my god that is so unhinged but honestly kind of iconic. Did it actually work? Did he finish the eval?",
+    category: 'work',
+    triggerKeywords: ['patient', 'mom', 'work', 'eval', 'finish', 'session', 'insane', 'craziest'],
+    duration: 9,
+  },
+
+  // ── Dinner / Night out ────────────────────────────────────────────────────
+  {
+    id: 'r-dinner-lainey',
+    speaker: 'lainey',
+    text: "Last night was so fun honestly. We need to make this a monthly thing no excuses.",
+    category: 'dinner',
+    triggerKeywords: ['dinner', 'last night', 'restaurant', 'food', 'night', 'out', 'ate'],
     duration: 7,
   },
   {
-    id: 'r-surf-alex',
-    speaker: 'alex',
-    text: "I took a few surf lessons a couple years ago. Canggu is one of the best beginner breaks in Bali actually.",
-    category: 'activities',
-    triggerKeywords: ['surf', 'surfing', 'canggu', 'lessons', 'beginner', 'bali', 'break'],
+    id: 'r-dinner-sarah',
+    speaker: 'sarah',
+    text: "The food was so good too. I'm still thinking about that pasta honestly.",
+    category: 'dinner',
+    triggerKeywords: ['dinner', 'food', 'restaurant', 'pasta', 'ate', 'meal', 'place'],
     duration: 7,
   },
-
-  // ── Flights ─────────────────────────────────────────────────────────────
   {
-    id: 'r-flights-alex',
-    speaker: 'alex',
-    text: "AirAsia has some solid deals via Kuala Lumpur for late September. Way cheaper than flying direct if we're flexible.",
-    category: 'flights',
-    triggerKeywords: ['flights', 'flying', 'airline', 'ticket', 'airasia', 'cheap', 'book', 'fly', 'bali', 'kuala lumpur'],
+    id: 'r-dinner-maria',
+    speaker: 'maria',
+    text: "That place was perfect, we should definitely go back. And we need to do this way more often.",
+    category: 'dinner',
+    triggerKeywords: ['dinner', 'restaurant', 'place', 'food', 'back', 'again', 'night'],
+    duration: 8,
+  },
+
+  // ── Plans / Next time ──────────────────────────────────────────────────────
+  {
+    id: 'r-plans-sarah',
+    speaker: 'sarah',
+    text: "When are we doing this again? I need a date on the calendar. Probably not next weekend but the one after?",
+    category: 'plans',
+    triggerKeywords: ['next', 'plans', 'when', 'again', 'date', 'weekend', 'schedule', 'soon'],
+    duration: 10,
+  },
+  {
+    id: 'r-plans-lainey',
+    speaker: 'lainey',
+    text: "I'm free most weekends honestly. Just not the 19th. But let's actually lock something in this time.",
+    category: 'plans',
+    triggerKeywords: ['plans', 'when', 'weekend', 'free', 'date', 'schedule', 'next', 'lock'],
+    duration: 9,
+  },
+  {
+    id: 'r-plans-chloe',
+    speaker: 'chloe',
+    text: "Yes we need to plan the next one. I already have a list of places I want to try. Can we do a Sunday situation?",
+    category: 'plans',
+    triggerKeywords: ['plans', 'next', 'when', 'date', 'weekend', 'again', 'schedule', 'soon'],
+    duration: 9,
+  },
+
+  // ── General fallback ──────────────────────────────────────────────────────
+  {
+    id: 'r-general-chloe',
+    speaker: 'chloe',
+    text: "Okay but last night was genuinely one of the best nights we've had in a while. I needed that so much.",
+    category: 'general',
+    triggerKeywords: [],
     duration: 8,
   },
   {
-    id: 'r-flights-priya',
-    speaker: 'priya',
-    text: "Scoot has a sale on right now for Bali. Should we book before prices jump? I can share the link.",
-    category: 'flights',
-    triggerKeywords: ['flights', 'book', 'prices', 'bali', 'airline', 'ticket', 'sale', 'fly'],
-    duration: 6,
-  },
-
-  // ── Scooters / Transport ─────────────────────────────────────────────────
-  {
-    id: 'r-transport-dani',
-    speaker: 'dani',
-    text: "Scooters are basically the only way to get around in Bali. We should rent four, it's super cheap and much more flexible than taxis.",
-    category: 'transport',
-    triggerKeywords: ['scooter', 'transport', 'get around', 'taxi', 'uber', 'rent', 'bike', 'motorbike', 'travel'],
-    duration: 9,
-  },
-  {
-    id: 'r-transport-priya',
-    speaker: 'priya',
-    text: "I'm a bit nervous about riding scooters in traffic. Maybe we can use grab for some trips and scooters for the more scenic routes?",
-    category: 'transport',
-    triggerKeywords: ['scooter', 'transport', 'taxi', 'grab', 'nervous', 'traffic', 'ride', 'motorbike'],
-    duration: 9,
-  },
-
-  // ── General fallback ─────────────────────────────────────────────────────
-  {
-    id: 'r-general-dani',
-    speaker: 'dani',
-    text: "This trip is going to be amazing honestly. I've been wanting to go back to Bali for years.",
+    id: 'r-general-maria',
+    speaker: 'maria',
+    text: "Agreed honestly. This is why we need to do this more often. Love you guys.",
     category: 'general',
     triggerKeywords: [],
     duration: 6,
   },
   {
-    id: 'r-general-alex',
-    speaker: 'alex',
-    text: "Agreed. Should we set up a shared doc to track everything? Flights, villa options, budget, activities.",
+    id: 'r-general-lainey',
+    speaker: 'lainey',
+    text: "Same. Already looking forward to the next one.",
+    category: 'general',
+    triggerKeywords: [],
+    duration: 5,
+  },
+  {
+    id: 'r-general-sarah',
+    speaker: 'sarah',
+    text: "Love this group chat. Okay but we're doing this again soon, I don't want to wait another month.",
     category: 'general',
     triggerKeywords: [],
     duration: 7,
-  },
-  {
-    id: 'r-general-priya',
-    speaker: 'priya',
-    text: "So excited about this. Let's try to lock in dates soon so we can start booking things.",
-    category: 'general',
-    triggerKeywords: [],
-    duration: 6,
   },
 ]
 
 // ── Topic detection ───────────────────────────────────────────────────────────
 
 const TOPIC_MAP: Record<string, string[]> = {
-  budget:        ['budget', 'fifteen', 'hundred', 'cost', 'afford', 'money', 'spend', 'price', 'cheap', 'expensive', 'split'],
-  timing:        ['september', 'timing', 'late', 'conference', 'work trip', 'schedule', 'dates', 'calendar', 'leave', '12th', '14th', '20th'],
-  accommodation: ['villa', 'ubud', 'airbnb', 'accommodation', 'rooms', 'stay', 'house', 'pool', 'bedroom'],
-  activities:    ['canggu', 'surf', 'surfing', 'waves', 'beach', 'board', 'ride', 'lesson', 'sport', 'activities'],
-  flights:       ['flights', 'flying', 'airline', 'ticket', 'airasia', 'cheap', 'book', 'fly', 'scoot', 'kuala lumpur'],
-  transport:     ['scooter', 'transport', 'taxi', 'grab', 'motorbike', 'bike', 'get around', 'rent'],
+  photos:  ['pics', 'photos', 'insta', 'instagram', 'dump', 'album', 'shared', 'pictures', 'camera', 'post', 'tag', 'captions'],
+  work:    ['patient', 'patients', 'work', 'session', 'eval', 'mom', 'erratic', 'pretend', 'clinical', 'therapy', 'hospital', 'cosplay', 'character'],
+  dinner:  ['dinner', 'food', 'restaurant', 'pasta', 'ate', 'meal', 'night out', 'drinks', 'bar', 'place', 'last night'],
+  plans:   ['plans', 'next time', 'when', 'weekend', 'date', 'schedule', 'calendar', 'free', 'again', 'lock'],
 }
 
 export function detectTopics(transcript: string): string[] {
@@ -230,9 +224,8 @@ export function selectReplies(
   const usedSpeakers = new Set<string>()
 
   for (const candidate of scored) {
-    if (selected.length >= 2) break
+    if (selected.length >= 1) break
     if (usedSpeakers.has(candidate.reply.speaker)) continue
-    // Prefer non-recent speakers, but don't block if we need a fallback
     if (recentSpeakers.has(candidate.reply.speaker) && selected.length === 0 && scored.indexOf(candidate) > 3) continue
     selected.push(candidate)
     usedSpeakers.add(candidate.reply.speaker)
@@ -258,8 +251,6 @@ export function selectReplies(
 }
 
 // ── Message builder ───────────────────────────────────────────────────────────
-// Builds a VoiceMessage from a ReplyOption + generated audio URL.
-// Call generateSpeakerAudio() from the caller to get the audioUrl.
 
 export function buildReplyMessage(
   option: ReplyOption,

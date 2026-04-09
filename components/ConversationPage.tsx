@@ -106,7 +106,7 @@ const imgAvatarMaskLg  = "http://localhost:3845/assets/86bcd12c6067f9a3d858f1c45
 const imgAvatarMaskSm  = "http://localhost:3845/assets/a6693fa756111898e61a12d640da5713b8f81cae.svg"
 const imgSooim1Mask    = "http://localhost:3845/assets/e39cd97c26bfc9f5bd6eff49fa320667726898b6.svg"
 
-// ── Transcript data ───────────────────────────────────────────────────────────
+// ── Transcript types ──────────────────────────────────────────────────────────
 type TextSegment = string | { mention: string }
 
 interface Message {
@@ -124,57 +124,19 @@ interface Message {
   segments: TextSegment[]
 }
 
-const MESSAGES: Message[] = [
-  {
-    id: 'chloe-1', speaker: 'Chloe', time: '2:15 PM',
-    avatarSrc: imgChloe1, avatarMask: imgAvatarMaskSm,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '5.871px 5.867px',
-    avatarW: 51.733, avatarH: 51.733, avatarOffsetX: -5.87, avatarOffsetY: -5.87,
-    segments: ["Does anyone remember who's phone we took the dinner pics on?"],
-  },
-  {
-    id: 'maria-1', speaker: 'Maria', time: '2:22 PM',
-    avatarSrc: imgMaria1, avatarMask: imgAvatarMaskLg,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '7.664px 43px',
-    avatarW: 84.42, avatarH: 112.56, avatarOffsetX: -7.66, avatarOffsetY: -43,
-    segments: ["Oh yeah, it was on mine. Sorry, I just put them in the shared album."],
-  },
-  {
-    id: 'you-1', speaker: 'You', time: '9:47 PM',
-    avatarSrc: imgSooim1Photo, avatarMask: imgSooim1Mask,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '1.859px 0.93px',
-    avatarW: 41.86, avatarH: 41.86, avatarOffsetX: -1.86, avatarOffsetY: -0.93,
-    segments: ["Wait guys the pics turned out so good. I'm gonna insta dump later, so I'll need everyone's input."],
-  },
-  {
-    id: 'chloe-2', speaker: 'Chloe', time: '2:15 PM',
-    avatarSrc: imgChloe1, avatarMask: imgAvatarMaskSm,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '5.867px 5.867px',
-    avatarW: 51.733, avatarH: 51.733, avatarOffsetX: -5.87, avatarOffsetY: -5.87,
-    segments: ["Also guys the craziest thing happened to me at work today. One of my patients thought I was his mom. He was 47 by the way. Like huh? And he was getting so erratic, so I had to pretend to be his mom the whole session to get him to finish his eval."],
-  },
-  {
-    id: 'sarah-1', speaker: 'Sarah', time: '6:03 PM',
-    avatarSrc: imgSarah1, avatarMask: imgAvatarMaskLg,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '17.332px 12px',
-    avatarW: 71.333, avatarH: 95, avatarOffsetX: -17.33, avatarOffsetY: -12,
-    segments: [{ mention: '@Chloe' }, ", that's insane! Did he think he was a baby or could you still talk to him like an adult?"],
-  },
-  {
-    id: 'lainey-1', speaker: 'Lainey', time: '7:18 PM',
-    avatarSrc: imgLainey1, avatarMask: imgAvatarMaskLg,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '7.668px 43px',
-    avatarW: 84.42, avatarH: 112.56, avatarOffsetX: -7.67, avatarOffsetY: -43,
-    segments: ["Lmao guys not ", { mention: '@Chloe' }, " literally cosplaying mommy at work. I'm dead."],
-  },
-  {
-    id: 'you-2', speaker: 'You', time: '9:47 PM',
-    avatarSrc: imgSooim1Photo, avatarMask: imgSooim1Mask,
-    avatarMaskSize: '40px 40px', avatarMaskPos: '1.859px 0.93px',
-    avatarW: 41.86, avatarH: 41.86, avatarOffsetX: -1.86, avatarOffsetY: -0.93,
-    segments: ["Bro of course only that would happen to you. Was this a new patient?"],
-  },
-]
+// ── Avatar data — keyed by participant id ─────────────────────────────────────
+// Single source; used to render transcript rows for any speaker in conversation state.
+const AVATAR_DATA: Record<string, Omit<Message, 'id' | 'speaker' | 'time' | 'segments'>> = {
+  me:     { avatarSrc: imgSooim1Photo, avatarMask: imgSooim1Mask,   avatarMaskSize: '40px 40px', avatarMaskPos: '1.859px 0.93px',   avatarW: 41.86,  avatarH: 41.86,  avatarOffsetX: -1.86,  avatarOffsetY: -0.93 },
+  chloe:  { avatarSrc: imgChloe1,      avatarMask: imgAvatarMaskSm, avatarMaskSize: '40px 40px', avatarMaskPos: '5.871px 5.867px',  avatarW: 51.733, avatarH: 51.733, avatarOffsetX: -5.87,  avatarOffsetY: -5.87 },
+  maria:  { avatarSrc: imgMaria1,      avatarMask: imgAvatarMaskLg, avatarMaskSize: '40px 40px', avatarMaskPos: '7.664px 43px',     avatarW: 84.42,  avatarH: 112.56, avatarOffsetX: -7.66,  avatarOffsetY: -43   },
+  sarah:  { avatarSrc: imgSarah1,      avatarMask: imgAvatarMaskLg, avatarMaskSize: '40px 40px', avatarMaskPos: '17.332px 12px',    avatarW: 71.333, avatarH: 95,     avatarOffsetX: -17.33, avatarOffsetY: -12   },
+  lainey: { avatarSrc: imgLainey1,     avatarMask: imgAvatarMaskLg, avatarMaskSize: '40px 40px', avatarMaskPos: '7.668px 43px',     avatarW: 84.42,  avatarH: 112.56, avatarOffsetX: -7.67,  avatarOffsetY: -43   },
+}
+
+const DISPLAY_NAME: Record<string, string> = {
+  me: 'You', chloe: 'Chloe', maria: 'Maria', sarah: 'Sarah', lainey: 'Lainey',
+}
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -935,21 +897,33 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
   const recorder = useRecorder()
   const reviewRef = useRef<{ blob: Blob; duration: number; url: string } | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const pendingPlayRef = useRef(false)
 
-  // Auto-advance through analyzing steps
+  // Auto-advance through analyzing steps, then auto-close
   useEffect(() => {
-    if (recordMode !== 'analyzing' && recordMode !== 'analyzing2' && recordMode !== 'analyzing3') return
-    const next = recordMode === 'analyzing' ? 'analyzing2' : recordMode === 'analyzing2' ? 'analyzing3' : 'analyzing4'
-    const t = setTimeout(() => setRecordMode(next as RecordMode), 1500)
+    if (recordMode !== 'analyzing' && recordMode !== 'analyzing2' && recordMode !== 'analyzing3' && recordMode !== 'analyzing4') return
+    const next: RecordMode = recordMode === 'analyzing' ? 'analyzing2' : recordMode === 'analyzing2' ? 'analyzing3' : recordMode === 'analyzing3' ? 'analyzing4' : 'off'
+    const t = setTimeout(() => setRecordMode(next), 1500)
     return () => clearTimeout(t)
   }, [recordMode])
+
+  // After analyzing auto-closes, start playback from the first new message
+  useEffect(() => {
+    if (recordMode !== 'off' || !pendingPlayRef.current) return
+    pendingPlayRef.current = false
+    const newMsgs = messages
+      .filter(m => !m.id.startsWith('seed-'))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    if (newMsgs.length > 0) player.playFrom(newMsgs[0].id)
+    else player.playAll()
+  }, [recordMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync hero cluster from player state
   useEffect(() => {
     if (!player.state.isPlaying) { setSpeaker('idle'); return }
     const sid = player.state.activeSpeakerId
     const mid = player.state.activeMessageId
-    if (sid === 'chloe') setSpeaker(mid === 'seed-c2' ? 'chloe2' : 'chloe')
+    if (sid === 'chloe') setSpeaker(mid === 'seed-chloe-2' ? 'chloe2' : 'chloe')
     else if (sid === 'maria') setSpeaker('maria')
     else if (sid === 'sarah') setSpeaker('sarah')
     else if (sid === 'lainey') setSpeaker('lainey')
@@ -971,7 +945,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
 
   function handleSkip() {
     if (player.state.isPlaying) player.next()
-    else setSpeaker(s => s === 'idle' ? 'chloe' : s === 'chloe' ? 'maria' : s === 'maria' ? 'chloe2' : s === 'chloe2' ? 'sarah' : s === 'sarah' ? 'lainey' : 'chloe')
+    else player.playAll()
   }
 
   function handleRestart() {
@@ -1003,6 +977,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
     const review = reviewRef.current
     if (!review) return
     if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null }
+    pendingPlayRef.current = true
     setRecordMode('analyzing')
     addRecording(review.blob, review.duration, review.url)
     reviewRef.current = null
@@ -1015,6 +990,17 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
     setReviewDuration(0)
     setRecordMode('off')
   }
+
+  // Transcript derived entirely from conversation state — single source of truth
+  const transcriptMessages: Message[] = messages
+    .filter(m => m.cleanTranscript != null)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .map(m => {
+      const av = AVATAR_DATA[m.speaker] ?? AVATAR_DATA.me
+      const name = DISPLAY_NAME[m.speaker] ?? m.speaker
+      const time = new Date(m.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      return { id: m.id, speaker: name, time, ...av, segments: [m.cleanTranscript as string] }
+    })
 
   return (
     <div className="relative bg-white overflow-hidden mx-auto flex flex-col" style={{ width: 402, minHeight: '100vh' }}>
@@ -1147,7 +1133,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
               style={{ background: 'linear-gradient(to bottom, white 0%, rgba(255,255,255,0) 100%)' }}
             />
             <div className="flex flex-col gap-[20px] px-[16px]">
-              {MESSAGES.map(msg => (
+              {transcriptMessages.map(msg => (
                 <div key={msg.id} className="flex items-start gap-[12px]">
                   <TranscriptAvatar msg={msg} />
                   <div className="flex-1 min-w-0">

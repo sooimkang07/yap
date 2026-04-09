@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import type { VoiceMessage, VoiceSegment } from '@/types'
 import { transcribeBlob, cleanTranscript } from '@/services/transcription'
 import { splitIntoSegments } from '@/services/segmentation'
-import { generateSpeakerAudio, generateBatch } from '@/lib/audioGen'
+import { generateBatch } from '@/lib/audioGen'
 import { selectReplies, buildReplyMessage, detectTopics } from '@/lib/replyEngine'
 import type { SelectedReply } from '@/lib/replyEngine'
 import { makeId } from '@/lib/utils'
@@ -26,26 +26,38 @@ function buildSegments(messageId: string, speaker: string, text: string): VoiceS
 const ago = (mins: number) => new Date(Date.now() - mins * 60 * 1000).toISOString()
 
 // ── Seed data ─────────────────────────────────────────────────────────────────
-// 4-person group conversation about a Bali trip.
+// besties💛 group chat — dinner recap / insta dump / Chloe's work story.
 // audioUrl starts as '' — generated client-side on mount via generateBatch().
 
 function buildSeedMessages(): VoiceMessage[] {
   const seeds: Array<{ id: string; speaker: string; createdAt: string; duration: number; text: string }> = [
     {
-      id: 'seed-p1', speaker: 'priya', createdAt: ago(60), duration: 24,
-      text: "Hey everyone, so I found some really good flight deals to Bali for early September. Also I wanted to ask about accommodation — should we do a villa or separate rooms? And Dani, did you look into that surf spot in Canggu you mentioned last time?",
+      id: 'seed-chloe-1', speaker: 'chloe', createdAt: ago(460), duration: 5,
+      text: "Does anyone remember who's phone we took the dinner pics on?",
     },
     {
-      id: 'seed-d1', speaker: 'dani', createdAt: ago(50), duration: 31,
-      text: "About the Canggu surf spot, yes I looked it up and it's incredible in September. The villa idea sounds way better than separate rooms. But wait, September might clash with my work trip — let me check my calendar. Also Priya, what airline did you find those Bali flight deals on?",
+      id: 'seed-maria-1', speaker: 'maria', createdAt: ago(453), duration: 7,
+      text: "Oh yeah, it was on mine. Sorry, I just put them in the shared album.",
     },
     {
-      id: 'seed-a1', speaker: 'alex', createdAt: ago(40), duration: 28,
-      text: "To your point about September, I have a conference on the 12th so we need to leave after that. The villa in Ubud looks perfect and splitting the cost makes it affordable. I checked Airbnb and found some good options. What's everyone's budget for the whole trip?",
+      id: 'seed-you-1', speaker: 'me', createdAt: ago(25), duration: 9,
+      text: "Wait guys the pics turned out so good. I'm gonna insta dump later, so I'll need everyone's input.",
     },
     {
-      id: 'seed-m1', speaker: 'me', createdAt: ago(30), duration: 33,
-      text: "Yeah the Ubud villa options on Airbnb look amazing. For budget I'm thinking around fifteen hundred total including flights. Also about the September timing, could we do late September to avoid the conference and the work trip? And I've been wanting to try surfing so the Canggu spot sounds perfect.",
+      id: 'seed-chloe-2', speaker: 'chloe', createdAt: ago(20), duration: 22,
+      text: "Also guys the craziest thing happened to me at work today. One of my patients thought I was his mom. He was 47 by the way. Like huh? And he was getting so erratic, so I had to pretend to be his mom the whole session to get him to finish his eval.",
+    },
+    {
+      id: 'seed-sarah-1', speaker: 'sarah', createdAt: ago(15), duration: 9,
+      text: "@Chloe, that's insane! Did he think he was a baby or could you still talk to him like an adult?",
+    },
+    {
+      id: 'seed-lainey-1', speaker: 'lainey', createdAt: ago(10), duration: 6,
+      text: "Lmao guys not @Chloe literally cosplaying mommy at work. I'm dead.",
+    },
+    {
+      id: 'seed-you-2', speaker: 'me', createdAt: ago(5), duration: 5,
+      text: "Bro of course only that would happen to you. Was this a new patient?",
     },
   ]
 
@@ -148,14 +160,11 @@ export function useConversation(): UseConversationReturn {
           { timestamp: new Date().toISOString(), userTranscript: clean, detectedTopics: topics, selectedReplies: selected },
         ])
 
-        // 4. Generate and insert replies with staggered delays
-        for (let i = 0; i < selected.length; i++) {
-          const sr = selected[i]
-          await new Promise((r) => setTimeout(r, 1200 + i * 1800))
-
-          const audioUrl = await generateSpeakerAudio(sr.option.speaker, sr.option.duration)
-          const replyMsg = buildReplyMessage(sr.option, audioUrl, id)
-          setMessages((prev) => [...prev, replyMsg])
+        // 4. Insert 1 mocked reply after a short delay (no audio)
+        const reply = selected[0]
+        if (reply) {
+          await new Promise((r) => setTimeout(r, 1500))
+          setMessages((prev) => [...prev, buildReplyMessage(reply.option, '', id)])
         }
       } catch (err) {
         patch(id, {

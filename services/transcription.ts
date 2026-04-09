@@ -9,11 +9,14 @@
 
 // ── Stub transcripts (rotate on each call) ───────────────────────────────────
 
+// ── Stub transcripts (rotate on each call) ───────────────────────────────────
+// These represent things the user might say into the besties💛 group chat.
+
 const STUB_TRANSCRIPTS = [
-  "Yeah the Ubud villa options on Airbnb look amazing. For budget I'm thinking around fifteen hundred total including flights. Also about the September timing could we do late September to avoid the conference and the work trip. And I've been wanting to try surfing so the Canggu spot sounds perfect.",
-  "To your point about budget I think fifteen hundred is realistic if we split the villa cost. About the flights though I found cheaper options if we fly via Kuala Lumpur. Also did anyone look into renting scooters in Bali because that's basically the only way to get around.",
-  "Wait I just checked and the villa in Ubud is still available for late September. Also Dani's surf spot in Canggu is only about an hour from Ubud. But the conference ends on the 14th so we should plan to leave on the 15th at the earliest. What does everyone think about that timeline.",
-  "About the scooter question yes we definitely need scooters in Bali. For the September dates I can do any time after the 14th. Also I wanted to flag that the villa on Airbnb has a five night minimum so we should probably plan for at least a week.",
+  "Omg yes the pics were so good. I'm gonna need everyone to approve before I post anything though. Also Chloe I cannot believe that patient story, like only you could pull that off.",
+  "Wait we should plan the next dinner soon. I was thinking that new place on Mulberry. Also someone remind me to send those pics I took on my phone.",
+  "Chloe that story is sending me. Like did he just fully think you were his actual mom the whole time. Also the album pics are everything, Maria you did that.",
+  "I'm still thinking about last night honestly it was so fun. Also I need to do the insta dump tonight before I lose motivation. Everyone pick your favorites.",
 ]
 
 let stubIndex = 0

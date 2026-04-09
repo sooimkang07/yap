@@ -61,6 +61,33 @@ const imgBar022   = "http://localhost:3845/assets/95f2cd38e5fdef38cedde40d68f6a2
 const imgAiGlow3  = "http://localhost:3845/assets/a81ab6a18f6836531e3cb502b7a9ac225f4afc05.svg"
 const imgAiIcon3  = "http://localhost:3845/assets/0a9e61f9a18e32b7b7b736a165e04d0133e51aa1.svg"
 
+// Hero cluster — Sarah speaking
+const imgOrangeHalo  = "http://localhost:3845/assets/2823cb2907230ac4dc65c60429107740f8db2340.svg"
+const imgUnionSarah  = "http://localhost:3845/assets/c59c3989279d03f4735a7d29be0f0a88e52804aa.svg"
+// Scrubber — Sarah state
+const imgBarSarah    = "http://localhost:3845/assets/1efb67727572f6c92f813c3bd3bc1233a49a6b53.svg"
+
+// Hero cluster — Lainey speaking
+const imgGreenHalo       = "http://localhost:3845/assets/a3c9ad485a36b7169e28344df0fa24ffade51e2e.svg"
+const imgBarLaineyGreen  = "http://localhost:3845/assets/44bf730347f029763cf3c5dc0cfab7b3da687e8e.svg"
+const imgBarLaineyOrange = "http://localhost:3845/assets/6de2115d2bca02b6a0a669959c243f6b4f2989e7.svg"
+// Heard-people avatars
+const imgMaria2HalfMask = "http://localhost:3845/assets/f00be57646c1975f5a33342935ae5004ab9ff43a.svg"
+const imgOutlineRing    = "http://localhost:3845/assets/7380575f4e62cea29ab2a6a623841447c76a654c.svg"
+const imgChloeHeardMask = "http://localhost:3845/assets/1a2031594b7b20b803a2b67c981927a07c9afa17.svg"
+
+// Recording popup — analyzing state 4 (all segments complete)
+const imgAiGlow4       = "http://localhost:3845/assets/7e0ce7560b02d0a0997adb0c763d4a60afe59218.svg"
+const imgAiIcon4       = "http://localhost:3845/assets/3da076482dfe801c3dcaffb2cb48fe535453769a.svg"
+const imgSooim1Photo   = "http://localhost:3845/assets/b13af3a88ad7c00abb01c04446604a35ae7629de.png"
+const imgChloe2Mask    = "http://localhost:3845/assets/54a72ade070781a85ff3c3a78368c2034ae4880f.svg"
+const imgSooim4Mask    = "http://localhost:3845/assets/e931c6b09e59863aa1c7351f22e5a4de3b1742f0.svg"
+const imgMaria2Mask    = "http://localhost:3845/assets/0eb7d9f3f784121a2fe970f051d5fc1cb7b8ddea.svg"
+const imgPurpleBar     = "http://localhost:3845/assets/de61d9c49af6911b3df01a49c3b92254ab42f7ed.svg"
+const imgSooim2Bar     = "http://localhost:3845/assets/959b4f3a1c9fa8b2c322b923b41cec65b36a6f73.svg"
+const imgBlueBar       = "http://localhost:3845/assets/b51a8679404ae654bc1662e9bfa69dcbdaae4059.svg"
+const imgSooim3Bar     = "http://localhost:3845/assets/d416eacbdae6aa78795d4ea97e5a0702bf3e4832.svg"
+
 // Header icons
 const imgBackArrow = "http://localhost:3845/assets/05ee3140b1ee18ee71707b6909c3e60fe46a1af4.svg"
 const imgMenu      = "http://localhost:3845/assets/a3235a41e2aad1b99c35642541549590911504fb.svg"
@@ -72,8 +99,9 @@ const imgBatteryFill = "http://localhost:3845/assets/52af93645b42610d7150de228a7
 const imgBatteryTip  = "http://localhost:3845/assets/3ad3c29deecc2a256edb655fd46dce4aa145cbdf.svg"
 
 // ── Transcript avatar masks
-const imgAvatarMaskLg = "http://localhost:3845/assets/86bcd12c6067f9a3d858f1c4572b94ca78fa96a8.svg"
-const imgAvatarMaskSm = "http://localhost:3845/assets/a6693fa756111898e61a12d640da5713b8f81cae.svg"
+const imgAvatarMaskLg  = "http://localhost:3845/assets/86bcd12c6067f9a3d858f1c4572b94ca78fa96a8.svg"
+const imgAvatarMaskSm  = "http://localhost:3845/assets/a6693fa756111898e61a12d640da5713b8f81cae.svg"
+const imgSooim1Mask    = "http://localhost:3845/assets/e39cd97c26bfc9f5bd6eff49fa320667726898b6.svg"
 
 // ── Transcript data ───────────────────────────────────────────────────────────
 type TextSegment = string | { mention: string }
@@ -109,6 +137,13 @@ const MESSAGES: Message[] = [
     segments: ["Oh yeah, it was on mine. Sorry, I just put them in the shared album."],
   },
   {
+    id: 'you-1', speaker: 'You', time: '9:47 PM',
+    avatarSrc: imgSooim1Photo, avatarMask: imgSooim1Mask,
+    avatarMaskSize: '40px 40px', avatarMaskPos: '1.859px 0.93px',
+    avatarW: 41.86, avatarH: 41.86, avatarOffsetX: -1.86, avatarOffsetY: -0.93,
+    segments: ["Wait guys the pics turned out so good. I'm gonna insta dump later, so I'll need everyone's input."],
+  },
+  {
     id: 'chloe-2', speaker: 'Chloe', time: '2:15 PM',
     avatarSrc: imgChloe1, avatarMask: imgAvatarMaskSm,
     avatarMaskSize: '40px 40px', avatarMaskPos: '5.867px 5.867px',
@@ -128,6 +163,13 @@ const MESSAGES: Message[] = [
     avatarMaskSize: '40px 40px', avatarMaskPos: '7.668px 43px',
     avatarW: 84.42, avatarH: 112.56, avatarOffsetX: -7.67, avatarOffsetY: -43,
     segments: ["Lmao guys not ", { mention: '@Chloe' }, " literally cosplaying mommy at work. I'm dead."],
+  },
+  {
+    id: 'you-2', speaker: 'You', time: '9:47 PM',
+    avatarSrc: imgSooim1Photo, avatarMask: imgSooim1Mask,
+    avatarMaskSize: '40px 40px', avatarMaskPos: '1.859px 0.93px',
+    avatarW: 41.86, avatarH: 41.86, avatarOffsetX: -1.86, avatarOffsetY: -0.93,
+    segments: ["Bro of course only that would happen to you. Was this a new patient?"],
   },
 ]
 
@@ -442,6 +484,123 @@ function HeroClusterPlayingMaria() {
   )
 }
 
+// Hero cluster — Sarah speaking (240×302)
+function HeroClusterPlayingSarah() {
+  return (
+    <div className="relative" style={{ width: 240, height: 302 }}>
+      {/* BG union */}
+      <img alt="" className="absolute" style={{ left: 0, top: 28, width: 240, height: 272.5 }} src={imgUnionSarah} />
+
+      {/* Maria petal (left) */}
+      <div className="absolute" style={{
+        left: -2.4, top: 84.8, width: 202.608, height: 270.144,
+        maskImage: `url('${imgHeroMask}')`, maskSize: '96px 96px', maskPosition: '18.398px 103.2px', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url('${imgHeroMask}')`, WebkitMaskSize: '96px 96px', WebkitMaskPosition: '18.398px 103.2px', WebkitMaskRepeat: 'no-repeat',
+      }}>
+        <img alt="Maria" className="absolute inset-0 w-full h-full object-cover" src={imgMaria1} />
+      </div>
+
+      {/* Lainey petal (lower-left) */}
+      <div className="absolute" style={{
+        left: -16, top: 138.4, width: 160, height: 212.8,
+        maskImage: `url('${imgHeroMask}')`, maskSize: '96px 96px', maskPosition: '32px 49.6px', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url('${imgHeroMask}')`, WebkitMaskSize: '96px 96px', WebkitMaskPosition: '32px 49.6px', WebkitMaskRepeat: 'no-repeat',
+      }}>
+        <img alt="Lainey" className="absolute inset-0 w-full h-full object-cover" src={imgLainey1} />
+      </div>
+
+      {/* Orange halo ring behind Sarah */}
+      <div className="absolute" style={{ left: 72, top: 52, width: 144, height: 144 }}>
+        <div className="absolute" style={{ inset: '-22.22%' }}>
+          <img alt="" className="w-full h-full" src={imgOrangeHalo} />
+        </div>
+      </div>
+
+      {/* Sarah — enlarged (144px mask, reuses Maria mask shape) */}
+      <div className="absolute" style={{
+        left: 9.6, top: 8.8, width: 256.8, height: 342,
+        maskImage: `url('${imgMariaMaskLg}')`, maskSize: '144px 144px', maskPosition: '62.398px 43.2px', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url('${imgMariaMaskLg}')`, WebkitMaskSize: '144px 144px', WebkitMaskPosition: '62.398px 43.2px', WebkitMaskRepeat: 'no-repeat',
+      }}>
+        <img alt="Sarah" className="absolute inset-0 w-full h-full object-cover" src={imgSarah1} />
+      </div>
+
+      {/* "Sarah / Mentions you" name tag — offset 24px right of center */}
+      <div className="absolute flex items-center justify-center"
+        style={{ left: 'calc(50% + 24px)', transform: 'translateX(-50%)', top: 0 }}>
+        <div className="relative flex flex-col items-center justify-center px-[20px] py-[6px] rounded-[1000px]"
+          style={{ background: '#ffdeb8', boxShadow: '0px 8px 40px 0px rgba(0,0,0,0.12)', whiteSpace: 'nowrap' }}>
+          <div className="absolute inset-0 rounded-full pointer-events-none">
+            <div className="absolute inset-0 rounded-full" style={{ background: 'rgba(255,255,255,0.65)' }} />
+            <div className="absolute inset-0 rounded-full" style={{ background: '#ddd', mixBlendMode: 'color-burn' }} />
+            <div className="absolute inset-0 rounded-full" style={{ background: '#f7f7f7', mixBlendMode: 'darken' }} />
+          </div>
+          <span className="relative font-bold text-[17px] text-[#1a1a1a] leading-[1.1]">Sarah</span>
+          <span className="relative font-normal text-[14px] text-[#6d6d6e] leading-[1.1]">Mentions you</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Hero cluster — Lainey speaking (240×290)
+function HeroClusterPlayingLainey() {
+  return (
+    <div className="relative" style={{ width: 240, height: 290 }}>
+      {/* BG union — reuse Sarah shape */}
+      <img alt="" className="absolute" style={{ left: 0, top: 16, width: 240, height: 272.5 }} src={imgUnionSarah} />
+
+      {/* Green halo ring behind Lainey */}
+      <div className="absolute" style={{ left: 72, top: 40, width: 144, height: 144 }}>
+        <div className="absolute" style={{ inset: '-22.22%' }}>
+          <img alt="" className="w-full h-full" src={imgGreenHalo} />
+        </div>
+      </div>
+
+      {/* Lainey — enlarged center (144px mask, reuses Maria mask shape) */}
+      <div className="absolute" style={{
+        left: 24, top: -34.4, width: 240, height: 319.2,
+        maskImage: `url('${imgMariaMaskLg}')`, maskSize: '144px 144px', maskPosition: '48px 74.4px', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url('${imgMariaMaskLg}')`, WebkitMaskSize: '144px 144px', WebkitMaskPosition: '48px 74.4px', WebkitMaskRepeat: 'no-repeat',
+      }}>
+        <img alt="Lainey" className="absolute inset-0 w-full h-full object-cover" src={imgLainey1} />
+      </div>
+
+      {/* Maria petal (left) */}
+      <div className="absolute" style={{
+        left: 44.4, top: -114.8, width: 303.912, height: 405.216,
+        maskImage: `url('${imgMariaMaskLg}')`, maskSize: '96px 96px', maskPosition: '27.598px 154.8px', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url('${imgMariaMaskLg}')`, WebkitMaskSize: '96px 96px', WebkitMaskPosition: '27.598px 154.8px', WebkitMaskRepeat: 'no-repeat',
+      }}>
+        <img alt="Maria" className="absolute inset-0 w-full h-full object-cover" src={imgMaria1} />
+      </div>
+
+      {/* Sarah petal (bottom-right) */}
+      <div className="absolute" style={{
+        left: -25.6, top: 147.2, width: 171.2, height: 228,
+        maskImage: `url('${imgHeroMask}')`, maskSize: '96px 96px', maskPosition: '41.598px 28.8px', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url('${imgHeroMask}')`, WebkitMaskSize: '96px 96px', WebkitMaskPosition: '41.598px 28.8px', WebkitMaskRepeat: 'no-repeat',
+      }}>
+        <img alt="Sarah" className="absolute inset-0 w-full h-full object-cover" src={imgSarah1} />
+      </div>
+
+      {/* "Lainey" name tag */}
+      <div className="absolute flex items-center justify-center"
+        style={{ left: 96, transform: 'translateX(-50%)', top: 0 }}>
+        <div className="relative flex items-center justify-center px-[20px] py-[6px] rounded-[1000px]"
+          style={{ background: '#dfffb8', boxShadow: '0px 8px 40px 0px rgba(0,0,0,0.12)', whiteSpace: 'nowrap' }}>
+          <div className="absolute inset-0 rounded-full pointer-events-none">
+            <div className="absolute inset-0 rounded-full" style={{ background: 'rgba(255,255,255,0.65)' }} />
+            <div className="absolute inset-0 rounded-full" style={{ background: '#ddd', mixBlendMode: 'color-burn' }} />
+            <div className="absolute inset-0 rounded-full" style={{ background: '#f7f7f7', mixBlendMode: 'darken' }} />
+          </div>
+          <span className="relative font-bold text-[17px] text-[#1a1a1a]">Lainey</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Waveform bar heights — active recording (red, precise px)
 const WAVEFORM_HEIGHTS_ACTIVE = [
   4.562, 5.246, 7.705, 10.444, 12.96, 14.721, 9.626, 21.39, 13.018, 25.066, 15.156, 23.092,
@@ -480,18 +639,19 @@ function SmallGlassBtn({ onClick, children }: { onClick?: () => void; children: 
   )
 }
 
-type RecordMode = 'off' | 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3'
+type RecordMode = 'off' | 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3' | 'analyzing4'
 
 function RecordingPopup({ mode, onClose, onStop, onSend }: {
-  mode: 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3'
+  mode: 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3' | 'analyzing4'
   onClose: () => void
   onStop: () => void
   onSend: () => void
 }) {
   const isActive = mode === 'active'
-  const isAnalyzing = mode === 'analyzing' || mode === 'analyzing2' || mode === 'analyzing3'
-  const isAnalyzing2 = mode === 'analyzing2' || mode === 'analyzing3'
-  const isAnalyzing3 = mode === 'analyzing3'
+  const isAnalyzing = mode === 'analyzing' || mode === 'analyzing2' || mode === 'analyzing3' || mode === 'analyzing4'
+  const isAnalyzing2 = mode === 'analyzing2' || mode === 'analyzing3' || mode === 'analyzing4'
+  const isAnalyzing3 = mode === 'analyzing3' || mode === 'analyzing4'
+  const isAnalyzing4 = mode === 'analyzing4'
   const heights = isActive ? WAVEFORM_HEIGHTS_ACTIVE : WAVEFORM_HEIGHTS_REVIEW
   const barColor = isActive ? '#f97878' : '#8a8a8e'
 
@@ -520,16 +680,108 @@ function RecordingPopup({ mode, onClose, onStop, onSend }: {
               <div className="relative shrink-0" style={{ width: 22, height: 22 }}>
                 <div className="absolute inset-0">
                   <div className="absolute" style={{ inset: '-9.5%' }}>
-                    <img alt="" className="w-full h-full" src={isAnalyzing3 ? imgAiGlow3 : isAnalyzing2 ? imgAiGlow2 : imgAiGlow1} />
+                    <img alt="" className="w-full h-full" src={isAnalyzing4 ? imgAiGlow4 : isAnalyzing3 ? imgAiGlow3 : isAnalyzing2 ? imgAiGlow2 : imgAiGlow1} />
                   </div>
                 </div>
-                <img alt="" className="absolute inset-0 w-full h-full" src={isAnalyzing3 ? imgAiIcon3 : isAnalyzing2 ? imgAiIcon2 : imgAiIcon1} />
+                <img alt="" className="absolute inset-0 w-full h-full" src={isAnalyzing4 ? imgAiIcon4 : isAnalyzing3 ? imgAiIcon3 : isAnalyzing2 ? imgAiIcon2 : imgAiIcon1} />
               </div>
               <span className="font-semibold text-black whitespace-nowrap" style={{ fontSize: 19.2, lineHeight: '21.209px' }}>Analyzing</span>
             </div>
 
             {/* Progress bar */}
-            {isAnalyzing3 ? (
+            {isAnalyzing4 ? (
+              /* State 4: all segments complete with avatars */
+              <div className="absolute flex items-start" style={{ left: 15, top: 78, gap: 9 }}>
+                {/* Chloe — purple bar, 74.2px */}
+                <div className="flex flex-col items-center shrink-0" style={{ width: 74.2, gap: 12 }}>
+                  <div className="relative inline-grid place-items-start shrink-0">
+                    <div style={{
+                      position: 'relative', width: 38.8, height: 38.8,
+                      marginLeft: -4.4, marginTop: -4.4,
+                      maskImage: `url('${imgChloe2Mask}')`, maskSize: '30px 30px', maskPosition: '4.402px 4.4px', maskRepeat: 'no-repeat',
+                      WebkitMaskImage: `url('${imgChloe2Mask}')`, WebkitMaskSize: '30px 30px', WebkitMaskPosition: '4.402px 4.4px', WebkitMaskRepeat: 'no-repeat',
+                      overflow: 'hidden',
+                    }}>
+                      <img alt="Chloe" className="absolute max-w-none" style={{ left: '2.92%', top: '11.44%', width: '88.54%', height: '88.54%' }} src={imgChloe1} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 w-full" style={{ gap: 8 }}>
+                    <div className="relative shrink-0 w-full" style={{ height: 0 }}>
+                      <div className="absolute" style={{ top: -13.5, bottom: -13.5, left: '-18.19%', right: '-18.19%' }}>
+                        <img alt="" className="block w-full h-full" src={imgPurpleBar} />
+                      </div>
+                    </div>
+                    <span className="text-[12px] text-black leading-normal w-full text-right" style={{ marginTop: 13.5 }}>0:13</span>
+                  </div>
+                </div>
+
+                {/* Sooim — first segment, 78px */}
+                <div className="flex flex-col items-center shrink-0" style={{ width: 78, gap: 12 }}>
+                  <div className="relative inline-grid place-items-start shrink-0">
+                    <div style={{
+                      position: 'relative', width: 31.395, height: 31.395,
+                      marginLeft: -1.4, marginTop: -0.7,
+                      maskImage: `url('${imgSooim4Mask}')`, maskSize: '30px 30px', maskPosition: '1.395px 0.698px', maskRepeat: 'no-repeat',
+                      WebkitMaskImage: `url('${imgSooim4Mask}')`, WebkitMaskSize: '30px 30px', WebkitMaskPosition: '1.395px 0.698px', WebkitMaskRepeat: 'no-repeat',
+                    }}>
+                      <img alt="Sooim" className="absolute inset-0 w-full h-full object-cover" src={imgSooim1Photo} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 w-full" style={{ gap: 8 }}>
+                    <div className="relative shrink-0 w-full" style={{ height: 0 }}>
+                      <div className="absolute" style={{ top: -13.5, bottom: -13.5, left: '-17.31%', right: '-17.31%' }}>
+                        <img alt="" className="block w-full h-full" src={imgSooim2Bar} />
+                      </div>
+                    </div>
+                    <span className="text-[12px] text-black leading-normal w-full text-right" style={{ marginTop: 13.5 }}>0:25</span>
+                  </div>
+                </div>
+
+                {/* Maria — blue bar, 74.2px */}
+                <div className="flex flex-col items-center shrink-0" style={{ width: 74.2, gap: 12 }}>
+                  <div className="relative inline-grid place-items-start shrink-0">
+                    <div style={{
+                      position: 'relative', width: 63.315, height: 84.42,
+                      marginLeft: -5.75, marginTop: -32.25,
+                      maskImage: `url('${imgMaria2Mask}')`, maskSize: '30px 30px', maskPosition: '5.75px 32.25px', maskRepeat: 'no-repeat',
+                      WebkitMaskImage: `url('${imgMaria2Mask}')`, WebkitMaskSize: '30px 30px', WebkitMaskPosition: '5.75px 32.25px', WebkitMaskRepeat: 'no-repeat',
+                    }}>
+                      <img alt="Maria" className="absolute inset-0 w-full h-full object-cover" src={imgMaria1} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 w-full" style={{ gap: 8 }}>
+                    <div className="relative shrink-0 w-full" style={{ height: 0 }}>
+                      <div className="absolute" style={{ top: -13.5, bottom: -13.5, left: '-18.19%', right: '-18.19%' }}>
+                        <img alt="" className="block w-full h-full" src={imgBlueBar} />
+                      </div>
+                    </div>
+                    <span className="text-[12px] text-black leading-normal w-full text-right" style={{ marginTop: 13.5 }}>0:49</span>
+                  </div>
+                </div>
+
+                {/* Sooim — second segment, 106px */}
+                <div className="flex flex-col items-center shrink-0" style={{ width: 106, gap: 12 }}>
+                  <div className="relative inline-grid place-items-start shrink-0">
+                    <div style={{
+                      position: 'relative', width: 31.395, height: 31.395,
+                      marginLeft: -1.4, marginTop: -0.7,
+                      maskImage: `url('${imgSooim4Mask}')`, maskSize: '30px 30px', maskPosition: '1.395px 0.698px', maskRepeat: 'no-repeat',
+                      WebkitMaskImage: `url('${imgSooim4Mask}')`, WebkitMaskSize: '30px 30px', WebkitMaskPosition: '1.395px 0.698px', WebkitMaskRepeat: 'no-repeat',
+                    }}>
+                      <img alt="Sooim" className="absolute inset-0 w-full h-full object-cover" src={imgSooim1Photo} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 w-full" style={{ gap: 8 }}>
+                    <div className="relative shrink-0 w-full" style={{ height: 0 }}>
+                      <div className="absolute" style={{ top: -13.5, bottom: -13.5, left: '-12.74%', right: '-12.74%' }}>
+                        <img alt="" className="block w-full h-full" src={imgSooim3Bar} />
+                      </div>
+                    </div>
+                    <span className="text-[12px] text-black leading-normal w-full text-right" style={{ marginTop: 13.5 }}>1:11</span>
+                  </div>
+                </div>
+              </div>
+            ) : isAnalyzing3 ? (
               /* State 3: 0:12 completed bar + 0:22 growing segment */
               <div className="absolute left-1/2 -translate-x-1/2 flex items-start" style={{ top: 120, width: 360, gap: 12, paddingLeft: 2, paddingRight: 2 }}>
                 <div className="flex flex-col items-end shrink-0" style={{ width: 120, gap: 8 }}>
@@ -660,7 +912,7 @@ function RecordingPopup({ mode, onClose, onStop, onSend }: {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-type Speaker = 'idle' | 'chloe' | 'maria' | 'chloe2'
+type Speaker = 'idle' | 'chloe' | 'maria' | 'chloe2' | 'sarah' | 'lainey'
 
 interface ConversationPageProps {
   onBack?: () => void
@@ -673,22 +925,22 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
 
   // Auto-advance through analyzing steps
   useEffect(() => {
-    if (recordMode !== 'analyzing' && recordMode !== 'analyzing2') return
-    const next = recordMode === 'analyzing' ? 'analyzing2' : 'analyzing3'
-    const t = setTimeout(() => setRecordMode(next), 1500)
+    if (recordMode !== 'analyzing' && recordMode !== 'analyzing2' && recordMode !== 'analyzing3') return
+    const next = recordMode === 'analyzing' ? 'analyzing2' : recordMode === 'analyzing2' ? 'analyzing3' : 'analyzing4'
+    const t = setTimeout(() => setRecordMode(next as RecordMode), 1500)
     return () => clearTimeout(t)
   }, [recordMode])
 
-  const scrubberSrc = speaker === 'maria' ? imgBarMaria : speaker === 'chloe' ? imgBarChloe : speaker === 'chloe2' ? imgBarChloe2 : imgBarIdle
-  const timeLeft    = speaker === 'maria' ? '0:37' : speaker === 'chloe' ? '0:13' : speaker === 'chloe2' ? '0:46' : '0:00'
-  const timeRight   = speaker === 'maria' ? '-0:42' : speaker === 'chloe' ? '-1:06' : speaker === 'chloe2' ? '-0:33' : '-1:19'
+  const scrubberSrc = speaker === 'maria' ? imgBarMaria : speaker === 'chloe' ? imgBarChloe : speaker === 'chloe2' ? imgBarChloe2 : speaker === 'sarah' ? imgBarSarah : imgBarIdle
+  const timeLeft    = speaker === 'maria' ? '0:37' : speaker === 'chloe' ? '0:13' : speaker === 'chloe2' ? '0:46' : speaker === 'sarah' ? '1:29' : speaker === 'lainey' ? '2:02' : '0:00'
+  const timeRight   = speaker === 'maria' ? '-0:42' : speaker === 'chloe' ? '-1:06' : speaker === 'chloe2' ? '-0:33' : speaker === 'sarah' ? '-0:34' : speaker === 'lainey' ? '-0:01' : '-1:19'
 
   function handlePlayPause() {
     setSpeaker(s => s !== 'idle' ? 'idle' : 'chloe')
   }
 
   function handleSkip() {
-    setSpeaker(s => s === 'idle' ? 'chloe' : s === 'chloe' ? 'maria' : s === 'maria' ? 'chloe2' : 'chloe')
+    setSpeaker(s => s === 'idle' ? 'chloe' : s === 'chloe' ? 'maria' : s === 'maria' ? 'chloe2' : s === 'chloe2' ? 'sarah' : s === 'sarah' ? 'lainey' : 'chloe')
   }
 
   return (
@@ -728,6 +980,14 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
           <div className="flex justify-center pt-[61px] pb-[44px]">
             <HeroClusterPlaying />
           </div>
+        ) : speaker === 'sarah' ? (
+          <div className="flex justify-center pt-[61px] pb-[44px]">
+            <HeroClusterPlayingSarah />
+          </div>
+        ) : speaker === 'lainey' ? (
+          <div className="flex justify-center pt-[61px] pb-[44px]">
+            <HeroClusterPlayingLainey />
+          </div>
         ) : (
           <div className="flex justify-center pt-[141px] pb-[76px]">
             <HeroCluster />
@@ -735,11 +995,48 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
         )}
 
         {/* Timeline scrubber */}
-        <div className="flex flex-col gap-[7px] items-center px-[16px]">
+        <div className={`relative flex flex-col gap-[7px] items-center px-[16px]${(speaker === 'sarah' || speaker === 'lainey') ? ' pt-[44px]' : ''}`}>
+          {/* @You badge — Sarah state only */}
+          {speaker === 'sarah' && (
+            <div className="absolute z-10" style={{ top: 2, left: 'calc(50% - 92.5px)', transform: 'translateX(-50%)' }}>
+              <div className="relative flex items-center justify-center px-[12px] py-[6px] rounded-[1000px]"
+                style={{ background: '#ffdeb8', boxShadow: '0px 8px 40px 0px rgba(0,0,0,0.12)', whiteSpace: 'nowrap' }}>
+                <div className="absolute inset-0 rounded-full pointer-events-none">
+                  <div className="absolute inset-0 rounded-full" style={{ background: 'rgba(255,255,255,0.65)' }} />
+                  <div className="absolute inset-0 rounded-full" style={{ background: '#ddd', mixBlendMode: 'color-burn' }} />
+                  <div className="absolute inset-0 rounded-full" style={{ background: '#f7f7f7', mixBlendMode: 'darken' }} />
+                </div>
+                <span className="relative font-normal text-[12px] text-[#6d6d6e]">@You</span>
+              </div>
+              {/* Arrow pointing down toward scrubber */}
+              <div className="flex justify-center" style={{ marginTop: -1 }}>
+                <div style={{
+                  width: 35.84, height: 8.32,
+                  background: '#ffdeb8',
+                  transform: 'rotate(180deg)',
+                  maskImage: `url('${imgMentionsArrow}')`,
+                  maskSize: '100% 100%', maskRepeat: 'no-repeat',
+                  WebkitMaskImage: `url('${imgMentionsArrow}')`,
+                  WebkitMaskSize: '100% 100%', WebkitMaskRepeat: 'no-repeat',
+                }} />
+              </div>
+            </div>
+          )}
           <div className="relative w-full overflow-visible" style={{ height: 0 }}>
-            <img alt="" className="absolute block w-full pointer-events-none"
-              style={{ top: -13.5, height: 27, left: 0 }}
-              src={scrubberSrc} />
+            {speaker === 'lainey' ? (
+              <>
+                <img alt="" className="absolute block w-full pointer-events-none"
+                  style={{ top: -13.5, height: 27, left: 0 }}
+                  src={imgBarLaineyGreen} />
+                <img alt="" className="absolute block pointer-events-none"
+                  style={{ top: -13.5, height: 27, left: 0, width: '40.8%' }}
+                  src={imgBarLaineyOrange} />
+              </>
+            ) : (
+              <img alt="" className="absolute block w-full pointer-events-none"
+                style={{ top: -13.5, height: 27, left: 0 }}
+                src={scrubberSrc} />
+            )}
           </div>
           <div style={{ height: 13.5 }} />
           <div className="flex justify-between w-full">
@@ -796,6 +1093,41 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
         )}
       </div>
 
+      {/* ── Heard-people avatars (Sarah / Lainey state) ── */}
+      {(speaker === 'sarah' || speaker === 'lainey') && (
+        <div className="absolute pointer-events-none z-5" style={{ left: 170, top: 551, width: 60, height: 45 }}>
+          {/* Maria (right, slightly behind) */}
+          <div className="absolute" style={{ left: 15, top: 0, width: 45, height: 45 }}>
+            <div style={{
+              position: 'absolute',
+              left: 6.38, top: -48.37, width: 94.972, height: 126.63,
+              maskImage: `url('${imgMaria2HalfMask}')`, maskSize: '45px 45px', maskPosition: '8.625px 48.375px', maskRepeat: 'no-repeat',
+              WebkitMaskImage: `url('${imgMaria2HalfMask}')`, WebkitMaskSize: '45px 45px', WebkitMaskPosition: '8.625px 48.375px', WebkitMaskRepeat: 'no-repeat',
+            }}>
+              <img alt="Maria" className="absolute inset-0 w-full h-full object-cover" src={imgMaria1} />
+            </div>
+            <div className="absolute" style={{ inset: '-6.67%' }}>
+              <img alt="" className="w-full h-full" src={imgOutlineRing} />
+            </div>
+          </div>
+          {/* Chloe (left, in front) */}
+          <div className="absolute" style={{ left: 0, top: 0, width: 45, height: 45 }}>
+            <div style={{
+              position: 'absolute',
+              left: -14.1, top: -6.6, width: 58.2, height: 58.2,
+              maskImage: `url('${imgChloeHeardMask}')`, maskSize: '45px 45px', maskPosition: '6.602px 6.6px', maskRepeat: 'no-repeat',
+              WebkitMaskImage: `url('${imgChloeHeardMask}')`, WebkitMaskSize: '45px 45px', WebkitMaskPosition: '6.602px 6.6px', WebkitMaskRepeat: 'no-repeat',
+              overflow: 'hidden',
+            }}>
+              <img alt="Chloe" className="absolute max-w-none" style={{ left: '2.92%', top: '11.44%', width: '88.54%', height: '88.54%' }} src={imgChloe1} />
+            </div>
+            <div className="absolute" style={{ inset: '-6.67%' }}>
+              <img alt="" className="w-full h-full" src={imgOutlineRing} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Playback controls ── */}
       <div
         className="absolute z-10 flex items-center gap-[12px] justify-center"
@@ -828,7 +1160,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
       {/* ── Recording popup ── */}
       {recordMode !== 'off' && (
         <RecordingPopup
-          mode={recordMode as 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3'}
+          mode={recordMode as 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3' | 'analyzing4'}
           onClose={() => setRecordMode('off')}
           onStop={() => setRecordMode('review')}
           onSend={() => setRecordMode('analyzing')}

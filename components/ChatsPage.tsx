@@ -41,34 +41,7 @@ const imgSooim       = "http://localhost:3845/assets/59aad22b3fc40b2b361394ccadf
 const imgSearch      = "http://localhost:3845/assets/28abc2b52d1a416f400ebe1649e23b096789564e.svg"
 const imgRecord      = "http://localhost:3845/assets/acc05c129def645219121477cb2c3129322dc4e8.svg"
 
-// Status bar
-const imgSignal      = "http://localhost:3845/assets/17ea4c9f6c53be95fb129a58e4c7f11ead77ce8a.svg"
-const imgWifi        = "http://localhost:3845/assets/c8165777b3e3ffe26b08e8ca8fd013471e1a7bdf.svg"
-const imgBatteryFill = "http://localhost:3845/assets/52af93645b42610d7150de228a7f1d6803de9699.svg"
-const imgBatteryTip  = "http://localhost:3845/assets/3ad3c29deecc2a256edb655fd46dce4aa145cbdf.svg"
-
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function StatusBar() {
-  return (
-    <div className="absolute h-[57px] left-0 top-0 w-full pointer-events-none z-10">
-      <div className="absolute flex items-center gap-[2px] left-[36px] top-[25.5px]">
-        <span className="font-bold text-[16px] text-black tracking-[-0.368px] leading-none whitespace-nowrap">11:11</span>
-        <img alt="" className="w-[10.5px] h-[10.4px]" src={imgSignal} />
-      </div>
-      <div className="absolute flex items-center gap-[6px] right-[16px] top-[26px]">
-        <img alt="" className="w-[19px] h-[13px]" src={imgSignal} />
-        <img alt="" className="w-[18px] h-[12px]" src={imgWifi} />
-        <div className="relative" style={{ width: 27, height: 14 }}>
-          <div className="absolute inset-0 bg-[#d9d9d9] rounded-[4px]" />
-          <img alt="" className="absolute left-0 top-0 w-[20px] h-[14px]" src={imgBatteryFill} />
-          <img alt="" className="absolute right-0 top-[5px] w-[2px] h-[4px]" src={imgBatteryTip} />
-          <span className="absolute left-[4px] top-[1px] font-bold text-[#181716] text-[12px] tracking-[-0.276px] leading-[12px]">79</span>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function GlassBtn({
   children,
@@ -189,11 +162,8 @@ export default function ChatsPage({ onOpenChat }: ChatsPageProps) {
         <img alt="" className="absolute inset-0 w-full h-full object-cover" src={imgBg} />
       </div>
 
-      {/* ── Status bar ── */}
-      <StatusBar />
-
       {/* ── Header ── */}
-      <div className="absolute z-10 flex items-center justify-between" style={{ left: 15, right: 15, top: 60 }}>
+      <div className="absolute z-10 flex items-center justify-between" style={{ left: 15, right: 15, top: 20 }}>
         <h1 className="font-semibold text-[30px] text-black leading-[30px]">Chats</h1>
         <div className="flex items-center gap-[12px]">
           {/* Search */}
@@ -214,7 +184,7 @@ export default function ChatsPage({ onOpenChat }: ChatsPageProps) {
       </div>
 
       {/* ── Chat grid (staggered 2-column) ── */}
-      <div className="relative z-10" style={{ height: 1070, marginTop: 57 }}>
+      <div className="relative z-10" style={{ height: 1070, marginTop: 17 }}>
 
         {/* besties – left col, top 117 */}
         <button className="absolute text-left active:opacity-70 transition-opacity" style={{ left: 16, top: 60 }} onClick={onOpenChat}>

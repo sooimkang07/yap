@@ -6,7 +6,6 @@ import { transcribeBlob, cleanTranscript } from '@/services/transcription'
 import { requestReplies } from '@/services/reply'
 import { synthesizeSpeech } from '@/services/tts'
 import { splitIntoSegments } from '@/services/segmentation'
-import { generateBatch } from '@/lib/audioGen'
 import { buildReplyMessage, detectTopics } from '@/lib/replyEngine'
 import type { SelectedReply } from '@/lib/replyEngine'
 import { makeId } from '@/lib/utils'
@@ -91,7 +90,10 @@ export interface ReplyDebugEntry {
 export interface UseConversationReturn {
   messages: VoiceMessage[]
   audioReady: boolean        // true once seed audio is generated
-  addRecording: (blob: Blob, duration: number, url: string) => Promise<{ startPlaybackFromId: string | null }>
+  addRecording: (blob: Blob, duration: number, url: string) => Promise<{
+    startPlaybackFromId: string | null
+    expectedMessageIds: string[]
+  }>
   replyDebugLog: ReplyDebugEntry[]
 }
 
@@ -109,10 +111,28 @@ export function useConversation(): UseConversationReturn {
     const seeds = messagesRef.current.filter((m) => !m.audioUrl)
     if (seeds.length === 0) { setAudioReady(true); return }
 
-    generateBatch(seeds.map((m) => ({ id: m.id, speakerId: m.speaker, duration: m.duration })))
-      .then((urlMap) => {
+    Promise.all(
+      seeds.map(async (message) => {
+        const audio = await synthesizeSpeech(
+          message.speaker,
+          message.cleanTranscript ?? message.rawTranscript ?? '',
+          message.duration
+        )
+        return { id: message.id, audio }
+      })
+    )
+      .then((results) => {
+        const audioMap = Object.fromEntries(results.map((result) => [result.id, result.audio]))
         setMessages((prev) =>
-          prev.map((m) => (urlMap[m.id] ? { ...m, audioUrl: urlMap[m.id] } : m))
+          prev.map((message) => (
+            audioMap[message.id]
+              ? {
+                  ...message,
+                  audioUrl: audioMap[message.id].url,
+                  duration: audioMap[message.id].duration,
+                }
+              : message
+          ))
         )
         setAudioReady(true)
       })
@@ -198,15 +218,19 @@ export function useConversation(): UseConversationReturn {
           }
 
           setMessages((prev) => [...prev, ...replyMessages])
+          return {
+            startPlaybackFromId: id,
+            expectedMessageIds: [id, ...replyMessages.map((message) => message.id)],
+          }
         }
 
-        return { startPlaybackFromId: id }
+        return { startPlaybackFromId: id, expectedMessageIds: [id] }
       } catch (err) {
         patch(id, {
           status: 'error',
           error: err instanceof Error ? err.message : 'Transcription failed',
         })
-        return { startPlaybackFromId: null }
+        return { startPlaybackFromId: null, expectedMessageIds: [] }
       }
     },
     [patch]

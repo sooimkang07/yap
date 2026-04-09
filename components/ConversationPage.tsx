@@ -95,12 +95,6 @@ const imgSooim3Bar     = "http://localhost:3845/assets/d416eacbdae6aa78795d4ea97
 const imgBackArrow = "http://localhost:3845/assets/05ee3140b1ee18ee71707b6909c3e60fe46a1af4.svg"
 const imgMenu      = "http://localhost:3845/assets/a3235a41e2aad1b99c35642541549590911504fb.svg"
 
-// Status bar
-const imgSignal    = "http://localhost:3845/assets/17ea4c9f6c53be95fb129a58e4c7f11ead77ce8a.svg"
-const imgWifi      = "http://localhost:3845/assets/c8165777b3e3ffe26b08e8ca8fd013471e1a7bdf.svg"
-const imgBatteryFill = "http://localhost:3845/assets/52af93645b42610d7150de228a7f1d6803de9699.svg"
-const imgBatteryTip  = "http://localhost:3845/assets/3ad3c29deecc2a256edb655fd46dce4aa145cbdf.svg"
-
 // ── Transcript avatar masks
 const imgAvatarMaskLg  = "http://localhost:3845/assets/86bcd12c6067f9a3d858f1c4572b94ca78fa96a8.svg"
 const imgAvatarMaskSm  = "http://localhost:3845/assets/a6693fa756111898e61a12d640da5713b8f81cae.svg"
@@ -139,27 +133,6 @@ const DISPLAY_NAME: Record<string, string> = {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function StatusBar() {
-  return (
-    <div className="absolute h-[57px] left-0 top-0 w-full pointer-events-none z-10">
-      <div className="absolute flex items-center gap-[2px] left-[36px] top-[25.5px]">
-        <span className="font-bold text-[16px] text-black tracking-[-0.368px] leading-none whitespace-nowrap">11:11</span>
-        <img alt="" className="w-[10.5px] h-[10.4px]" src={imgSignal} />
-      </div>
-      <div className="absolute flex items-center gap-[6px] right-[16px] top-[26px]">
-        <img alt="" className="w-[19px] h-[13px]" src={imgSignal} />
-        <img alt="" className="w-[18px] h-[12px]" src={imgWifi} />
-        <div className="relative" style={{ width: 27, height: 14 }}>
-          <div className="absolute inset-0 bg-[#d9d9d9] rounded-[4px]" />
-          <img alt="" className="absolute left-0 top-0 w-[20px] h-[14px]" src={imgBatteryFill} />
-          <img alt="" className="absolute right-0 top-[5px] w-[2px] h-[4px]" src={imgBatteryTip} />
-          <span className="absolute left-[4px] top-[1px] font-bold text-[#181716] text-[12px] tracking-[-0.276px] leading-[12px]">79</span>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function GlassButton({
   children,
@@ -897,7 +870,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
   const recorder = useRecorder()
   const reviewRef = useRef<{ blob: Blob; duration: number; url: string } | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
-  const pendingPlaybackMessageIdRef = useRef<string | null>(null)
+  const pendingPlaybackRef = useRef<{ startId: string; expectedIds: string[] } | null>(null)
 
   // Auto-advance through analyzing steps while the pipeline is running.
   useEffect(() => {
@@ -909,14 +882,17 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
   }, [recordMode])
 
   useEffect(() => {
-    const pendingMessageId = pendingPlaybackMessageIdRef.current
-    if (recordMode !== 'off' || !pendingMessageId) return
+    const pendingPlayback = pendingPlaybackRef.current
+    if (recordMode !== 'off' || !pendingPlayback) return
 
-    const pendingMessage = messages.find((message) => message.id === pendingMessageId)
-    if (!pendingMessage || pendingMessage.status !== 'transcribed') return
+    const hasEverything = pendingPlayback.expectedIds.every((messageId) =>
+      messages.some((message) => message.id === messageId && message.status === 'transcribed')
+    )
 
-    pendingPlaybackMessageIdRef.current = null
-    player.playFrom(pendingMessageId)
+    if (!hasEverything) return
+
+    pendingPlaybackRef.current = null
+    player.playFrom(pendingPlayback.startId)
   }, [messages, player, recordMode])
 
   // Sync hero cluster from player state
@@ -986,7 +962,12 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
     setReviewDuration(0)
     setRecordMode('off')
 
-    if (result.startPlaybackFromId) pendingPlaybackMessageIdRef.current = result.startPlaybackFromId
+    if (result.startPlaybackFromId) {
+      pendingPlaybackRef.current = {
+        startId: result.startPlaybackFromId,
+        expectedIds: result.expectedMessageIds,
+      }
+    }
     else if (audioReady) player.playAll()
   }
 
@@ -1020,11 +1001,8 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
         <img alt="" className="absolute inset-0 w-full h-full object-cover" src={imgBg} />
       </div>
 
-      {/* ── Status bar ── */}
-      <StatusBar />
-
       {/* ── Header ── */}
-      <div className="relative z-10 flex items-center justify-between px-[15px] pt-[60px] pb-[8px]">
+      <div className="relative z-10 flex items-center justify-between px-[15px] pt-[20px] pb-[8px]">
         <GlassButton width={44} height={44} onClick={onBack}>
           <img alt="back" className="w-[36px] h-[36px]" src={imgBackArrow} />
         </GlassButton>

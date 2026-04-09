@@ -46,8 +46,8 @@ function GlassButton({
 export default function LandingPage({ onLogin, onSignup }: LandingPageProps) {
   return (
     <div
-      className="relative bg-white overflow-hidden w-full"
-      style={{ minHeight: '100vh' }}
+      className="relative bg-white overflow-hidden mx-auto"
+      style={{ width: 402, minHeight: '100vh' }}
     >
       {/* ── Iridescent gradient background ── */}
       <div

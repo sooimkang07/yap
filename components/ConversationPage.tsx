@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useConversation } from '@/hooks/useConversation'
+import { useConversationPlayer } from '@/hooks/useConversationPlayer'
+import { useRecorder } from '@/hooks/useRecorder'
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 const imgBg        = "http://localhost:3845/assets/c2295f370f78662def3a8ed633b3b4950379fb92.png"
@@ -641,11 +644,13 @@ function SmallGlassBtn({ onClick, children }: { onClick?: () => void; children: 
 
 type RecordMode = 'off' | 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3' | 'analyzing4'
 
-function RecordingPopup({ mode, onClose, onStop, onSend }: {
+function RecordingPopup({ mode, onClose, onStop, onSend, timerLabel, onPlayPreview }: {
   mode: 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3' | 'analyzing4'
   onClose: () => void
   onStop: () => void
   onSend: () => void
+  timerLabel: string
+  onPlayPreview: () => void
 }) {
   const isActive = mode === 'active'
   const isAnalyzing = mode === 'analyzing' || mode === 'analyzing2' || mode === 'analyzing3' || mode === 'analyzing4'
@@ -843,7 +848,7 @@ function RecordingPopup({ mode, onClose, onStop, onSend }: {
           <>
             {/* Timer */}
             <div className="absolute left-1/2 -translate-x-1/2" style={{ top: 32 }}>
-              <span className="font-bold text-[17px] text-black leading-normal">{isActive ? '0:01' : '0:32'}</span>
+              <span className="font-bold text-[17px] text-black leading-normal">{timerLabel}</span>
             </div>
 
             {/* Voice waveform */}
@@ -886,6 +891,7 @@ function RecordingPopup({ mode, onClose, onStop, onSend }: {
               ) : (
                 /* Play preview — white glass large */
                 <button
+                  onClick={onPlayPreview}
                   className="relative flex items-center justify-center active:opacity-70 transition-opacity rounded-full"
                   style={{ width: 79.2, height: 79.2, background: 'white' }}
                 >
@@ -922,6 +928,13 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
   const [showTranscript, setShowTranscript] = useState(false)
   const [speaker, setSpeaker] = useState<Speaker>('idle')
   const [recordMode, setRecordMode] = useState<RecordMode>('off')
+  const [reviewDuration, setReviewDuration] = useState(0)
+
+  const { messages, audioReady, addRecording } = useConversation()
+  const player = useConversationPlayer(messages)
+  const recorder = useRecorder()
+  const reviewRef = useRef<{ blob: Blob; duration: number; url: string } | null>(null)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Auto-advance through analyzing steps
   useEffect(() => {
@@ -931,16 +944,76 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
     return () => clearTimeout(t)
   }, [recordMode])
 
+  // Sync hero cluster from player state
+  useEffect(() => {
+    if (!player.state.isPlaying) { setSpeaker('idle'); return }
+    const sid = player.state.activeSpeakerId
+    const mid = player.state.activeMessageId
+    if (sid === 'chloe') setSpeaker(mid === 'seed-c2' ? 'chloe2' : 'chloe')
+    else if (sid === 'maria') setSpeaker('maria')
+    else if (sid === 'sarah') setSpeaker('sarah')
+    else if (sid === 'lainey') setSpeaker('lainey')
+    else setSpeaker('idle')
+  }, [player.state.isPlaying, player.state.activeSpeakerId, player.state.activeMessageId])
+
   const scrubberSrc = speaker === 'maria' ? imgBarMaria : speaker === 'chloe' ? imgBarChloe : speaker === 'chloe2' ? imgBarChloe2 : speaker === 'sarah' ? imgBarSarah : imgBarIdle
   const timeLeft    = speaker === 'maria' ? '0:37' : speaker === 'chloe' ? '0:13' : speaker === 'chloe2' ? '0:46' : speaker === 'sarah' ? '1:29' : speaker === 'lainey' ? '2:02' : '0:00'
   const timeRight   = speaker === 'maria' ? '-0:42' : speaker === 'chloe' ? '-1:06' : speaker === 'chloe2' ? '-0:33' : speaker === 'sarah' ? '-0:34' : speaker === 'lainey' ? '-0:01' : '-1:19'
 
+  const timerSeconds = recordMode === 'active' ? recorder.elapsed : reviewDuration
+  const timerLabel = `${Math.floor(timerSeconds / 60)}:${String(timerSeconds % 60).padStart(2, '0')}`
+
   function handlePlayPause() {
-    setSpeaker(s => s !== 'idle' ? 'idle' : 'chloe')
+    if (player.state.isPlaying) player.stop()
+    else if (audioReady) player.playAll()
+    else setSpeaker(s => s !== 'idle' ? 'idle' : 'chloe')
   }
 
   function handleSkip() {
-    setSpeaker(s => s === 'idle' ? 'chloe' : s === 'chloe' ? 'maria' : s === 'maria' ? 'chloe2' : s === 'chloe2' ? 'sarah' : s === 'sarah' ? 'lainey' : 'chloe')
+    if (player.state.isPlaying) player.next()
+    else setSpeaker(s => s === 'idle' ? 'chloe' : s === 'chloe' ? 'maria' : s === 'maria' ? 'chloe2' : s === 'chloe2' ? 'sarah' : s === 'sarah' ? 'lainey' : 'chloe')
+  }
+
+  function handleRestart() {
+    if (player.state.activeMessageId) player.playFrom(player.state.activeMessageId)
+    else player.playAll()
+  }
+
+  async function handleRecord() {
+    await recorder.start()
+    setRecordMode('active')
+  }
+
+  async function handleStop() {
+    const result = await recorder.stop()
+    if (result) { reviewRef.current = result; setReviewDuration(result.duration) }
+    setRecordMode('review')
+  }
+
+  function handlePlayPreview() {
+    if (!reviewRef.current) return
+    if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; return }
+    const audio = new Audio(reviewRef.current.url)
+    previewAudioRef.current = audio
+    audio.onended = () => { previewAudioRef.current = null }
+    audio.play().catch(() => { previewAudioRef.current = null })
+  }
+
+  function handleSend() {
+    const review = reviewRef.current
+    if (!review) return
+    if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null }
+    setRecordMode('analyzing')
+    addRecording(review.blob, review.duration, review.url)
+    reviewRef.current = null
+  }
+
+  function handleClose() {
+    if (recorder.state === 'recording') recorder.stop()
+    if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null }
+    reviewRef.current = null
+    setReviewDuration(0)
+    setRecordMode('off')
   }
 
   return (
@@ -1134,7 +1207,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
         style={{ bottom: 48, left: 0, right: 0 }}
       >
         {/* Restart */}
-        <GlassButton width={44.55} height={44.55} shadow="0px 6.891px 11.137px 0px rgba(0,0,0,0.08)">
+        <GlassButton width={44.55} height={44.55} shadow="0px 6.891px 11.137px 0px rgba(0,0,0,0.08)" onClick={handleRestart}>
           <img alt="restart" style={{ width: 33.413, height: 33.413 }} src={imgRestart} />
         </GlassButton>
 
@@ -1147,7 +1220,7 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
         </GlassButton>
 
         {/* Record */}
-        <GlassButton width={79.2} height={79.2} shadow="0px 21.78px 33px 0px rgba(0,0,0,0.08)" onClick={() => setRecordMode('active')}>
+        <GlassButton width={79.2} height={79.2} shadow="0px 21.78px 33px 0px rgba(0,0,0,0.08)" onClick={handleRecord}>
           <img alt="record" style={{ width: 59.4, height: 59.4 }} src={imgRecord} />
         </GlassButton>
 
@@ -1161,9 +1234,11 @@ export default function ConversationPage({ onBack }: ConversationPageProps) {
       {recordMode !== 'off' && (
         <RecordingPopup
           mode={recordMode as 'active' | 'review' | 'analyzing' | 'analyzing2' | 'analyzing3' | 'analyzing4'}
-          onClose={() => setRecordMode('off')}
-          onStop={() => setRecordMode('review')}
-          onSend={() => setRecordMode('analyzing')}
+          onClose={handleClose}
+          onStop={handleStop}
+          onSend={handleSend}
+          timerLabel={timerLabel}
+          onPlayPreview={handlePlayPreview}
         />
       )}
 

@@ -1,0 +1,503 @@
+// ═══════════════════════════════════════════════════════
+// yAp — Pipeline
+// Audio → Transcribe → Segment → Assign → Reply → TTS → Store
+//
+// Emits CustomEvents on `document`:
+//   yap:pipeline:started
+//   yap:pipeline:transcribed   { transcript }
+//   yap:pipeline:segments      { segments }
+//   yap:pipeline:done          { threads }
+//   yap:response:arrived       { threadId, message }
+// ═══════════════════════════════════════════════════════
+
+const Pipeline = {
+
+  // ── Entry point ───────────────────────────────────────
+  async run(blob, durationMs, chatId, authorId, localAudioUrl) {
+    _pEmit('yap:pipeline:started');
+
+    let messageId = 'local-' + Date.now();
+    let audioUrl = localAudioUrl;
+    let audioPath = null;
+
+    if (isSupabaseReady()) {
+      const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
+      if (saved) {
+        messageId = saved.messageId;
+        audioUrl = saved.audioUrl || localAudioUrl;
+        audioPath = saved.audioPath || null;
+      }
+    }
+
+    let transcript = '';
+    let segments = [];
+    let transcriptWords = null;
+
+    try {
+      const processed = await this._processAudio(blob, durationMs, this._threadContext());
+      transcript = processed.transcript || '';
+      transcriptWords = processed.words || null;
+      segments = Array.isArray(processed.segments) ? processed.segments : [];
+      _pEmit('yap:pipeline:transcribed', { transcript });
+    } catch (error) {
+      if (YAP_DEV_ALLOW_MOCK_FALLBACK) {
+        console.warn('[yAp] Audio processing failed — running in mock mode:', error);
+        transcript = 'Hey what are you guys up to this weekend? Also wanted to tell you about something funny that happened today.';
+        segments = this._mockSegments(durationMs);
+        _pEmit('yap:pipeline:transcribed', { transcript });
+      } else {
+        if (isSupabaseReady() && !String(messageId).startsWith('local-')) {
+          markVoiceMessageFailed(messageId).catch(updateError => {
+            console.warn('[yAp] Failed to mark voice message failed:', updateError);
+          });
+        }
+        throw error;
+      }
+    }
+
+    _pEmit('yap:pipeline:segments', { segments });
+
+    const touches = this._applySegmentsToThreads(chatId, authorId, segments, messageId, audioUrl, audioPath, blob, durationMs);
+    const touchedThreads = [...new Set(touches.map(touch => touch.thread.id))]
+      .map(threadId => Store.getThread(threadId))
+      .filter(Boolean);
+
+    if (isSupabaseReady()) {
+      this._persistProcessingResult({
+        transcript,
+        transcriptWords,
+        messageId,
+        touches,
+      }).catch(error => console.warn('[yAp] DB persist failed:', error));
+    }
+
+    _pEmit('yap:pipeline:done', { threads: touchedThreads });
+
+    this._generateAndApplyResponses(chatId, touches);
+  },
+
+  async _processAudio(blob, durationMs, threadContext) {
+    const audioBase64 = await _blobToBase64(blob);
+    const payload = {
+      mimeType: blob.type || 'audio/webm',
+      audioBase64,
+    };
+
+    const res = await fetch(YAP_PROCESS_AUDIO_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Yap-Duration-Ms': String(durationMs || 0),
+        'X-Yap-Thread-Context': _toBase64Json(threadContext),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      throw await _apiErrorFromResponse('Audio processing failed', res);
+    }
+
+    return res.json();
+  },
+
+  _threadContext() {
+    return Store.getThreads().map(thread => ({
+      id: thread.id,
+      label: thread.label,
+      excerpt: thread.excerpt || thread.transcript || '',
+      rangeLabel: thread.rangeLabel || '',
+      unheardCount: thread.unheardCount || 0,
+      lastHeardAt: thread.lastHeardAt || null,
+      hasHeardContext: !!thread.hasHeardContext,
+      recentMessages: thread.messages.slice(-4).map(message => ({
+        author: message.author?.name || '',
+        transcript: message.transcript || '',
+        label: message.label || '',
+        heardByCurrentUser: !!message.heardByCurrentUser,
+      })),
+    }));
+  },
+
+  // ── Build / update Store-compatible thread objects ────
+  _applySegmentsToThreads(chatId, authorId, segments, messageId, audioUrl, audioPath, audioBlob, totalDurationMs) {
+    const touches = [];
+
+    segments.forEach((seg, index) => {
+      const existingThread = seg.assigned_thread_id
+        ? Store.getThread(seg.assigned_thread_id)
+        : null;
+
+      const startMs = Math.max(0, Number(seg.start_ms) || 0);
+      const endMs = Math.max(startMs, Number(seg.end_ms) || startMs);
+      const durationMs = endMs > startMs
+        ? endMs - startMs
+        : Math.max(1400, Math.round(totalDurationMs / Math.max(segments.length, 1)));
+      const sentAt = Date.now() + index;
+      const threadId = existingThread?.id || `thread-${messageId}-${index}`;
+
+      const userMessage = {
+        id: `${messageId}-seg-${index}`,
+        voiceMessageId: messageId,
+        threadId,
+        authorId,
+        author: USERS.sooim,
+        audioUrl,
+        audioPath,
+        audioBlob,
+        durationMs,
+        label: seg.excerpt || seg.label,
+        transcript: seg.transcript,
+        excerpt: seg.excerpt || seg.transcript,
+        startMs,
+        endMs,
+        sentAt,
+        parentMemoId: messageId,
+        heardByCurrentUser: true,
+      };
+
+      const parentMemoMessage = {
+        id: `memo-${threadId}-${messageId}`,
+        voiceMessageId: messageId,
+        threadId,
+        authorId,
+        author: USERS.sooim,
+        audioUrl,
+        audioPath,
+        audioBlob,
+        durationMs: totalDurationMs,
+        label: 'Full memo',
+        transcript: '',
+        excerpt: '',
+        startMs: 0,
+        endMs: totalDurationMs,
+        sentAt,
+        parentMemoId: messageId,
+        heardByCurrentUser: true,
+      };
+
+      let thread = existingThread;
+      let isNewThread = false;
+
+      if (thread) {
+        Store.addMessage(thread.id, userMessage);
+        thread = Store.updateThread(thread.id, {
+          lastActivityAt: sentAt,
+          parentMemoMessage: thread.parentMemoMessage || parentMemoMessage,
+        });
+      } else {
+        thread = {
+          id: threadId,
+          chatId,
+          label: seg.label,
+          excerpt: seg.excerpt || seg.transcript,
+          transcript: seg.transcript,
+          rangeLabel: _rangeLabel(startMs, endMs),
+          parentMemoId: messageId,
+          parentMemoMessage,
+          createdAt: sentAt,
+          lastActivityAt: sentAt,
+          messages: [userMessage],
+        };
+        Store.addThread(thread);
+        isNewThread = true;
+      }
+
+      touches.push({
+        thread,
+        userMessage,
+        segment: {
+          ...seg,
+          start_ms: startMs,
+          end_ms: endMs,
+          assigned_thread_id: thread.id,
+        },
+        isNewThread,
+      });
+    });
+
+    return touches;
+  },
+
+  // ── Persist to DB ─────────────────────────────────────
+  async _persistProcessingResult({ transcript, transcriptWords, messageId, touches }) {
+    await saveTranscriptRecord(messageId, transcript, transcriptWords);
+
+    for (const touch of touches) {
+      await ensureTopicThread(touch.thread);
+      await saveTopicSegmentRecord({
+        voiceMessageId: messageId,
+        topicThreadId: touch.thread.id,
+        label: touch.segment.label,
+        transcript: touch.segment.transcript,
+        startMs: touch.segment.start_ms,
+        endMs: touch.segment.end_ms,
+      });
+    }
+
+    await markVoiceMessageDone(messageId);
+  },
+
+  // ── Generate + apply Chloe/Maria responses ────────────
+  async _generateAndApplyResponses(chatId, touches) {
+    for (const touch of touches) {
+      setTimeout(async () => {
+        try {
+          const replies = await this._requestReplies(touch.thread, touch.userMessage);
+          let staggerMs = 0;
+
+          for (const reply of replies) {
+            const perReplyDelay = _nextReplyDelayMs(reply.author_name, staggerMs === 0);
+            staggerMs += perReplyDelay;
+
+            setTimeout(async () => {
+              try {
+                const message = await this._materializeReply(chatId, touch.thread, reply);
+                Store.addMessage(touch.thread.id, message);
+                _pEmit('yap:response:arrived', { threadId: touch.thread.id, message });
+              } catch (error) {
+                console.warn('[yAp] Reply materialization failed:', error);
+              }
+            }, staggerMs);
+          }
+        } catch (error) {
+          console.warn('[yAp] Reply generation failed:', error);
+        }
+      }, 2200 + Math.random() * 1200);
+    }
+  },
+
+  async _requestReplies(thread, userMessage) {
+    const res = await fetch(YAP_GENERATE_REPLIES_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatName: 'besties 👋',
+        thread: {
+          id: thread.id,
+          label: thread.label,
+          excerpt: thread.excerpt,
+          transcript: thread.transcript,
+          messages: thread.messages.slice(-5).map(message => ({
+            author: message.author?.name || '',
+            transcript: message.transcript || '',
+            label: message.label || '',
+          })),
+        },
+        latestUserMessage: {
+          label: userMessage.label,
+          excerpt: userMessage.excerpt,
+          transcript: userMessage.transcript,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      throw await _apiErrorFromResponse('Reply generation failed', res);
+    }
+
+    const json = await res.json();
+    return Array.isArray(json.replies) ? json.replies : [];
+  },
+
+  async _materializeReply(chatId, thread, reply) {
+    const user = USERS[(reply.author_name || '').toLowerCase()] || USERS.maria;
+    let durationMs = Number(reply.duration_ms) || _estimateDurationMs(reply.text);
+
+    let audioBlob = null;
+    let audioUrl = null;
+    let audioPath = null;
+
+    if (reply.audio_base64) {
+      audioBlob = _base64ToBlob(reply.audio_base64, reply.mime_type || 'audio/mpeg');
+      audioUrl = URL.createObjectURL(audioBlob);
+      const measuredDuration = await _measureAudioDuration(audioUrl);
+      if (measuredDuration) durationMs = measuredDuration;
+    }
+
+    let persistedId = null;
+
+    if (isSupabaseReady() && audioBlob) {
+      const saved = await saveGeneratedReply({
+        chatId,
+        threadId: thread.id,
+        authorId: user.id,
+        audioBlob,
+        durationMs,
+        transcript: reply.text,
+        label: _shortLabel(reply.text),
+      });
+
+      if (saved?.messageId) {
+        persistedId = saved.messageId;
+        audioPath = saved.audioPath || null;
+      }
+    }
+
+    return {
+      id: persistedId || `resp-${user.id}-${thread.id}-${Date.now()}`,
+      voiceMessageId: persistedId || null,
+      threadId: thread.id,
+      authorId: user.id,
+      author: user,
+      audioUrl,
+      audioPath,
+      audioBlob,
+      durationMs,
+      label: _shortLabel(reply.text),
+      transcript: reply.text,
+      excerpt: reply.text,
+      startMs: 0,
+      endMs: durationMs,
+      sentAt: Date.now(),
+      parentMemoId: thread.parentMemoId,
+      heardByCurrentUser: false,
+    };
+  },
+
+  // ── Helpers ───────────────────────────────────────────
+  _mockSegments(durationMs) {
+    const half = Math.round(durationMs / 2);
+    return [
+      {
+        label: 'weekend plans',
+        excerpt: 'what are you up to this weekend',
+        transcript: 'what are you up to this weekend',
+        start_ms: 0,
+        end_ms: half,
+      },
+      {
+        label: 'funny story',
+        excerpt: 'something funny happened today',
+        transcript: 'something funny happened today',
+        start_ms: half,
+        end_ms: durationMs,
+      },
+    ];
+  },
+};
+
+function _pEmit(name, detail = {}) {
+  document.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
+function _shortLabel(text) {
+  const words = text.trim().split(/\s+/);
+  return words.length <= 6 ? text : words.slice(0, 6).join(' ') + '…';
+}
+
+function _estimateDurationMs(text) {
+  return Math.max(2600, (text || '').trim().split(/\s+/).filter(Boolean).length * 220);
+}
+
+function _nextReplyDelayMs(authorName, isFirstReply) {
+  const normalized = String(authorName || '').toLowerCase();
+
+  if (isFirstReply) {
+    if (normalized === 'chloe') {
+      return 900 + Math.round(Math.random() * 900);
+    }
+    if (normalized === 'maria') {
+      return 1600 + Math.round(Math.random() * 1400);
+    }
+    return 1200 + Math.round(Math.random() * 1200);
+  }
+
+  if (normalized === 'chloe') {
+    return 1400 + Math.round(Math.random() * 1400);
+  }
+  if (normalized === 'maria') {
+    return 1800 + Math.round(Math.random() * 1800);
+  }
+  return 1500 + Math.round(Math.random() * 1600);
+}
+
+function _rangeLabel(startMs, endMs) {
+  return `${_fmtClock(startMs)}-${_fmtClock(endMs)}`;
+}
+
+function _fmtClock(ms) {
+  const s = Math.max(0, Math.round((ms || 0) / 1000));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
+function _toBase64Json(value) {
+  try {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(value || []))));
+  } catch {
+    return '';
+  }
+}
+
+function _base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new Blob([bytes], { type: mimeType });
+}
+
+function _blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Failed to read audio blob'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const commaIndex = result.indexOf(',');
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function _measureAudioDuration(audioUrl) {
+  return new Promise(resolve => {
+    if (!audioUrl) {
+      resolve(0);
+      return;
+    }
+
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.src = audioUrl;
+
+    const finish = (value) => {
+      probe.src = '';
+      resolve(Number.isFinite(value) && value > 0 ? Math.round(value * 1000) : 0);
+    };
+
+    probe.addEventListener('loadedmetadata', () => finish(probe.duration), { once: true });
+    probe.addEventListener('error', () => finish(0), { once: true });
+  });
+}
+
+async function _apiErrorFromResponse(prefix, res) {
+  let payload = null;
+  let rawText = '';
+
+  try {
+    payload = await res.clone().json();
+  } catch {
+    rawText = await res.text();
+  }
+
+  const route = payload?.route || res.url || 'unknown route';
+  const errorText = payload?.error || rawText || res.statusText || 'Unknown server error';
+  const hint = payload?.hint ? ` Hint: ${payload.hint}` : '';
+  const detail = `${prefix} via ${route} (${res.status}): ${errorText}${hint}`;
+  const error = new Error(detail);
+
+  error.route = route;
+  error.status = res.status;
+  error.payload = payload;
+  console.error('[yAp] API request failed:', {
+    route,
+    status: res.status,
+    payload,
+    detail,
+  });
+
+  return error;
+}

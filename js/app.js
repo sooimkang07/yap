@@ -1061,17 +1061,23 @@ function wireEvents() {
     navigate('profile-setup', 'back');
   });
   // The file input is overlaid on the button via CSS (.entry-btn-file-wrap).
-  // When navigator.contacts is available we intercept the input's change event
-  // and use the native contact picker instead. When it's not available the
-  // file input opens the iOS Contacts/Files sheet natively — no JS needed.
-  if (navigator.contacts?.select) {
-    DOM.inputContactFile?.addEventListener('click', event => {
+  // Safari iOS: use native contact picker. Chrome iOS: show "open in Safari" prompt.
+  DOM.inputContactFile?.addEventListener('click', event => {
+    if (navigator.contacts?.select) {
+      // Safari iOS — use native contact picker.
       event.preventDefault();
       navigator.contacts.select(['name', 'tel'], { multiple: true })
         .then(picked => handlePickedContacts(picked, 'create-group'))
         .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
-    });
-  }
+    } else if (/CriOS|FxiOS|OPiOS|mercury/i.test(navigator.userAgent)) {
+      // Chrome / Firefox / Opera on iOS — contacts not accessible.
+      event.preventDefault();
+      setFeedback(DOM.createGroupFeedback,
+        'Contact access requires Safari. Tap ··· → Open in Safari, then try again.',
+        'error');
+    }
+    // Other browsers: let the file input open normally (vCard import fallback).
+  });
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();
   });

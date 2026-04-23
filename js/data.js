@@ -784,6 +784,17 @@ async function getChatsForUser(userId) {
     return [];
   }
 
+  // Also fetch pending invitations so not-yet-registered invitees show as members.
+  const { data: pendingInvitations, error: inviteError } = await supabaseClient
+    .from('invitations')
+    .select('chat_id, invitee_name, phone_e164, invite_token')
+    .in('chat_id', chatIds)
+    .in('status', ['pending', 'sent']);
+
+  if (inviteError) {
+    console.warn('[yAp] getChatsForUser invitations query failed:', inviteError);
+  }
+
   const { data: voiceMessages, error: messagesError } = await supabaseClient
     .from('voice_messages')
     .select('id, chat_id, author_id, playback_progress(user_id, heard)')
@@ -799,6 +810,21 @@ async function getChatsForUser(userId) {
     const user = registerUserRecord(entry.users);
     members.push(user);
     participantsByChat.set(entry.chat_id, members);
+  }
+
+  // Add pending invitees as placeholder members.
+  for (const invite of pendingInvitations || []) {
+    const members = participantsByChat.get(invite.chat_id) || [];
+    members.push({
+      id: `pending-${invite.invite_token}`,
+      name: invite.invitee_name || invite.phone_e164,
+      initials: buildUserInitials(invite.invitee_name || invite.phone_e164),
+      color: pickUserColor(invite.phone_e164),
+      avatarUrl: null,
+      phoneE164: invite.phone_e164,
+      pending: true,
+    });
+    participantsByChat.set(invite.chat_id, members);
   }
 
   const unreadByChat = new Map();

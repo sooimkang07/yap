@@ -1142,11 +1142,14 @@ function wireEvents() {
       });
 
       resetCreateGroupComposer();
-      await refreshChats();
+      // Add the freshly-created chat (with all members including pending invitees)
+      // to AppState immediately so openChat shows the right people.
+      AppState.chats = [createdChat, ...AppState.chats.filter(c => c.id !== createdChat.id)];
       renderChatsList();
       navigate('chats', 'forward');
-      const nextChat = AppState.chats.find(chat => chat.id === createdChat.id) || createdChat;
-      await openChat(nextChat);
+      await openChat(createdChat);
+      // Refresh from DB in background to sync any server-side changes.
+      refreshChats().then(() => renderChatsList());
 
       if (createdChat.smsWarning) {
         setFeedback(DOM.createGroupFeedback, `Group created. SMS issue: ${createdChat.smsWarning}`, 'error');

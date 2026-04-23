@@ -1063,21 +1063,26 @@ function wireEvents() {
   // The file input is overlaid on the button via CSS (.entry-btn-file-wrap).
   // Safari iOS: use native contact picker. Chrome iOS: show "open in Safari" prompt.
   DOM.inputContactFile?.addEventListener('click', event => {
-    if (navigator.contacts?.select) {
-      // iPhone Safari — use native contact picker.
-      event.preventDefault();
-      navigator.contacts.select(['name', 'tel'], { multiple: true })
-        .then(picked => handlePickedContacts(picked, 'create-group'))
-        .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
-    } else {
-      // Desktop or Chrome iOS — contacts API not available.
-      event.preventDefault();
-      const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    event.preventDefault();
+    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (!navigator.contacts) {
       const msg = isiOS
-        ? 'Contact access requires Safari. Tap ··· → Open in Safari, then try again.'
-        : 'Browse Contacts works on iPhone Safari. On desktop, use "Import iCloud / vCard" instead, or add friends manually above.';
+        ? 'Contacts API not found. Make sure you\'re in Safari (not Chrome) and iOS 14.5+.'
+        : 'Browse Contacts works on iPhone Safari only. On desktop, use "Import iCloud / vCard".';
       setFeedback(DOM.createGroupFeedback, msg, 'error');
+      return;
     }
+    if (!navigator.contacts.select) {
+      setFeedback(DOM.createGroupFeedback, 'navigator.contacts exists but .select() is missing. iOS version may be too old.', 'error');
+      return;
+    }
+    navigator.contacts.select(['name', 'tel'], { multiple: true })
+      .then(picked => handlePickedContacts(picked, 'create-group'))
+      .catch(err => {
+        if (err.name === 'AbortError') return;
+        setFeedback(DOM.createGroupFeedback, `Contacts error: ${err.name} — ${err.message}`, 'error');
+        console.warn('[yAp] contact picker:', err);
+      });
   });
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();

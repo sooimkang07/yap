@@ -112,7 +112,7 @@ class RecordingManager {
     };
     this.mediaRecorder.start(100); // collect every 100ms
     this._startSpeechRecognition();
-    this._renderTranscript('Listening…');
+    this._renderTranscript(APP_COPY.listening);
     this._startVideo();
 
     // Timer
@@ -192,7 +192,7 @@ class RecordingManager {
       window.__yapVoiceVisualizerBridge.reset();
     }
     this._clearCanvas();
-    this._renderTranscript('Listening…');
+    this._renderTranscript(APP_COPY.listening);
   }
 
   // ── Timer display ─────────────────────────────────────
@@ -309,7 +309,7 @@ class RecordingManager {
         }
         this.interimTranscript = interim.trim();
         const combined = `${this.finalTranscript} ${this.interimTranscript}`.trim();
-        this._renderTranscript(combined || 'Listening…');
+        this._renderTranscript(combined || APP_COPY.listening);
       };
 
       this.recognition.onerror = () => {};
@@ -361,7 +361,7 @@ class RecordingManager {
     if (!this.transcriptEl) return;
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
     const clipped = normalized.length > 64 ? '…' + normalized.slice(-64) : normalized;
-    this.transcriptEl.textContent = clipped || 'Listening…';
+    this.transcriptEl.textContent = clipped || APP_COPY.listening;
   }
 
   _startVideo() {

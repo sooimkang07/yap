@@ -25,6 +25,963 @@ function isSupabaseReady() {
   return !!supabaseClient;
 }
 
+function generateAppRecordId(prefix) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function normalizePhoneNumber(value) {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  return value.trim().startsWith('+') ? value.trim() : `+${digits}`;
+}
+
+function buildUserInitials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 'Y';
+  return words.slice(0, 2).map(word => word[0].toUpperCase()).join('');
+}
+
+function pickUserColor(name = '') {
+  const palette = ['#B8D8FF', '#DEC0F8', '#FFDEB8', '#CBECCF', '#FFD6E7', '#FFE7B8'];
+  const chars = Array.from(String(name));
+  const score = chars.reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return palette[score % palette.length];
+}
+
+function parseVCardContacts(vcardText) {
+  const cards = String(vcardText || '')
+    .split(/END:VCARD/i)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  return cards.map(card => {
+    const nameMatch = card.match(/(?:^|\n)FN[^:]*:([^\n]+)/i);
+    const telMatches = [...card.matchAll(/(?:^|\n)TEL[^:]*:([^\n]+)/ig)];
+    const phone = telMatches
+      .map(match => normalizePhoneNumber(match[1]))
+      .find(Boolean);
+
+    return {
+      name: nameMatch?.[1]?.trim() || '',
+      phone,
+    };
+  }).filter(contact => contact.phone);
+}
+
+function registerUserRecord(user) {
+  if (!user?.id) return null;
+
+  const normalized = {
+    id: user.id,
+    name: user.name || 'You',
+    color: user.color || user.color_hex || pickUserColor(user.name),
+    initials: user.initials || buildUserInitials(user.name),
+    avatarUrl: user.avatarUrl || user.avatar_url || null,
+    phoneE164: user.phoneE164 || user.phone_e164 || null,
+    authUserId: user.authUserId || user.auth_user_id || null,
+    profileCompleted: typeof user.profileCompleted === 'boolean'
+      ? user.profileCompleted
+      : !!user.profile_completed,
+  };
+
+  const existingKey = Object.keys(USERS).find(key => USERS[key]?.id === normalized.id);
+  if (existingKey) {
+    USERS[existingKey] = { ...USERS[existingKey], ...normalized };
+    return USERS[existingKey];
+  }
+
+  const nextKeyBase = normalized.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || normalized.id;
+
+  let nextKey = nextKeyBase;
+  let suffix = 1;
+  while (USERS[nextKey]) {
+    suffix += 1;
+    nextKey = `${nextKeyBase}-${suffix}`;
+  }
+
+  USERS[nextKey] = normalized;
+  return normalized;
+}
+
+async function getAuthSession() {
+  const localSession = getStoredAuthSession();
+  if (localSession?.user?.phone) {
+    return localSession;
+  }
+
+  if (!supabaseClient?.auth) return null;
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    console.error('[yAp] auth getSession failed:', error);
+    return null;
+  }
+  return data?.session || null;
+}
+
+async function sendPhoneOtp(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) throw new Error('Enter a valid phone number.');
+
+  try {
+    const response = await fetch(YAP_SEND_PHONE_CODE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ phone: normalizedPhone }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const hint = payload?.hint ? ` ${payload.hint}` : '';
+      throw new Error((payload?.error || 'We could not send a verification code right now.') + hint);
+    }
+
+    return normalizedPhone;
+  } catch (error) {
+    const isNetworkFailure = error instanceof TypeError;
+    if (!isNetworkFailure || !supabaseClient?.auth) throw error;
+
+    const { error: fallbackError } = await supabaseClient.auth.signInWithOtp({
+      phone: normalizedPhone,
+      options: {
+        shouldCreateUser: true,
+      },
+    });
+
+    if (fallbackError) throw fallbackError;
+    return normalizedPhone;
+  }
+}
+
+async function verifyPhoneOtp(phone, token) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedPhone || normalizedToken.length < 6) {
+    throw new Error('Enter the 6-digit code we texted you.');
+  }
+
+  try {
+    const response = await fetch(YAP_VERIFY_PHONE_CODE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        phone: normalizedPhone,
+        code: normalizedToken,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const hint = payload?.hint ? ` ${payload.hint}` : '';
+      throw new Error((payload?.error || 'That code did not work. Try again.') + hint);
+    }
+
+    const localSession = {
+      provider: 'twilio-verify',
+      verifiedAt: Date.now(),
+      user: {
+        phone: normalizedPhone,
+      },
+    };
+    setStoredAuthSession(localSession);
+    return localSession;
+  } catch (error) {
+    const isNetworkFailure = error instanceof TypeError;
+    if (!isNetworkFailure || !supabaseClient?.auth) throw error;
+
+    const { data, error: fallbackError } = await supabaseClient.auth.verifyOtp({
+      phone: normalizedPhone,
+      token: normalizedToken,
+      type: 'sms',
+    });
+
+    if (fallbackError) throw fallbackError;
+    if (data?.session) setStoredAuthSession(data.session);
+    return data?.session || null;
+  }
+}
+
+async function getAppUserByAuthUserId(authUserId) {
+  if (!supabaseClient || !authUserId) return null;
+
+  const { data, error } = await supabaseClient
+    .from('users')
+    .select('*')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[yAp] getAppUserByAuthUserId failed:', error);
+    return null;
+  }
+
+  return data ? registerUserRecord(data) : null;
+}
+
+async function getAppUserByPhone(phone) {
+  if (!supabaseClient || !phone) return null;
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return null;
+
+  const { data, error } = await supabaseClient
+    .from('users')
+    .select('*')
+    .eq('phone_e164', normalizedPhone)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[yAp] getAppUserByPhone failed:', error);
+    return null;
+  }
+
+  return data ? registerUserRecord(data) : null;
+}
+
+async function ensureAppUserFromAuthSession(session) {
+  const authUser = session?.user;
+  if (!supabaseClient || !authUser) return null;
+
+  const authUserId = authUser.id || null;
+  const phone = normalizePhoneNumber(authUser.phone || authUser.user_metadata?.phone || '');
+  let appUser = authUserId ? await getAppUserByAuthUserId(authUserId) : null;
+
+  if (!appUser && phone) {
+    appUser = await getAppUserByPhone(phone);
+  }
+
+  if (appUser) {
+    const updatePayload = {
+      phone_e164: phone || appUser.phoneE164 || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (authUserId) {
+      updatePayload.auth_user_id = authUserId;
+    }
+
+    const { data, error } = await supabaseClient
+      .from('users')
+      .update(updatePayload)
+      .eq('id', appUser.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[yAp] ensureAppUserFromAuthSession update failed:', error);
+      setStoredAuthSession({
+        ...session,
+        appUserId: appUser.id,
+      });
+      return appUser;
+    }
+
+    setStoredAuthSession({
+      ...session,
+      appUserId: data.id,
+      user: {
+        ...session.user,
+        phone,
+      },
+    });
+    return registerUserRecord(data);
+  }
+
+  const baseInsert = {
+    id: generateAppRecordId('user'),
+    name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || 'You',
+    color_hex: pickUserColor(authUser.phone || authUser.id || ''),
+    avatar_url: authUser.user_metadata?.avatar_url || null,
+  };
+  const fullInsert = {
+    ...baseInsert,
+    phone_e164: phone || null,
+    initials: buildUserInitials(baseInsert.name),
+    profile_completed: false,
+  };
+  if (authUserId) fullInsert.auth_user_id = authUserId;
+
+  let { data, error } = await supabaseClient.from('users').insert(fullInsert).select().single();
+
+  if (error?.message?.includes('schema cache')) {
+    ({ data, error } = await supabaseClient.from('users').insert(baseInsert).select().single());
+  }
+
+  if (error) {
+    console.error('[yAp] ensureAppUserFromAuthSession insert failed:', error);
+    const fallback = registerUserRecord({ ...fullInsert, profile_completed: false });
+    if (fallback) setStoredAuthSession({ ...session, appUserId: fallback.id });
+    return fallback;
+  }
+
+  setStoredAuthSession({
+    ...session,
+    appUserId: data.id,
+    user: { ...session.user, phone },
+  });
+  return registerUserRecord(data);
+}
+
+async function saveUserProfile({ userId, authUserId, name, avatarUrl, phone }) {
+  if (!supabaseClient || !userId || !name) throw new Error('Missing user profile details.');
+
+  // Try the full payload first (requires migrate.sql to have been run).
+  // On any schema-cache miss, fall back to the 4 columns guaranteed in the original table.
+  const base = { id: userId, name: name.trim(), color_hex: pickUserColor(name), avatar_url: avatarUrl || null };
+  const full = {
+    ...base,
+    phone_e164: normalizePhoneNumber(phone) || null,
+    initials: buildUserInitials(name),
+    profile_completed: true,
+    updated_at: new Date().toISOString(),
+  };
+  if (authUserId) full.auth_user_id = authUserId;
+
+  let { data, error } = await supabaseClient.from('users').upsert(full, { onConflict: 'id' }).select().single();
+
+  if (error?.message?.includes('schema cache')) {
+    ({ data, error } = await supabaseClient.from('users').upsert(base, { onConflict: 'id' }).select().single());
+  }
+
+  if (error) throw error;
+  const saved = registerUserRecord({ ...data, phone_e164: normalizePhoneNumber(phone) || null });
+  if (saved) saved.profileCompleted = true;
+  return saved;
+}
+
+async function signOutAuthSession() {
+  setStoredAuthSession(null);
+  if (!supabaseClient?.auth) return true;
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) throw error;
+  return true;
+}
+
+async function renameChat(chatId, name) {
+  if (!supabaseClient || !chatId || !name) throw new Error('Missing chat details.');
+
+  const { data, error } = await supabaseClient
+    .from('chats')
+    .update({
+      name: String(name).trim(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', chatId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function getInvitationsForChat(chatId) {
+  if (!supabaseClient || !chatId) return [];
+
+  const { data, error } = await supabaseClient
+    .from('invitations')
+    .select('*')
+    .eq('chat_id', chatId)
+    .in('status', ['pending', 'sent'])
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn('[yAp] getInvitationsForChat failed:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+async function addMembersToChat({ chatId, ownerUserId, members }) {
+  if (!supabaseClient || !chatId || !ownerUserId) throw new Error('Missing chat details.');
+
+  const normalizedMembers = (Array.isArray(members) ? members : [])
+    .map(member => ({
+      name: String(member?.name || '').trim(),
+      phone: normalizePhoneNumber(member?.phone),
+    }))
+    .filter(member => member.phone);
+
+  if (!normalizedMembers.length) {
+    throw new Error('Add at least one valid phone number.');
+  }
+
+  const { data: existingMatches, error: existingError } = await supabaseClient
+    .from('users')
+    .select('*')
+    .in('phone_e164', normalizedMembers.map(member => member.phone));
+
+  if (existingError) throw existingError;
+
+  const existingByPhone = new Map(
+    (existingMatches || []).map(user => {
+      const registeredUser = registerUserRecord(user);
+      return [registeredUser.phoneE164, registeredUser];
+    })
+  );
+
+  const participantRows = [];
+  const inviteRows = [];
+
+  for (const member of normalizedMembers) {
+    const matchedUser = existingByPhone.get(member.phone);
+    if (matchedUser) {
+      participantRows.push({
+        chat_id: chatId,
+        user_id: matchedUser.id,
+        role: 'member',
+        invite_status: 'joined',
+        invited_by: ownerUserId,
+      });
+    } else {
+      inviteRows.push({
+        id: generateAppRecordId('invite'),
+        chat_id: chatId,
+        inviter_id: ownerUserId,
+        invitee_name: member.name || null,
+        phone_e164: member.phone,
+        invite_token: crypto.randomUUID(),
+        status: 'pending',
+      });
+    }
+  }
+
+  if (participantRows.length) {
+    const { error: participantError } = await supabaseClient
+      .from('chat_participants')
+      .upsert(participantRows, { onConflict: 'chat_id,user_id' });
+    if (participantError) throw participantError;
+  }
+
+  if (inviteRows.length) {
+    const { error: inviteError } = await supabaseClient
+      .from('invitations')
+      .insert(inviteRows);
+    if (inviteError) throw inviteError;
+
+    const inviteResults = await sendInviteMessages({
+      chatName: AppState?.activeChat?.name || 'yAp group',
+      inviterName: getCurrentUser().name,
+      invites: inviteRows,
+    });
+    await updateInvitationStatuses(inviteResults);
+  }
+
+  const manualContactRows = normalizedMembers.map(member => ({
+    owner_user_id: ownerUserId,
+    source: 'manual',
+    display_name: member.name || member.phone,
+    phone_e164: member.phone,
+    matched_user_id: existingByPhone.get(member.phone)?.id || null,
+    invited_chat_id: chatId,
+  }));
+
+  if (manualContactRows.length) {
+    await supabaseClient.from('imported_contacts').insert(manualContactRows);
+  }
+
+  return {
+    addedUsers: participantRows.map(row => getUserById(row.user_id)).filter(Boolean),
+    invitesCreated: inviteRows.length,
+  };
+}
+
+async function resendInvitation(invite) {
+  if (!invite?.id || !invite?.phone_e164) throw new Error('Missing invite details.');
+  const results = await sendInviteMessages({
+    chatName: AppState?.activeChat?.name || 'yAp group',
+    inviterName: getCurrentUser().name,
+    invites: [invite],
+  });
+  await updateInvitationStatuses(results);
+  return results[0] || null;
+}
+
+async function revokeInvitation(inviteId) {
+  if (!supabaseClient || !inviteId) throw new Error('Missing invitation.');
+  const { error } = await supabaseClient
+    .from('invitations')
+    .update({
+      status: 'revoked',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', inviteId);
+  if (error) throw error;
+  return true;
+}
+
+async function leaveChat(chatId, userId) {
+  if (!supabaseClient || !chatId || !userId) throw new Error('Missing membership details.');
+
+  const { error } = await supabaseClient
+    .from('chat_participants')
+    .update({
+      invite_status: 'left',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('chat_id', chatId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return true;
+}
+
+async function removeMemberFromChat(chatId, userId) {
+  if (!supabaseClient || !chatId || !userId) throw new Error('Missing membership details.');
+
+  const { error } = await supabaseClient
+    .from('chat_participants')
+    .update({
+      invite_status: 'removed',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('chat_id', chatId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return true;
+}
+
+async function getNotificationRecipients(chatId, excludeUserId) {
+  if (!supabaseClient || !chatId) return [];
+
+  const { data, error } = await supabaseClient
+    .from('chat_participants')
+    .select('user_id, users(id, name, phone_e164)')
+    .eq('chat_id', chatId)
+    .eq('invite_status', 'joined');
+
+  if (error) {
+    console.warn('[yAp] getNotificationRecipients failed:', error);
+    return [];
+  }
+
+  return (data || [])
+    .map(entry => entry.users)
+    .filter(Boolean)
+    .filter(user => user.id !== excludeUserId && user.phone_e164)
+    .map(user => ({
+      id: user.id,
+      name: user.name,
+      phone_e164: user.phone_e164,
+    }));
+}
+
+async function sendMessageNotifications({ chatId, chatName, senderName, recipients, threadLabel, transcript, isReply }) {
+  if (!Array.isArray(recipients) || !recipients.length) return [];
+
+  const response = await fetch(YAP_SEND_MESSAGE_NOTIFICATIONS_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chatId,
+      chatName,
+      senderName,
+      recipients,
+      threadLabel,
+      transcript,
+      isReply: !!isReply,
+      baseUrl: window.location.origin + window.location.pathname,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || 'Message notifications failed.');
+  }
+
+  return Array.isArray(payload?.results) ? payload.results : [];
+}
+
+async function sendInviteMessages({ chatName, inviterName, invites }) {
+  if (!Array.isArray(invites) || !invites.length) return [];
+
+  const response = await fetch(YAP_SEND_INVITES_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chatName,
+      inviterName,
+      baseUrl: window.location.origin + window.location.pathname,
+      invites: invites.map(invite => ({
+        id: invite.id,
+        invite_token: invite.invite_token,
+        phone_e164: invite.phone_e164,
+        invitee_name: invite.invitee_name,
+      })),
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || 'Invite delivery failed.');
+  }
+
+  return Array.isArray(payload?.results) ? payload.results : [];
+}
+
+async function updateInvitationStatuses(results) {
+  if (!supabaseClient || !Array.isArray(results) || !results.length) return;
+
+  await Promise.all(results.map(async result => {
+    if (!result?.id || !result?.status) return;
+
+    const { error } = await supabaseClient
+      .from('invitations')
+      .update({
+        status: result.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', result.id);
+
+    if (error) {
+      console.warn('[yAp] Invitation status update failed:', error);
+    }
+  }));
+}
+
+async function acceptInviteToken(inviteToken, acceptedByUserId) {
+  if (!supabaseClient || !inviteToken || !acceptedByUserId) return null;
+
+  const { data: invite, error: inviteError } = await supabaseClient
+    .from('invitations')
+    .select('*')
+    .eq('invite_token', inviteToken)
+    .maybeSingle();
+
+  if (inviteError) throw inviteError;
+  if (!invite) return null;
+
+  const { error: participantError } = await supabaseClient
+    .from('chat_participants')
+    .upsert({
+      chat_id: invite.chat_id,
+      user_id: acceptedByUserId,
+      role: 'member',
+      invited_by: invite.inviter_id,
+      invite_status: 'joined',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'chat_id,user_id' });
+
+  if (participantError) throw participantError;
+
+  const { error: inviteUpdateError } = await supabaseClient
+    .from('invitations')
+    .update({
+      status: 'accepted',
+      accepted_by: acceptedByUserId,
+      accepted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invite.id);
+
+  if (inviteUpdateError) throw inviteUpdateError;
+
+  return invite.chat_id;
+}
+
+async function saveImportedContacts(ownerUserId, contacts, source = 'icloud_vcard') {
+  if (!supabaseClient || !ownerUserId || !Array.isArray(contacts) || !contacts.length) return [];
+
+  const rows = contacts.map(contact => ({
+    owner_user_id: ownerUserId,
+    source,
+    display_name: contact.name || contact.phone,
+    phone_e164: normalizePhoneNumber(contact.phone),
+  })).filter(contact => contact.phone_e164);
+
+  if (!rows.length) return [];
+
+  const { data, error } = await supabaseClient
+    .from('imported_contacts')
+    .insert(rows)
+    .select();
+
+  if (error) {
+    console.warn('[yAp] saveImportedContacts failed:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+async function getImportedContactsForUser(ownerUserId) {
+  if (!supabaseClient || !ownerUserId) return [];
+
+  const { data: contacts, error } = await supabaseClient
+    .from('imported_contacts')
+    .select('*')
+    .eq('owner_user_id', ownerUserId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn('[yAp] getImportedContactsForUser failed:', error);
+    return [];
+  }
+
+  const phoneNumbers = [...new Set((contacts || []).map(contact => contact.phone_e164).filter(Boolean))];
+  const { data: users, error: usersError } = phoneNumbers.length
+    ? await supabaseClient
+        .from('users')
+        .select('*')
+        .in('phone_e164', phoneNumbers)
+    : { data: [], error: null };
+
+  if (usersError) {
+    console.warn('[yAp] getImportedContactsForUser user match failed:', usersError);
+  }
+
+  const usersByPhone = new Map((users || []).map(user => {
+    const normalizedUser = registerUserRecord(user);
+    return [normalizedUser.phoneE164, normalizedUser];
+  }));
+
+  return (contacts || []).map(contact => {
+    const matchedUser = usersByPhone.get(contact.phone_e164) || null;
+    return {
+      ...contact,
+      matched_user_id: contact.matched_user_id || matchedUser?.id || null,
+      matchedUser,
+    };
+  });
+}
+
+async function getChatsForUser(userId) {
+  if (!supabaseClient || !userId) return [];
+
+  const { data: memberships, error: membershipError } = await supabaseClient
+    .from('chat_participants')
+    .select('chat_id, role, invite_status, chats(id, name, created_at, created_by, avatar_url, updated_at)')
+    .eq('user_id', userId)
+    .in('invite_status', ['joined', 'pending']);
+
+  if (membershipError) {
+    console.error('[yAp] getChatsForUser memberships failed:', membershipError);
+    return [];
+  }
+
+  const chatIds = (memberships || []).map(entry => entry.chat_id).filter(Boolean);
+  if (!chatIds.length) return [];
+
+  const { data: participants, error: participantError } = await supabaseClient
+    .from('chat_participants')
+    .select('chat_id, user_id, role, invite_status, users(id, name, color_hex, avatar_url, initials, phone_e164, profile_completed, auth_user_id)')
+    .in('chat_id', chatIds)
+    .eq('invite_status', 'joined');
+
+  if (participantError) {
+    console.error('[yAp] getChatsForUser participants failed:', participantError);
+    return [];
+  }
+
+  const { data: voiceMessages, error: messagesError } = await supabaseClient
+    .from('voice_messages')
+    .select('id, chat_id, author_id, playback_progress(user_id, heard)')
+    .in('chat_id', chatIds);
+
+  if (messagesError) {
+    console.warn('[yAp] getChatsForUser unread query failed:', messagesError);
+  }
+
+  const participantsByChat = new Map();
+  for (const entry of participants || []) {
+    const members = participantsByChat.get(entry.chat_id) || [];
+    const user = registerUserRecord(entry.users);
+    members.push(user);
+    participantsByChat.set(entry.chat_id, members);
+  }
+
+  const unreadByChat = new Map();
+  for (const message of voiceMessages || []) {
+    if (message.author_id === userId) continue;
+    const progress = Array.isArray(message.playback_progress)
+      ? message.playback_progress.find(entry => entry.user_id === userId)
+      : null;
+    if (progress?.heard) continue;
+    unreadByChat.set(message.chat_id, (unreadByChat.get(message.chat_id) || 0) + 1);
+  }
+
+  return (memberships || [])
+    .map(entry => {
+      const chat = entry.chats;
+      if (!chat) return null;
+
+      return {
+        id: chat.id,
+        name: chat.name,
+        emoji: null,
+        members: participantsByChat.get(chat.id) || [],
+        unread: unreadByChat.get(chat.id) || 0,
+        active: true,
+        visual: chat.id === ACTIVE_CHAT_ID ? 'besties' : 'default',
+        avatarUrl: chat.avatar_url || null,
+        createdBy: chat.created_by || null,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function createGroupChat({ ownerUserId, name, members }) {
+  if (!supabaseClient) throw new Error('Supabase is not configured yet.');
+  if (!ownerUserId) throw new Error('Sign in before creating a group.');
+
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) throw new Error('Give your group a name.');
+
+  const normalizedMembers = (Array.isArray(members) ? members : [])
+    .map(member => ({
+      name: String(member?.name || '').trim(),
+      phone: normalizePhoneNumber(member?.phone),
+    }))
+    .filter(member => member.phone);
+
+  if (!normalizedMembers.length) {
+    throw new Error('Add at least one friend by phone number.');
+  }
+
+  const chatId = generateAppRecordId('chat');
+  const inviteRows = [];
+  const participantRows = [{
+    chat_id: chatId,
+    user_id: ownerUserId,
+    role: 'owner',
+    invite_status: 'joined',
+  }];
+
+  const [owner, existingMatches] = await Promise.all([
+    getUserById(ownerUserId) || null,
+    supabaseClient
+      .from('users')
+      .select('*')
+      .in('phone_e164', normalizedMembers.map(member => member.phone)),
+  ]);
+
+  const existingByPhone = new Map(
+    ((existingMatches.data || [])).map(user => {
+      const registeredUser = registerUserRecord(user);
+      return [registeredUser.phoneE164, registeredUser];
+    })
+  );
+
+  for (const member of normalizedMembers) {
+    const matchedUser = existingByPhone.get(member.phone);
+    if (matchedUser) {
+      participantRows.push({
+        chat_id: chatId,
+        user_id: matchedUser.id,
+        role: 'member',
+        invite_status: 'joined',
+        invited_by: ownerUserId,
+      });
+    } else {
+      inviteRows.push({
+        id: generateAppRecordId('invite'),
+        chat_id: chatId,
+        inviter_id: ownerUserId,
+        invitee_name: member.name || null,
+        phone_e164: member.phone,
+        invite_token: crypto.randomUUID(),
+        status: 'pending',
+      });
+    }
+  }
+
+  let { error: chatError } = await supabaseClient
+    .from('chats').insert({ id: chatId, name: normalizedName, created_by: ownerUserId });
+  if (chatError?.message?.includes('schema cache')) {
+    ({ error: chatError } = await supabaseClient.from('chats').insert({ id: chatId, name: normalizedName }));
+  }
+  if (chatError) throw chatError;
+
+  let { error: participantError } = await supabaseClient.from('chat_participants').insert(participantRows);
+  if (participantError?.message?.includes('schema cache')) {
+    ({ error: participantError } = await supabaseClient
+      .from('chat_participants')
+      .insert(participantRows.map(r => ({ chat_id: r.chat_id, user_id: r.user_id }))));
+  }
+  if (participantError) throw participantError;
+
+  let smsWarning = null;
+
+  if (inviteRows.length) {
+    const { error: inviteError } = await supabaseClient
+      .from('invitations')
+      .insert(inviteRows);
+
+    if (inviteError) {
+      console.error('[yAp] invitations insert failed:', inviteError.message);
+      smsWarning = inviteError.message;
+    } else {
+      try {
+        const inviteResults = await sendInviteMessages({
+          chatName: normalizedName,
+          inviterName: getCurrentUser().name,
+          invites: inviteRows,
+        });
+        console.log('[yAp] invite SMS results:', JSON.stringify(inviteResults));
+        await updateInvitationStatuses(inviteResults);
+
+        const failed = inviteResults.filter(r => r.status !== 'sent');
+        if (failed.length) {
+          smsWarning = `SMS failed for ${failed.length} contact(s): ${failed.map(r => r.error).join('; ')}`;
+          console.warn('[yAp] some invites failed:', smsWarning);
+        }
+      } catch (smsErr) {
+        smsWarning = smsErr.message;
+        console.error('[yAp] sendInviteMessages error:', smsErr.message);
+      }
+    }
+  }
+
+  // imported_contacts is also optional — warn and continue if table missing.
+  const manualContactRows = normalizedMembers.map(member => ({
+    owner_user_id: ownerUserId,
+    source: 'manual',
+    display_name: member.name || member.phone,
+    phone_e164: member.phone,
+    matched_user_id: existingByPhone.get(member.phone)?.id || null,
+    invited_chat_id: chatId,
+  }));
+
+  if (manualContactRows.length) {
+    const { error: contactsError } = await supabaseClient
+      .from('imported_contacts')
+      .insert(manualContactRows);
+
+    if (contactsError) {
+      console.warn('[yAp] imported_contacts insert skipped:', contactsError.message);
+    }
+  }
+
+  const membersForChat = [owner || getCurrentUser()].concat(
+    participantRows
+      .filter(entry => entry.user_id !== ownerUserId)
+      .map(entry => getUserById(entry.user_id))
+      .filter(Boolean)
+  );
+
+  return {
+    id: chatId,
+    name: normalizedName,
+    members: membersForChat,
+    unread: 0,
+    active: true,
+    visual: 'default',
+    pendingInvites: inviteRows,
+    smsWarning,
+  };
+}
+
 // ── Seeded local data ──────────────────────────────────
 const FIGMA_ASSETS = {
   sooimAvatar: 'assets/sooim.jpg',
@@ -36,7 +993,7 @@ const FIGMA_ASSETS = {
 
 const USERS = {
   sooim: {
-    id:       CURRENT_USER.id,
+    id:       'user-sooim-000000000001',
     name:     'sooim',
     color:    '#B8D8FF',
     initials: 'S',
@@ -162,35 +1119,12 @@ async function ensureTopicThread(thread) {
     last_activity_at: new Date(thread.lastActivityAt || Date.now()).toISOString(),
   };
 
-  const { data: existing } = await supabaseClient
-    .from('topic_threads')
-    .select('id')
-    .eq('id', thread.id)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await supabaseClient
-      .from('topic_threads')
-      .update({
-        label: payload.label,
-        last_activity_at: payload.last_activity_at,
-      })
-      .eq('id', thread.id);
-
-    if (error) {
-      console.error('[yAp] Topic thread update failed:', error);
-      return null;
-    }
-
-    return thread.id;
-  }
-
   const { error } = await supabaseClient
     .from('topic_threads')
-    .insert(payload);
+    .upsert(payload, { onConflict: 'id' });
 
   if (error) {
-    console.error('[yAp] Topic thread insert failed:', error);
+    console.error('[yAp] Topic thread upsert failed:', error);
     return null;
   }
 
@@ -490,7 +1424,7 @@ const Store = {
     if (!found) return null;
 
     const { thread, message } = found;
-    if (message.authorId === CURRENT_USER.id) return found;
+    if (message.authorId === getCurrentUserId()) return found;
 
     message.heardByCurrentUser = true;
     message.playedMs = Math.max(playedMs || 0, message.durationMs || 0);
@@ -513,7 +1447,7 @@ const Store = {
     return normalized;
   },
   _normalizeMessage(message) {
-    const isCurrentUser = message.authorId === CURRENT_USER.id;
+    const isCurrentUser = message.authorId === getCurrentUserId();
     const startMs = Math.max(0, Number(message.startMs) || 0);
     const rawDurationMs = Math.max(0, Number(message.durationMs) || 0);
     const endMs = Math.max(startMs, Number(message.endMs) || (startMs + rawDurationMs));
@@ -536,8 +1470,9 @@ const Store = {
     };
   },
   _recalculateThreadState(thread) {
-    const heardMessages = thread.messages.filter(message => message.heardByCurrentUser && message.authorId !== CURRENT_USER.id);
-    const unheardMessages = thread.messages.filter(message => !message.heardByCurrentUser && message.authorId !== CURRENT_USER.id);
+    const currentUserId = getCurrentUserId();
+    const heardMessages = thread.messages.filter(message => message.heardByCurrentUser && message.authorId !== currentUserId);
+    const unheardMessages = thread.messages.filter(message => !message.heardByCurrentUser && message.authorId !== currentUserId);
 
     thread.unheardCount = unheardMessages.length;
     thread.lastHeardAt = heardMessages.length
@@ -596,7 +1531,7 @@ async function hydrateChatFromSupabase(chatId) {
   for (const voiceMessage of sortedMessages) {
     const author = Object.values(USERS).find(user => user.id === voiceMessage.author_id) || USERS.sooim;
     const progress = Array.isArray(voiceMessage.playback_progress)
-      ? voiceMessage.playback_progress.find(entry => entry.user_id === CURRENT_USER.id)
+      ? voiceMessage.playback_progress.find(entry => entry.user_id === getCurrentUserId())
       : null;
     const segments = Array.isArray(voiceMessage.topic_segments)
       ? [...voiceMessage.topic_segments].sort((a, b) => a.start_ms - b.start_ms)
@@ -637,14 +1572,14 @@ async function hydrateChatFromSupabase(chatId) {
         audioPath: looksLikeStoragePath(voiceMessage.audio_url) ? voiceMessage.audio_url : null,
         audioUrl: looksLikeStoragePath(voiceMessage.audio_url) ? null : (voiceMessage.audio_url || null),
         durationMs,
-        label: segment.label || clipMessageLabel(segment.transcript),
+        label: segment.label || clipWords(segment.transcript, 8),
         transcript: segment.transcript,
-        excerpt: clipMessageLabel(segment.transcript),
+        excerpt: clipWords(segment.transcript, 8),
         startMs: segment.start_ms || 0,
         endMs: segment.end_ms || durationMs,
         sentAt,
         parentMemoId: voiceMessage.id,
-        heardByCurrentUser: voiceMessage.author_id === CURRENT_USER.id ? true : !!progress?.heard,
+        heardByCurrentUser: voiceMessage.author_id === getCurrentUserId() ? true : !!progress?.heard,
         playedMs: progress?.played_ms || 0,
         heardAt: progress?.last_heard_at ? new Date(progress.last_heard_at).getTime() : null,
       };
@@ -652,11 +1587,11 @@ async function hydrateChatFromSupabase(chatId) {
       thread.messages.push(message);
       thread.lastActivityAt = Math.max(thread.lastActivityAt || 0, sentAt);
 
-      if (!thread.parentMemoId && voiceMessage.author_id === CURRENT_USER.id) {
+      if (!thread.parentMemoId && voiceMessage.author_id === getCurrentUserId()) {
         thread.parentMemoId = voiceMessage.id;
-        thread.excerpt = clipMessageLabel(segment.transcript);
+        thread.excerpt = clipWords(segment.transcript, 8);
         thread.transcript = segment.transcript;
-        thread.rangeLabel = `${formatMs(segment.start_ms)}-${formatMs(segment.end_ms)}`;
+        thread.rangeLabel = `${formatDurationClock(segment.start_ms)}-${formatDurationClock(segment.end_ms)}`;
         thread.parentMemoMessage = {
           id: `memo-${thread.id}-${voiceMessage.id}`,
           voiceMessageId: voiceMessage.id,
@@ -685,33 +1620,32 @@ async function hydrateChatFromSupabase(chatId) {
     .map(thread => ({
       ...thread,
       messages: thread.messages.sort((a, b) => a.sentAt - b.sentAt),
-      excerpt: thread.excerpt || clipMessageLabel(thread.messages[0]?.transcript || ''),
+      excerpt: thread.excerpt || clipWords(thread.messages[0]?.transcript || '', 8),
       transcript: thread.transcript || thread.messages[0]?.transcript || '',
-      rangeLabel: thread.rangeLabel || `${formatMs(thread.messages[0]?.startMs || 0)}-${formatMs(thread.messages[0]?.endMs || 0)}`,
+      rangeLabel: thread.rangeLabel || `${formatDurationClock(thread.messages[0]?.startMs || 0)}-${formatDurationClock(thread.messages[0]?.endMs || 0)}`,
       parentMemoId: thread.parentMemoId || thread.messages[0]?.voiceMessageId || null,
       parentMemoMessage: thread.parentMemoMessage || null,
     }))
     .filter(thread => isVisibleConversationThread(thread))
     .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
 
+  const audioHydrationJobs = [];
   for (const thread of hydratedThreads) {
     if (thread.parentMemoMessage?.audioPath) {
-      await ensureMessageAudioUrl(thread.parentMemoMessage);
+      audioHydrationJobs.push(ensureMessageAudioUrl(thread.parentMemoMessage));
     }
     for (const message of thread.messages) {
       if (message.audioPath) {
-        await ensureMessageAudioUrl(message);
+        audioHydrationJobs.push(ensureMessageAudioUrl(message));
       }
     }
   }
 
+  await Promise.all(audioHydrationJobs);
+
   Store.clear();
   hydratedThreads.forEach(thread => Store.addThread(thread));
   return Store.getThreads();
-}
-
-function clipMessageLabel(text) {
-  return String(text || '').trim().split(/\s+/).filter(Boolean).slice(0, 8).join(' ');
 }
 
 function clipDebugText(text, maxWords = 24) {
@@ -720,15 +1654,10 @@ function clipDebugText(text, maxWords = 24) {
   return words.slice(0, maxWords).join(' ') + '...';
 }
 
-function formatMs(ms) {
-  const totalSeconds = Math.max(0, Math.round((ms || 0) / 1000));
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
-}
-
 function isVisibleConversationThread(thread) {
   if (!thread || !Array.isArray(thread.messages) || thread.messages.length === 0) return false;
 
-  const userMessages = thread.messages.filter(message => message.authorId === CURRENT_USER.id);
+  const userMessages = thread.messages.filter(message => message.authorId === getCurrentUserId());
   if (!userMessages.length) return false;
 
   return !userMessages.every(message => isLegacyDemoText(message.transcript) || isLegacyDemoText(message.label));

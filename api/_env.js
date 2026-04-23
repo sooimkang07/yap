@@ -7,8 +7,6 @@ function ensureLocalEnv() {
   if (loaded) return;
   loaded = true;
 
-  if (process.env.OPENAI_API_KEY) return;
-
   const envPath = path.join(process.cwd(), '.env.local');
   if (!fs.existsSync(envPath)) return;
 

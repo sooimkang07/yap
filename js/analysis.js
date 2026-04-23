@@ -26,7 +26,7 @@ const AnalysisModal = {
 
     // Build all bar elements (invisible initially)
     const barEls = segments.map(seg => {
-      const durLabel = _amsFmt(seg.end_ms - seg.start_ms);
+      const durLabel = formatDurationClock(seg.end_ms - seg.start_ms);
       const el = document.createElement('div');
       el.className = 'analysis-bar';
       el.innerHTML = `
@@ -70,13 +70,6 @@ const AnalysisModal = {
     setTimeout(() => this.close(), 2200);
   },
 };
-
-// Format ms → "m:ss"
-function _amsFmt(ms) {
-  if (!ms || ms <= 0) return '0:00';
-  const s = Math.round(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
 
 function clipAnalysisError(message) {
   const normalized = String(message || '').replace(/\s+/g, ' ').trim();

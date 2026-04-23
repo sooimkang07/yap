@@ -73,7 +73,119 @@ const Pipeline = {
 
     _pEmit('yap:pipeline:done', { threads: touchedThreads });
 
+    this._notifyHumanRecipients({
+      chatId,
+      chatName: AppState?.activeChat?.name || 'yAp group',
+      authorId,
+      senderName: currentAuthorName(authorId),
+      touches,
+      transcript,
+      isReply: false,
+    }).catch(error => console.warn('[yAp] Message notifications failed:', error));
+
     this._generateAndApplyResponses(chatId, touches);
+  },
+
+  async replyToThread(blob, durationMs, chatId, authorId, threadId, localAudioUrl) {
+    const thread = Store.getThread(threadId);
+    if (!thread) throw new Error('That thread is no longer available.');
+
+    let messageId = 'local-reply-' + Date.now();
+    let audioUrl = localAudioUrl;
+    let audioPath = null;
+
+    if (isSupabaseReady()) {
+      const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
+      if (saved) {
+        messageId = saved.messageId;
+        audioUrl = saved.audioUrl || localAudioUrl;
+        audioPath = saved.audioPath || null;
+      }
+    }
+
+    let transcript = '';
+
+    try {
+      const processed = await this._processAudio(blob, durationMs, []);
+      transcript = processed.transcript || '';
+      _pEmit('yap:pipeline:transcribed', { transcript });
+    } catch (error) {
+      if (isSupabaseReady() && !String(messageId).startsWith('local-')) {
+        markVoiceMessageFailed(messageId).catch(updateError => {
+          console.warn('[yAp] Failed to mark voice reply failed:', updateError);
+        });
+      }
+      throw error;
+    }
+
+    const currentAuthor = getUserById(authorId) || getCurrentUser();
+    const sentAt = Date.now();
+    const replyMessage = {
+      id: `${messageId}-reply`,
+      voiceMessageId: messageId,
+      threadId,
+      authorId,
+      author: currentAuthor,
+      audioUrl,
+      audioPath,
+      audioBlob: blob,
+      durationMs,
+      label: _shortLabel(transcript || 'Voice reply'),
+      transcript: transcript || 'Voice reply',
+      excerpt: transcript || 'Voice reply',
+      startMs: 0,
+      endMs: durationMs,
+      sentAt,
+      parentMemoId: thread.parentMemoId || messageId,
+      heardByCurrentUser: true,
+    };
+
+    Store.addMessage(threadId, replyMessage);
+    Store.updateThread(threadId, { lastActivityAt: sentAt });
+
+    if (isSupabaseReady()) {
+      await saveTranscriptRecord(messageId, transcript || '');
+      await ensureTopicThread(thread);
+      await saveTopicSegmentRecord({
+        voiceMessageId: messageId,
+        topicThreadId: threadId,
+        label: replyMessage.label,
+        transcript: replyMessage.transcript,
+        startMs: 0,
+        endMs: durationMs,
+      });
+      await markVoiceMessageDone(messageId);
+    }
+
+    this._notifyHumanRecipients({
+      chatId,
+      chatName: AppState?.activeChat?.name || 'yAp group',
+      authorId,
+      senderName: currentAuthor.name,
+      touches: [{ thread, userMessage: replyMessage }],
+      transcript,
+      isReply: true,
+    }).catch(error => console.warn('[yAp] Reply notifications failed:', error));
+
+    return replyMessage;
+  },
+
+  async _notifyHumanRecipients({ chatId, chatName, authorId, senderName, touches, transcript, isReply }) {
+    if (!isSupabaseReady() || !chatId || !authorId) return;
+
+    const recipients = await getNotificationRecipients(chatId, authorId);
+    if (!recipients.length) return;
+
+    const primaryTouch = Array.isArray(touches) && touches.length ? touches[0] : null;
+    await sendMessageNotifications({
+      chatId,
+      chatName,
+      senderName,
+      recipients,
+      threadLabel: primaryTouch?.thread?.label || primaryTouch?.userMessage?.label || 'New message',
+      transcript: transcript || primaryTouch?.userMessage?.transcript || '',
+      isReply,
+    });
   },
 
   async _processAudio(blob, durationMs, threadContext) {
@@ -121,6 +233,7 @@ const Pipeline = {
   // ── Build / update Store-compatible thread objects ────
   _applySegmentsToThreads(chatId, authorId, segments, messageId, audioUrl, audioPath, audioBlob, totalDurationMs) {
     const touches = [];
+    const currentAuthor = getUserById(authorId) || getCurrentUser();
 
     segments.forEach((seg, index) => {
       const existingThread = seg.assigned_thread_id
@@ -140,7 +253,7 @@ const Pipeline = {
         voiceMessageId: messageId,
         threadId,
         authorId,
-        author: USERS.sooim,
+        author: currentAuthor,
         audioUrl,
         audioPath,
         audioBlob,
@@ -160,7 +273,7 @@ const Pipeline = {
         voiceMessageId: messageId,
         threadId,
         authorId,
-        author: USERS.sooim,
+        author: currentAuthor,
         audioUrl,
         audioPath,
         audioBlob,
@@ -222,9 +335,9 @@ const Pipeline = {
   async _persistProcessingResult({ transcript, transcriptWords, messageId, touches }) {
     await saveTranscriptRecord(messageId, transcript, transcriptWords);
 
-    for (const touch of touches) {
+    await Promise.all(touches.map(async touch => {
       await ensureTopicThread(touch.thread);
-      await saveTopicSegmentRecord({
+      return saveTopicSegmentRecord({
         voiceMessageId: messageId,
         topicThreadId: touch.thread.id,
         label: touch.segment.label,
@@ -232,7 +345,7 @@ const Pipeline = {
         startMs: touch.segment.start_ms,
         endMs: touch.segment.end_ms,
       });
-    }
+    }));
 
     await markVoiceMessageDone(messageId);
   },
@@ -308,9 +421,9 @@ const Pipeline = {
     let audioPath = null;
 
     if (reply.audio_base64) {
-      audioBlob = _base64ToBlob(reply.audio_base64, reply.mime_type || 'audio/mpeg');
+      audioBlob = blobFromBase64(reply.audio_base64, reply.mime_type || 'audio/mpeg');
       audioUrl = URL.createObjectURL(audioBlob);
-      const measuredDuration = await _measureAudioDuration(audioUrl);
+      const measuredDuration = await measureAudioDurationFromUrl(audioUrl);
       if (measuredDuration) durationMs = measuredDuration;
     }
 
@@ -385,6 +498,10 @@ function _shortLabel(text) {
   return words.length <= 6 ? text : words.slice(0, 6).join(' ') + '…';
 }
 
+function currentAuthorName(authorId) {
+  return getUserById(authorId)?.name || getCurrentUser()?.name || 'A friend';
+}
+
 function _estimateDurationMs(text) {
   return Math.max(2600, (text || '').trim().split(/\s+/).filter(Boolean).length * 220);
 }
@@ -412,12 +529,7 @@ function _nextReplyDelayMs(authorName, isFirstReply) {
 }
 
 function _rangeLabel(startMs, endMs) {
-  return `${_fmtClock(startMs)}-${_fmtClock(endMs)}`;
-}
-
-function _fmtClock(ms) {
-  const s = Math.max(0, Math.round((ms || 0) / 1000));
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  return `${formatDurationClock(startMs)}-${formatDurationClock(endMs)}`;
 }
 
 function _toBase64Json(value) {
@@ -426,17 +538,6 @@ function _toBase64Json(value) {
   } catch {
     return '';
   }
-}
-
-function _base64ToBlob(base64, mimeType) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return new Blob([bytes], { type: mimeType });
 }
 
 function _blobToBase64(blob) {
@@ -449,27 +550,6 @@ function _blobToBase64(blob) {
       resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
     };
     reader.readAsDataURL(blob);
-  });
-}
-
-function _measureAudioDuration(audioUrl) {
-  return new Promise(resolve => {
-    if (!audioUrl) {
-      resolve(0);
-      return;
-    }
-
-    const probe = new Audio();
-    probe.preload = 'metadata';
-    probe.src = audioUrl;
-
-    const finish = (value) => {
-      probe.src = '';
-      resolve(Number.isFinite(value) && value > 0 ? Math.round(value * 1000) : 0);
-    };
-
-    probe.addEventListener('loadedmetadata', () => finish(probe.duration), { once: true });
-    probe.addEventListener('error', () => finish(0), { once: true });
   });
 }
 

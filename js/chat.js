@@ -255,19 +255,16 @@ function renderTopics() {
   PlaybackController.init();
   const threads = Store.getThreads();
 
-  DOM.chatEmpty.style.display = threads.length ? 'none' : '';
-  DOM.chatTopics.style.display = threads.length ? '' : 'none';
-  DOM.chatTopics.innerHTML = '';
+  setDisplay(DOM.chatEmpty, !threads.length);
+  setDisplay(DOM.chatTopics, !!threads.length, 'flex');
 
   if (!threads.length) return;
 
-  threads.forEach(thread => {
-    const row = document.createElement('section');
-    row.className = `topic-card${_expandedThreadId === thread.id ? ' expanded' : ''}`;
-    row.dataset.threadId = thread.id;
-    row.innerHTML = _topicCardInner(thread);
-    DOM.chatTopics.appendChild(row);
-  });
+  DOM.chatTopics.innerHTML = threads.map(thread => `
+    <section class="topic-card${_expandedThreadId === thread.id ? ' expanded' : ''}" data-thread-id="${thread.id}">
+      ${_topicCardInner(thread)}
+    </section>
+  `).join('');
 
   if (!DOM.chatTopics._interactionWired) {
     DOM.chatTopics.addEventListener('click', _handleTopicInteraction);
@@ -279,13 +276,16 @@ function renderTopics() {
 
 function _topicCardInner(thread) {
   const topicMessage = _topicPrimaryMessage(thread);
-  const replies = thread.messages.filter(message => message.authorId !== CURRENT_USER.id);
+  const replies = thread.messages.filter(message => message.authorId !== getCurrentUserId());
   const expanded = _expandedThreadId === thread.id
     ? `
       <div class="topic-thread">
         <div class="topic-thread__replies">
           ${replies.map(_replyRowHTML).join('')}
         </div>
+        <button class="topic-thread__reply-btn" type="button" data-reply-thread="${thread.id}">
+          Reply with voice
+        </button>
       </div>
     `
     : '';
@@ -317,7 +317,7 @@ function _topicRowHTML(thread, message, replies) {
                 aria-label="Play topic thread">
           <span class="topic-row__play-icon"></span>
         </button>
-        <span class="topic-row__title">${_escapeHtml(thread.label)}</span>
+        <span class="topic-row__title">${escapeHtml(thread.label)}</span>
         <span class="topic-row__meta">
           <span class="topic-row__time">${_formatClockTime(message.sentAt)}</span>
         </span>
@@ -339,7 +339,7 @@ function _replyRowHTML(message) {
             data-voice-message-id="${message.voiceMessageId || message.id}">
       <div class="reply-row__header">
         <span class="reply-row__play"><span class="topic-row__play-icon"></span></span>
-        <span class="reply-row__title">${_escapeHtml(message.label || message.transcript || '')}</span>
+        <span class="reply-row__title">${escapeHtml(message.label || message.transcript || '')}</span>
         <span class="reply-row__meta">
           <span class="reply-row__time">${_formatClockTime(message.sentAt)}</span>
           <span class="reply-row__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>
@@ -362,7 +362,7 @@ function _renderSegmentTrack(segments) {
           <span class="topic-row__segment topic-row__segment--${segment.speaker}" style="width:${(Math.max(0, Number(segment.duration) || 0) / totalMs) * 100}%"></span>
         `).join('')}
       </span>
-      <span class="topic-row__tick">-${_cfFmt(totalMs)}</span>
+      <span class="topic-row__tick">-${formatDurationClock(totalMs)}</span>
     </div>
   `;
 }
@@ -372,7 +372,7 @@ function _replyAvatarHTML(message) {
 }
 
 function _topicPrimaryMessage(thread) {
-  const userMessages = thread.messages.filter(message => message.authorId === CURRENT_USER.id);
+  const userMessages = thread.messages.filter(message => message.authorId === getCurrentUserId());
   return userMessages[userMessages.length - 1] || thread.parentMemoMessage || thread.messages[0];
 }
 
@@ -406,6 +406,16 @@ function _handleTopicInteraction(event) {
     event.preventDefault();
     event.stopPropagation();
     toggleTopicExpand(expandToggle.dataset.expandThread);
+    return;
+  }
+
+  const replyTrigger = event.target.closest('[data-reply-thread]');
+  if (replyTrigger) {
+    event.preventDefault();
+    event.stopPropagation();
+    document.dispatchEvent(new CustomEvent('yap:thread:reply', {
+      detail: { threadId: replyTrigger.dataset.replyThread },
+    }));
   }
 }
 
@@ -431,7 +441,7 @@ function _threadPlaybackSequence(thread) {
   if (!thread) return [];
 
   const topicMessage = _topicPrimaryMessage(thread);
-  const replies = thread.messages.filter(message => message.authorId !== CURRENT_USER.id);
+  const replies = thread.messages.filter(message => message.authorId !== getCurrentUserId());
 
   return [topicMessage, ...replies].filter(item => _isPlayable(item));
 }
@@ -450,7 +460,7 @@ async function resolvePlayableSource(item) {
     return { url, type: url.startsWith('blob:') ? 'blob' : 'url' };
   }
 
-  if (item.authorId !== CURRENT_USER.id && item.transcript) {
+  if (item.authorId !== getCurrentUserId() && item.transcript) {
     console.log('[yAp] reply missing audio, synthesizing on demand', {
       itemId: item.id,
       author: item.author?.name,
@@ -483,9 +493,9 @@ async function synthesizeReplyAudio(item) {
   const json = await response.json();
   if (!json?.audio_base64) return null;
 
-  const blob = _base64ToBlob(json.audio_base64, json.mime_type || 'audio/mpeg');
+  const blob = blobFromBase64(json.audio_base64, json.mime_type || 'audio/mpeg');
   const objectUrl = URL.createObjectURL(blob);
-  const measuredDurationMs = await _measureAudioDurationFromUrl(objectUrl) || Number(json.duration_ms) || item.durationMs || 0;
+  const measuredDurationMs = await measureAudioDurationFromUrl(objectUrl) || Number(json.duration_ms) || item.durationMs || 0;
   item.audioBlob = blob;
   item.audioUrl = objectUrl;
   item.audioSignedAt = null;
@@ -507,13 +517,7 @@ async function synthesizeReplyAudio(item) {
 }
 
 function _isPlayable(item) {
-  return !!(item && (item.audioUrl || item.audioPath || (item.authorId !== CURRENT_USER.id && item.transcript)));
-}
-
-function _cfFmt(ms) {
-  if (!ms || ms <= 0) return '0:00';
-  const s = Math.round(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  return !!(item && (item.audioUrl || item.audioPath || (item.authorId !== getCurrentUserId() && item.transcript)));
 }
 
 function _formatClockTime(sentAt) {
@@ -526,56 +530,11 @@ async function _markMessageHeard(messageId, voiceMessageId, durationSeconds) {
   if (!found) return;
 
   savePlaybackProgressRecord({
-    userId: CURRENT_USER.id,
+    userId: getCurrentUserId(),
     voiceMessageId: voiceMessageId || found.message.voiceMessageId || messageId,
     heard: true,
     playedMs: found.message.playedMs || found.message.durationMs || 0,
   }).catch(error => console.warn('[yAp] Playback progress save failed:', error));
-}
-
-function _escapeHtml(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function _base64ToBlob(base64, mimeType) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return new Blob([bytes], { type: mimeType });
-}
-
-function _measureAudioDurationFromUrl(url) {
-  return new Promise(resolve => {
-    if (!url) {
-      resolve(0);
-      return;
-    }
-
-    const probe = new Audio();
-    probe.preload = 'metadata';
-    probe.src = url;
-
-    const finish = duration => {
-      try {
-        probe.pause();
-        probe.removeAttribute('src');
-        probe.load();
-      } catch {}
-      resolve(duration > 0 ? Math.round(duration * 1000) : 0);
-    };
-
-    probe.addEventListener('loadedmetadata', () => finish(Number(probe.duration) || 0), { once: true });
-    probe.addEventListener('error', () => finish(0), { once: true });
-  });
 }
 
 function _syncPlaybackWindow(audio, item, activeMeta, playToken) {

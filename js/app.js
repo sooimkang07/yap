@@ -1078,7 +1078,12 @@ function wireEvents() {
   });
   DOM.btnBrowseContacts?.addEventListener('click', async () => {
     const handled = await useDeviceContacts('create-group');
-    if (!handled) await openContactsHub('create-group', true);
+    if (!handled) {
+      // iOS blocks file.click() outside a direct user gesture (e.g. after setTimeout or
+      // async navigation). Trigger the file input here, still inside the tap handler,
+      // then navigate to the hub after the import completes.
+      DOM.inputContactFile?.click();
+    }
   });
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();
@@ -1090,6 +1095,8 @@ function wireEvents() {
     setButtonBusy(DOM.btnImportVCard, true, 'Importing...');
     try {
       await importContactsFromVCard(file);
+      // After import, go to the hub so the user can tap contacts to add them.
+      await openContactsHub('create-group');
     } catch (error) {
       setFeedback(DOM.createGroupFeedback, error.message || 'We could not import that contact file.', 'error');
     } finally {
@@ -1357,7 +1364,7 @@ function wireEvents() {
   });
   DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', async () => {
     const handled = await useDeviceContacts('group-settings');
-    if (!handled) await openContactsHub('group-settings', true);
+    if (!handled) DOM.inputContactFile?.click();
   });
   DOM.groupSettingsInvites?.addEventListener('click', async event => {
     const resendButton = event.target.closest('[data-resend-invite]');

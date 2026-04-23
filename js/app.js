@@ -1060,17 +1060,18 @@ function wireEvents() {
     }
     navigate('profile-setup', 'back');
   });
-  DOM.btnBrowseContacts?.addEventListener('click', () => {
-    // Safari requires navigator.contacts.select() to be called synchronously
-    // within the user gesture — awaiting an async wrapper loses that activation.
-    if (navigator.contacts?.select) {
+  // The file input is overlaid on the button via CSS (.entry-btn-file-wrap).
+  // When navigator.contacts is available we intercept the input's change event
+  // and use the native contact picker instead. When it's not available the
+  // file input opens the iOS Contacts/Files sheet natively — no JS needed.
+  if (navigator.contacts?.select) {
+    DOM.inputContactFile?.addEventListener('click', event => {
+      event.preventDefault();
       navigator.contacts.select(['name', 'tel'], { multiple: true })
         .then(picked => handlePickedContacts(picked, 'create-group'))
         .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
-    } else {
-      DOM.inputContactFile?.click();
-    }
-  });
+    });
+  }
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();
   });

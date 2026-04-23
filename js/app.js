@@ -677,6 +677,15 @@ async function renderContactsHub() {
     }));
   }
 
+  // Deduplicate by phone number, keeping the most recent entry per number.
+  const seenPhones = new Set();
+  contacts = contacts.filter(contact => {
+    const phone = contact.phone_e164;
+    if (!phone || seenPhones.has(phone)) return false;
+    seenPhones.add(phone);
+    return true;
+  });
+
   if (!contacts.length) {
     DOM.contactsHubList.innerHTML = '<div class="settings-list__empty">No imported contacts yet. Import a vCard to start building your group.</div>';
     return;

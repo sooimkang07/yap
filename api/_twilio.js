@@ -22,7 +22,7 @@ function assertTwilioVerifyConfig() {
     `Twilio Verify is not configured. Missing: ${missing.join(', ')}.`
   );
   error.statusCode = 500;
-  error.hint = 'Add the missing values to `.env.local` and restart your local server.';
+  error.hint = 'Add the missing values to your Vercel project environment variables (vercel.com → Project → Settings → Environment Variables), or to `.env.local` for local development.';
   throw error;
 }
 
@@ -34,7 +34,7 @@ function assertTwilioMessagingConfig() {
     `Twilio messaging is not configured. Missing: ${missing.join(', ')}.`
   );
   error.statusCode = 500;
-  error.hint = 'Add the missing values to `.env.local` and restart your local server.';
+  error.hint = 'Add the missing values to your Vercel project environment variables (vercel.com → Project → Settings → Environment Variables), or to `.env.local` for local development.';
   throw error;
 }
 

@@ -819,11 +819,17 @@ async function refreshActiveChatAndSettings() {
   renderChatsList();
 }
 
-async function openContactsHub(target = 'create-group') {
+async function openContactsHub(target = 'create-group', autoImport = false) {
   AppState.onboarding.contactsTarget = target;
   setFeedback(DOM.contactsHubFeedback, '');
   await renderContactsHub();
   navigate('contacts-hub', 'forward');
+
+  // If no contacts are loaded yet (or caller asked), auto-trigger the file picker
+  // so the user doesn't have to figure out what to tap next.
+  if (autoImport || !DOM.contactsHubList?.querySelector('.contacts-hub-row')) {
+    setTimeout(() => DOM.inputContactsHubFile?.click(), 300);
+  }
 }
 
 // Uses the browser Contact Picker API (Safari iOS 14.5+, Safari macOS Sonoma+).
@@ -1072,7 +1078,7 @@ function wireEvents() {
   });
   DOM.btnBrowseContacts?.addEventListener('click', async () => {
     const handled = await useDeviceContacts('create-group');
-    if (!handled) await openContactsHub('create-group');
+    if (!handled) await openContactsHub('create-group', true);
   });
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();
@@ -1351,7 +1357,7 @@ function wireEvents() {
   });
   DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', async () => {
     const handled = await useDeviceContacts('group-settings');
-    if (!handled) await openContactsHub('group-settings');
+    if (!handled) await openContactsHub('group-settings', true);
   });
   DOM.groupSettingsInvites?.addEventListener('click', async event => {
     const resendButton = event.target.closest('[data-resend-invite]');

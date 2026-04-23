@@ -1064,19 +1064,20 @@ function wireEvents() {
   // Safari iOS: use native contact picker. Chrome iOS: show "open in Safari" prompt.
   DOM.inputContactFile?.addEventListener('click', event => {
     if (navigator.contacts?.select) {
-      // Safari iOS — use native contact picker.
+      // iPhone Safari — use native contact picker.
       event.preventDefault();
       navigator.contacts.select(['name', 'tel'], { multiple: true })
         .then(picked => handlePickedContacts(picked, 'create-group'))
         .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
-    } else if (/CriOS|FxiOS|OPiOS|mercury/i.test(navigator.userAgent)) {
-      // Chrome / Firefox / Opera on iOS — contacts not accessible.
+    } else {
+      // Desktop or Chrome iOS — contacts API not available.
       event.preventDefault();
-      setFeedback(DOM.createGroupFeedback,
-        'Contact access requires Safari. Tap ··· → Open in Safari, then try again.',
-        'error');
+      const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const msg = isiOS
+        ? 'Contact access requires Safari. Tap ··· → Open in Safari, then try again.'
+        : 'Browse Contacts works on iPhone Safari. On desktop, use "Import iCloud / vCard" instead, or add friends manually above.';
+      setFeedback(DOM.createGroupFeedback, msg, 'error');
     }
-    // Other browsers: let the file input open normally (vCard import fallback).
   });
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();

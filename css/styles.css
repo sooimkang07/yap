@@ -309,29 +309,6 @@ button {
   border: 1px solid rgba(17, 17, 17, 0.08);
 }
 
-/* Wraps "Browse Contacts" button with an invisible file input on top.
-   The file input receives the native tap on iOS, which shows the
-   Contacts / Files sheet without any programmatic .click() calls. */
-.entry-btn-file-wrap {
-  position: relative;
-  display: block;
-  width: 100%;
-}
-
-.entry-btn-file-wrap .entry-btn {
-  width: 100%;
-  pointer-events: none; /* file input on top handles the tap */
-}
-
-.entry-btn-file-wrap input[type="file"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  font-size: 0; /* prevents iOS zoom on focus */
-}
 
 .entry-feedback {
   min-height: 20px;

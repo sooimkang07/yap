@@ -832,53 +832,6 @@ async function openContactsHub(target = 'create-group', autoImport = false) {
   }
 }
 
-// Processes contacts returned by the native Contact Picker API.
-async function handlePickedContacts(picked, target = 'create-group') {
-  if (!picked?.length) return;
-
-  const incoming = [];
-  for (const contact of picked) {
-    const name = (contact.name?.[0] || '').trim();
-    for (const raw of (contact.tel || [])) {
-      const phone = normalizePhoneNumber(raw);
-      if (!phone) continue;
-      incoming.push({ name: name || phone, phone });
-    }
-  }
-
-  if (!incoming.length) return;
-
-  const feedbackEl = target === 'group-settings' ? DOM.groupSettingsFeedback : DOM.createGroupFeedback;
-
-  if (target === 'group-settings' && AppState.activeChat?.id) {
-    const fresh = incoming.filter(c => !AppState.activeChat.members?.some(m => m.phoneE164 === c.phone));
-    if (fresh.length) {
-      try {
-        await addMembersToChat({ chatId: AppState.activeChat.id, ownerUserId: getCurrentUserId(), members: fresh });
-        await refreshActiveChatAndSettings();
-        setFeedback(feedbackEl, `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'} from your device.`, 'success');
-      } catch (err) {
-        setFeedback(feedbackEl, err.message || 'Could not add contacts.', 'error');
-      }
-    } else {
-      setFeedback(feedbackEl, 'Those contacts are already in this group.', '');
-    }
-    return;
-  }
-
-  const fresh = incoming.filter(c => !AppState.onboarding.pendingMembers.some(m => m.phone === c.phone));
-  AppState.onboarding.pendingMembers.push(...fresh);
-  renderPendingGroupMembers();
-
-  if (AppState.supabaseOk && fresh.length) {
-    await saveImportedContacts(getCurrentUserId(), fresh, 'device').catch(() => {});
-  }
-
-  const msg = fresh.length
-    ? `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'} from your device.`
-    : 'Those contacts are already in this group draft.';
-  setFeedback(feedbackEl, msg, fresh.length ? 'success' : '');
-}
 
 async function routeAuthenticatedUser() {
   const authSession = AppState.auth.session;
@@ -1060,30 +1013,6 @@ function wireEvents() {
     }
     navigate('profile-setup', 'back');
   });
-  // The file input is overlaid on the button via CSS (.entry-btn-file-wrap).
-  // Safari iOS: use native contact picker. Chrome iOS: show "open in Safari" prompt.
-  DOM.inputContactFile?.addEventListener('click', event => {
-    event.preventDefault();
-    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    if (!navigator.contacts) {
-      const msg = isiOS
-        ? 'Contacts API not found. Make sure you\'re in Safari (not Chrome) and iOS 14.5+.'
-        : 'Browse Contacts works on iPhone Safari only. On desktop, use "Import iCloud / vCard".';
-      setFeedback(DOM.createGroupFeedback, msg, 'error');
-      return;
-    }
-    if (!navigator.contacts.select) {
-      setFeedback(DOM.createGroupFeedback, 'navigator.contacts exists but .select() is missing. iOS version may be too old.', 'error');
-      return;
-    }
-    navigator.contacts.select(['name', 'tel'], { multiple: true })
-      .then(picked => handlePickedContacts(picked, 'create-group'))
-      .catch(err => {
-        if (err.name === 'AbortError') return;
-        setFeedback(DOM.createGroupFeedback, `Contacts error: ${err.name} — ${err.message}`, 'error');
-        console.warn('[yAp] contact picker:', err);
-      });
-  });
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();
   });
@@ -1107,14 +1036,7 @@ function wireEvents() {
     navigate(AppState.onboarding.contactsTarget === 'group-settings' ? 'group-settings' : 'create-group', 'back');
   });
 
-  // Show "Use Device Contacts" button only when the API is supported.
-  if (navigator.contacts?.select && DOM.btnContactsHubDevice) {
-    DOM.btnContactsHubDevice.hidden = false;
-    DOM.btnContactsHubDevice.addEventListener('click', async () => {
-      const handled = await useDeviceContacts(AppState.onboarding.contactsTarget);
-      if (handled) navigate(AppState.onboarding.contactsTarget === 'group-settings' ? 'group-settings' : 'create-group', 'back');
-    });
-  }
+  // navigator.contacts is not supported on any iOS browser — button stays hidden.
   DOM.btnContactsImportVCard?.addEventListener('click', () => {
     DOM.inputContactsHubFile?.click();
   });
@@ -1362,13 +1284,7 @@ function wireEvents() {
     }
   });
   DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', () => {
-    if (navigator.contacts?.select) {
-      navigator.contacts.select(['name', 'tel'], { multiple: true })
-        .then(picked => handlePickedContacts(picked, 'group-settings'))
-        .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
-    } else {
-      DOM.inputContactFile?.click();
-    }
+    openContactsHub('group-settings');
   });
   DOM.groupSettingsInvites?.addEventListener('click', async event => {
     const resendButton = event.target.closest('[data-resend-invite]');

@@ -970,10 +970,22 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .filter(Boolean)
   );
 
+  // Include invited (not-yet-registered) members as pending placeholders so they
+  // appear immediately in the chat member list.
+  const pendingPlaceholders = inviteRows.map(invite => ({
+    id: `pending-${invite.invite_token}`,
+    name: invite.invitee_name || invite.phone_e164,
+    initials: buildUserInitials(invite.invitee_name || invite.phone_e164),
+    color: pickUserColor(invite.phone_e164),
+    avatarUrl: null,
+    phoneE164: invite.phone_e164,
+    pending: true,
+  }));
+
   return {
     id: chatId,
     name: normalizedName,
-    members: membersForChat,
+    members: [...membersForChat, ...pendingPlaceholders],
     unread: 0,
     active: true,
     visual: 'default',

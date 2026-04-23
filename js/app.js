@@ -832,22 +832,9 @@ async function openContactsHub(target = 'create-group', autoImport = false) {
   }
 }
 
-// Uses the browser Contact Picker API (Safari iOS 14.5+, Safari macOS Sonoma+).
-// Returns true if the picker ran, false if unsupported (caller shows fallback UI).
-async function useDeviceContacts(target = 'create-group') {
-  if (!navigator.contacts?.select) return false;
-
-  let picked;
-  try {
-    picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
-  } catch (err) {
-    // User dismissed the picker — not an error.
-    if (err.name === 'AbortError') return true;
-    console.warn('[yAp] contact picker error:', err);
-    return false;
-  }
-
-  if (!picked?.length) return true;
+// Processes contacts returned by the native Contact Picker API.
+async function handlePickedContacts(picked, target = 'create-group') {
+  if (!picked?.length) return;
 
   const incoming = [];
   for (const contact of picked) {
@@ -859,12 +846,11 @@ async function useDeviceContacts(target = 'create-group') {
     }
   }
 
-  if (!incoming.length) return true;
+  if (!incoming.length) return;
 
   const feedbackEl = target === 'group-settings' ? DOM.groupSettingsFeedback : DOM.createGroupFeedback;
 
   if (target === 'group-settings' && AppState.activeChat?.id) {
-    // Add directly to group
     const fresh = incoming.filter(c => !AppState.activeChat.members?.some(m => m.phoneE164 === c.phone));
     if (fresh.length) {
       try {
@@ -877,10 +863,9 @@ async function useDeviceContacts(target = 'create-group') {
     } else {
       setFeedback(feedbackEl, 'Those contacts are already in this group.', '');
     }
-    return true;
+    return;
   }
 
-  // Add to pending group members
   const fresh = incoming.filter(c => !AppState.onboarding.pendingMembers.some(m => m.phone === c.phone));
   AppState.onboarding.pendingMembers.push(...fresh);
   renderPendingGroupMembers();
@@ -893,7 +878,6 @@ async function useDeviceContacts(target = 'create-group') {
     ? `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'} from your device.`
     : 'Those contacts are already in this group draft.';
   setFeedback(feedbackEl, msg, fresh.length ? 'success' : '');
-  return true;
 }
 
 async function routeAuthenticatedUser() {
@@ -1076,12 +1060,14 @@ function wireEvents() {
     }
     navigate('profile-setup', 'back');
   });
-  DOM.btnBrowseContacts?.addEventListener('click', async () => {
-    const handled = await useDeviceContacts('create-group');
-    if (!handled) {
-      // iOS blocks file.click() outside a direct user gesture (e.g. after setTimeout or
-      // async navigation). Trigger the file input here, still inside the tap handler,
-      // then navigate to the hub after the import completes.
+  DOM.btnBrowseContacts?.addEventListener('click', () => {
+    // Safari requires navigator.contacts.select() to be called synchronously
+    // within the user gesture — awaiting an async wrapper loses that activation.
+    if (navigator.contacts?.select) {
+      navigator.contacts.select(['name', 'tel'], { multiple: true })
+        .then(picked => handlePickedContacts(picked, 'create-group'))
+        .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
+    } else {
       DOM.inputContactFile?.click();
     }
   });
@@ -1362,9 +1348,14 @@ function wireEvents() {
       setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not remove that member.', 'error');
     }
   });
-  DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', async () => {
-    const handled = await useDeviceContacts('group-settings');
-    if (!handled) DOM.inputContactFile?.click();
+  DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', () => {
+    if (navigator.contacts?.select) {
+      navigator.contacts.select(['name', 'tel'], { multiple: true })
+        .then(picked => handlePickedContacts(picked, 'group-settings'))
+        .catch(err => { if (err.name !== 'AbortError') console.warn('[yAp] contact picker:', err); });
+    } else {
+      DOM.inputContactFile?.click();
+    }
   });
   DOM.groupSettingsInvites?.addEventListener('click', async event => {
     const resendButton = event.target.closest('[data-resend-invite]');

@@ -1013,6 +1013,38 @@ function wireEvents() {
     }
     navigate('profile-setup', 'back');
   });
+  DOM.btnBrowseContacts?.addEventListener('click', async () => {
+    if (!('contacts' in navigator) || !('ContactsManager' in window)) {
+      setFeedback(DOM.createGroupFeedback, 'Contact picker not supported in this browser. Use "Import iCloud / vCard" or add friends manually.', 'error');
+      return;
+    }
+    try {
+      const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+      if (!picked?.length) return;
+      const incoming = [];
+      for (const contact of picked) {
+        const name = (contact.name?.[0] || '').trim();
+        for (const raw of (contact.tel || [])) {
+          const phone = normalizePhoneNumber(raw);
+          if (phone) incoming.push({ name: name || phone, phone });
+        }
+      }
+      const fresh = incoming.filter(c => !AppState.onboarding.pendingMembers.some(m => m.phone === c.phone));
+      AppState.onboarding.pendingMembers.push(...fresh);
+      renderPendingGroupMembers();
+      if (AppState.supabaseOk && fresh.length) {
+        await saveImportedContacts(getCurrentUserId(), fresh, 'device').catch(() => {});
+      }
+      setFeedback(DOM.createGroupFeedback,
+        fresh.length ? `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'}.` : 'Already in group draft.',
+        fresh.length ? 'success' : '');
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setFeedback(DOM.createGroupFeedback, `Contacts error: ${err.message}`, 'error');
+      }
+    }
+  });
+
   DOM.btnImportVCard?.addEventListener('click', () => {
     DOM.inputContactFile?.click();
   });
@@ -1283,8 +1315,33 @@ function wireEvents() {
       setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not remove that member.', 'error');
     }
   });
-  DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', () => {
-    openContactsHub('group-settings');
+  DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', async () => {
+    if (!('contacts' in navigator) || !('ContactsManager' in window)) {
+      await openContactsHub('group-settings');
+      return;
+    }
+    try {
+      const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+      if (!picked?.length) return;
+      const incoming = [];
+      for (const contact of picked) {
+        const name = (contact.name?.[0] || '').trim();
+        for (const raw of (contact.tel || [])) {
+          const phone = normalizePhoneNumber(raw);
+          if (phone) incoming.push({ name: name || phone, phone });
+        }
+      }
+      const fresh = incoming.filter(c => !AppState.activeChat?.members?.some(m => m.phoneE164 === c.phone));
+      if (fresh.length) {
+        await addMembersToChat({ chatId: AppState.activeChat.id, ownerUserId: getCurrentUserId(), members: fresh });
+        await refreshActiveChatAndSettings();
+        setFeedback(DOM.groupSettingsFeedback, `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'}.`, 'success');
+      } else {
+        setFeedback(DOM.groupSettingsFeedback, 'Those contacts are already in this group.', '');
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') setFeedback(DOM.groupSettingsFeedback, `Contacts error: ${err.message}`, 'error');
+    }
   });
   DOM.groupSettingsInvites?.addEventListener('click', async event => {
     const resendButton = event.target.closest('[data-resend-invite]');

@@ -84,6 +84,12 @@ class RecordingManager {
   // ── Start recording ───────────────────────────────────
   async start() {
     if (this.phase !== 'idle') return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('This browser does not support microphone recording.');
+    }
+    if (typeof window.MediaRecorder === 'undefined') {
+      throw new Error('This browser does not support in-app voice recording yet.');
+    }
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -96,6 +102,11 @@ class RecordingManager {
 
     // Set up Audio API for waveform
     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.audioContext?.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+      } catch {}
+    }
     const source = this.audioContext.createMediaStreamSource(this.stream);
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
@@ -105,7 +116,12 @@ class RecordingManager {
     // Set up MediaRecorder
     this.mimeType = this._pickMimeType();
     const opts = this.mimeType ? { mimeType: this.mimeType } : {};
-    this.mediaRecorder = new MediaRecorder(this.stream, opts);
+    try {
+      this.mediaRecorder = new MediaRecorder(this.stream, opts);
+    } catch (error) {
+      this.stream.getTracks().forEach(track => track.stop());
+      throw new Error(`Voice recording could not start on this device: ${error.message}`);
+    }
     this.chunks = [];
     this.mediaRecorder.ondataavailable = e => {
       if (e.data && e.data.size > 0) this.chunks.push(e.data);
@@ -143,14 +159,24 @@ class RecordingManager {
         this.blob = new Blob(this.chunks, { type });
         this.objectUrl = URL.createObjectURL(this.blob);
         this.audioEl = new Audio(this.objectUrl);
+        this.audioEl.playsInline = true;
+        this.audioEl.preload = 'auto';
         this.audioEl.onended = () => { this.isPlaying = false; };
 
         this._drawFrozen();
         resolve({ blob: this.blob, durationMs: this.durationMs });
       };
 
+      try {
+        if (typeof this.mediaRecorder.requestData === 'function') {
+          this.mediaRecorder.requestData();
+        }
+      } catch {}
+
       this.mediaRecorder.stop();
-      this.stream.getTracks().forEach(t => t.stop());
+      setTimeout(() => {
+        this.stream?.getTracks().forEach(t => t.stop());
+      }, 0);
     });
   }
 
@@ -163,8 +189,18 @@ class RecordingManager {
       this.audioEl.currentTime = 0;
       this.isPlaying = false;
     } else {
-      this.audioEl.play();
-      this.isPlaying = true;
+      const playPromise = this.audioEl.play();
+      if (playPromise && typeof playPromise.then === 'function') {
+        playPromise
+          .then(() => {
+            this.isPlaying = true;
+          })
+          .catch(() => {
+            this.isPlaying = false;
+          });
+      } else {
+        this.isPlaying = true;
+      }
     }
     return this.isPlaying;
   }

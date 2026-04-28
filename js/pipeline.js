@@ -22,6 +22,9 @@ const Pipeline = {
 
     if (isSupabaseReady()) {
       const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
+      if (!saved?.messageId) {
+        throw new Error('We could not save your voice memo. Check your connection and try again.');
+      }
       if (saved) {
         messageId = saved.messageId;
         audioUrl = saved.audioUrl || localAudioUrl;
@@ -96,6 +99,9 @@ const Pipeline = {
 
     if (isSupabaseReady()) {
       const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
+      if (!saved?.messageId) {
+        throw new Error('We could not save your reply. Check your connection and try again.');
+      }
       if (saved) {
         messageId = saved.messageId;
         audioUrl = saved.audioUrl || localAudioUrl;
@@ -213,6 +219,10 @@ const Pipeline = {
   },
 
   _threadContext() {
+    const lastHeardThreadId = AppState?.playback?.lastHeardChatId === AppState?.activeChat?.id
+      ? AppState.playback.lastHeardThreadId
+      : null;
+
     return Store.getThreads().map(thread => ({
       id: thread.id,
       label: thread.label,
@@ -221,6 +231,14 @@ const Pipeline = {
       unheardCount: thread.unheardCount || 0,
       lastHeardAt: thread.lastHeardAt || null,
       hasHeardContext: !!thread.hasHeardContext,
+      recentlyPlayed: thread.id === lastHeardThreadId,
+      lastPlayedMessage: thread.id === lastHeardThreadId ? {
+        id: AppState.playback.lastHeardMessageId || null,
+        author: AppState.playback.lastHeardAuthor || '',
+        label: AppState.playback.lastHeardLabel || '',
+        transcript: AppState.playback.lastHeardTranscript || '',
+        heardAt: AppState.playback.lastHeardAt || null,
+      } : null,
       recentMessages: thread.messages.slice(-4).map(message => ({
         author: message.author?.name || '',
         transcript: message.transcript || '',
@@ -366,6 +384,15 @@ const Pipeline = {
               try {
                 const message = await this._materializeReply(chatId, touch.thread, reply);
                 Store.addMessage(touch.thread.id, message);
+                this._notifyHumanRecipients({
+                  chatId,
+                  chatName: AppState?.activeChat?.name || 'yAp group',
+                  authorId: message.authorId,
+                  senderName: message.author?.name || 'A friend',
+                  touches: [{ thread: touch.thread, userMessage: message }],
+                  transcript: message.transcript || '',
+                  isReply: true,
+                }).catch(error => console.warn('[yAp] AI reply notifications failed:', error));
                 _pEmit('yap:response:arrived', { threadId: touch.thread.id, message });
               } catch (error) {
                 console.warn('[yAp] Reply materialization failed:', error);

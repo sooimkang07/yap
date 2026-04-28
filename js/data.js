@@ -25,8 +25,35 @@ function isSupabaseReady() {
   return !!supabaseClient;
 }
 
+function makeUuid() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-');
+}
+
 function generateAppRecordId(prefix) {
-  return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${makeUuid()}`;
 }
 
 function normalizePhoneNumber(value) {
@@ -446,7 +473,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
         inviter_id: ownerUserId,
         invitee_name: member.name || null,
         phone_e164: member.phone,
-        invite_token: crypto.randomUUID(),
+        invite_token: makeUuid(),
         status: 'pending',
       });
     }
@@ -483,7 +510,13 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
   }));
 
   if (manualContactRows.length) {
-    await supabaseClient.from('imported_contacts').insert(manualContactRows);
+    const { error: contactsError } = await supabaseClient
+      .from('imported_contacts')
+      .insert(manualContactRows);
+
+    if (contactsError) {
+      console.warn('[yAp] imported_contacts insert skipped:', contactsError.message);
+    }
   }
 
   return {
@@ -661,6 +694,12 @@ async function acceptInviteToken(inviteToken, acceptedByUserId) {
 
   if (inviteError) throw inviteError;
   if (!invite) return null;
+  if (invite.status === 'revoked' || invite.status === 'expired') {
+    throw new Error('This invite is no longer active.');
+  }
+  if (invite.status === 'accepted' && invite.accepted_by && invite.accepted_by !== acceptedByUserId) {
+    throw new Error('This invite was already used on another account.');
+  }
 
   const { error: participantError } = await supabaseClient
     .from('chat_participants')
@@ -797,7 +836,15 @@ async function getChatsForUser(userId) {
 
   const { data: voiceMessages, error: messagesError } = await supabaseClient
     .from('voice_messages')
-    .select('id, chat_id, author_id, playback_progress(user_id, heard)')
+    .select(`
+      id,
+      chat_id,
+      author_id,
+      sent_at,
+      playback_progress(user_id, heard),
+      transcripts(full_text),
+      topic_segments(label, transcript)
+    `)
     .in('chat_id', chatIds);
 
   if (messagesError) {
@@ -828,7 +875,18 @@ async function getChatsForUser(userId) {
   }
 
   const unreadByChat = new Map();
+  const latestMessageByChat = new Map();
   for (const message of voiceMessages || []) {
+    const sentAt = message.sent_at ? new Date(message.sent_at).getTime() : 0;
+    const latest = latestMessageByChat.get(message.chat_id);
+    if (!latest || sentAt > latest.sentAt) {
+      latestMessageByChat.set(message.chat_id, {
+        sentAt,
+        authorId: message.author_id,
+        preview: buildChatPreview(message),
+      });
+    }
+
     if (message.author_id === userId) continue;
     const progress = Array.isArray(message.playback_progress)
       ? message.playback_progress.find(entry => entry.user_id === userId)
@@ -852,17 +910,31 @@ async function getChatsForUser(userId) {
         visual: chat.id === ACTIVE_CHAT_ID ? 'besties' : 'default',
         avatarUrl: chat.avatar_url || null,
         createdBy: chat.created_by || null,
+        currentUserRole: entry.role || 'member',
+        lastMessageAt: latestMessageByChat.get(chat.id)?.sentAt || (chat.updated_at ? new Date(chat.updated_at).getTime() : 0),
+        preview: latestMessageByChat.get(chat.id)?.preview || '',
+        previewAuthorId: latestMessageByChat.get(chat.id)?.authorId || null,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
+}
+
+function buildChatPreview(message) {
+  const segment = Array.isArray(message?.topic_segments)
+    ? message.topic_segments.find(entry => entry?.transcript || entry?.label)
+    : null;
+  const transcript = Array.isArray(message?.transcripts)
+    ? message.transcripts.find(entry => entry?.full_text)?.full_text
+    : '';
+
+  const text = segment?.transcript || segment?.label || transcript || 'Voice memo';
+  return clipWords(text, 12);
 }
 
 async function createGroupChat({ ownerUserId, name, members }) {
   if (!supabaseClient) throw new Error('Supabase is not configured yet.');
   if (!ownerUserId) throw new Error('Sign in before creating a group.');
-
-  const normalizedName = String(name || '').trim();
-  if (!normalizedName) throw new Error('Give your group a name.');
 
   const normalizedMembers = (Array.isArray(members) ? members : [])
     .map(member => ({
@@ -874,6 +946,12 @@ async function createGroupChat({ ownerUserId, name, members }) {
   if (!normalizedMembers.length) {
     throw new Error('Add at least one friend by phone number.');
   }
+
+  const normalizedName = String(name || '').trim() || normalizedMembers
+    .map(member => member.name || member.phone)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(', ');
 
   const chatId = generateAppRecordId('chat');
   const inviteRows = [];
@@ -916,7 +994,7 @@ async function createGroupChat({ ownerUserId, name, members }) {
         inviter_id: ownerUserId,
         invitee_name: member.name || null,
         phone_e164: member.phone,
-        invite_token: crypto.randomUUID(),
+        invite_token: makeUuid(),
         status: 'pending',
       });
     }
@@ -1015,6 +1093,8 @@ async function createGroupChat({ ownerUserId, name, members }) {
     unread: 0,
     active: true,
     visual: 'default',
+    createdBy: ownerUserId,
+    currentUserRole: 'owner',
     pendingInvites: inviteRows,
     smsWarning,
   };
@@ -1062,6 +1142,8 @@ const CHATS = [
     unread:  0,
     active:  true,   // navigates into chat
     visual:  'besties',
+    createdBy: USERS.sooim.id,
+    currentUserRole: 'owner',
   },
 ];
 
@@ -1083,25 +1165,28 @@ async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
     return null;
   }
 
-  const messageId = crypto.randomUUID();
-  const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
+  const messageId = makeUuid();
+  const ext = inferAudioFileExtension(audioBlob.type);
   const storagePath = `${chatId}/${messageId}.${ext}`;
+  const contentType = audioBlob.type || inferAudioMimeType(ext);
+  let persistedAudioRef = storagePath;
+  let audioUrl = null;
 
   // 1. Upload to Storage
   const { error: uploadErr } = await supabaseClient.storage
     .from('voice-messages')
     .upload(storagePath, audioBlob, {
-      contentType: audioBlob.type,
+      contentType,
       upsert: false,
     });
 
   if (uploadErr) {
-    console.error('[yAp] Storage upload failed:', uploadErr);
-    return null;
+    console.warn('[yAp] Storage upload failed, falling back to inline audio:', uploadErr);
+    persistedAudioRef = await blobToDataUrl(audioBlob);
+  } else {
+    // 2. Create a signed URL for immediate playback. The stored DB value remains the path.
+    audioUrl = await createSignedAudioUrl(storagePath);
   }
-
-  // 2. Create a signed URL for immediate playback. The stored DB value remains the path.
-  const audioUrl = await createSignedAudioUrl(storagePath);
 
   // 3. Insert voice_messages row
   const { data, error: insertErr } = await supabaseClient
@@ -1110,7 +1195,7 @@ async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
       id:          messageId,
       chat_id:     chatId,
       author_id:   authorId,
-      audio_url:   storagePath,
+      audio_url:   persistedAudioRef,
       duration_ms: durationMs,
       status:      'processing',
     })
@@ -1119,11 +1204,39 @@ async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
 
   if (insertErr) {
     console.error('[yAp] DB insert failed:', insertErr);
-    return null;
+    throw new Error(`Voice memo save failed: ${insertErr.message || 'database insert failed'}`);
   }
 
   console.log('[yAp] Voice message saved:', data);
-  return { messageId: data.id, audioUrl, audioPath: storagePath };
+  return {
+    messageId: data.id,
+    audioUrl: audioUrl || persistedAudioRef,
+    audioPath: persistedAudioRef === storagePath ? storagePath : null,
+  };
+}
+
+function inferAudioFileExtension(mimeType = '') {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('mp4') || normalized.includes('m4a') || normalized.includes('aac')) return 'm4a';
+  if (normalized.includes('mpeg') || normalized.includes('mp3')) return 'mp3';
+  if (normalized.includes('ogg')) return 'ogg';
+  if (normalized.includes('wav')) return 'wav';
+  return 'webm';
+}
+
+function inferAudioMimeType(extension = '') {
+  switch (String(extension || '').toLowerCase()) {
+    case 'm4a':
+      return 'audio/mp4';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'ogg':
+      return 'audio/ogg';
+    case 'wav':
+      return 'audio/wav';
+    default:
+      return 'audio/webm';
+  }
 }
 
 async function saveTranscriptRecord(voiceMessageId, transcriptText, wordTimestamps = null) {
@@ -1228,8 +1341,9 @@ async function markVoiceMessageFailed(messageId) {
 async function saveGeneratedReply({ chatId, threadId, authorId, audioBlob, durationMs, transcript, label }) {
   if (!supabaseClient || !chatId || !threadId || !authorId || !audioBlob || !transcript) return null;
 
-  const messageId = crypto.randomUUID();
+  const messageId = makeUuid();
   const storagePath = `${chatId}/generated/${messageId}.mp3`;
+  let persistedAudioRef = storagePath;
 
   const { error: uploadErr } = await supabaseClient.storage
     .from('voice-messages')
@@ -1239,11 +1353,13 @@ async function saveGeneratedReply({ chatId, threadId, authorId, audioBlob, durat
     });
 
   if (uploadErr) {
-    console.error('[yAp] Generated reply upload failed:', uploadErr);
-    return null;
+    console.warn('[yAp] Generated reply upload failed, falling back to inline audio:', uploadErr);
+    persistedAudioRef = await blobToDataUrl(audioBlob);
   }
 
-  const audioUrl = await createSignedAudioUrl(storagePath);
+  const audioUrl = persistedAudioRef === storagePath
+    ? await createSignedAudioUrl(storagePath)
+    : persistedAudioRef;
 
   const { error: insertErr } = await supabaseClient
     .from('voice_messages')
@@ -1251,7 +1367,7 @@ async function saveGeneratedReply({ chatId, threadId, authorId, audioBlob, durat
       id: messageId,
       chat_id: chatId,
       author_id: authorId,
-      audio_url: storagePath,
+      audio_url: persistedAudioRef,
       duration_ms: durationMs,
       status: 'done',
     });
@@ -1270,13 +1386,14 @@ async function saveGeneratedReply({ chatId, threadId, authorId, audioBlob, durat
     endMs: durationMs,
   });
 
-  return { messageId, audioUrl, audioPath: storagePath };
+  return { messageId, audioUrl, audioPath: persistedAudioRef === storagePath ? storagePath : null };
 }
 
 async function persistReplyAudioForMessage({ chatId, voiceMessageId, audioBlob, durationMs }) {
   if (!supabaseClient || !chatId || !voiceMessageId || !audioBlob) return null;
 
   const storagePath = `${chatId}/generated/${voiceMessageId}.mp3`;
+  let persistedAudioRef = storagePath;
 
   const { error: uploadErr } = await supabaseClient.storage
     .from('voice-messages')
@@ -1286,16 +1403,18 @@ async function persistReplyAudioForMessage({ chatId, voiceMessageId, audioBlob, 
     });
 
   if (uploadErr) {
-    console.error('[yAp] Reply audio backfill upload failed:', uploadErr);
-    return null;
+    console.warn('[yAp] Reply audio backfill upload failed, falling back to inline audio:', uploadErr);
+    persistedAudioRef = await blobToDataUrl(audioBlob);
   }
 
-  const audioUrl = await createSignedAudioUrl(storagePath);
+  const audioUrl = persistedAudioRef === storagePath
+    ? await createSignedAudioUrl(storagePath)
+    : persistedAudioRef;
 
   const { error: updateErr } = await supabaseClient
     .from('voice_messages')
     .update({
-      audio_url: storagePath,
+      audio_url: persistedAudioRef,
       duration_ms: durationMs || null,
       status: 'done',
     })
@@ -1306,7 +1425,7 @@ async function persistReplyAudioForMessage({ chatId, voiceMessageId, audioBlob, 
     return null;
   }
 
-  return { audioUrl, audioPath: storagePath };
+  return { audioUrl, audioPath: persistedAudioRef === storagePath ? storagePath : null };
 }
 
 async function savePlaybackProgressRecord({ userId, voiceMessageId, heard, playedMs }) {
@@ -1369,7 +1488,16 @@ async function createSignedAudioUrl(storagePath, expiresIn = 60 * 60) {
 }
 
 function looksLikeStoragePath(value) {
-  return typeof value === 'string' && !/^https?:\/\//i.test(value);
+  return typeof value === 'string' && !/^(?:https?:|blob:|data:)/i.test(value);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Failed to read audio blob'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(blob);
+  });
 }
 
 async function ensureMessageAudioUrl(message) {
@@ -1405,12 +1533,43 @@ async function ensureMessageAudioUrl(message) {
 
 const Store = {
   threads: [],
+  activeChatId: null,
+  chatThreads: new Map(),
 
-  clear() { this.threads = []; },
+  clear(chatId = null) {
+    if (chatId) {
+      this.chatThreads.delete(chatId);
+      if (this.activeChatId === chatId) this.threads = [];
+      return;
+    }
+    this.threads = [];
+    this.activeChatId = null;
+    this.chatThreads.clear();
+  },
+
+  setActiveChat(chatId) {
+    this.activeChatId = chatId || null;
+    this.threads = this._cloneThreads(this.chatThreads.get(chatId) || []);
+    return this.getThreads();
+  },
+
+  getCachedThreads(chatId) {
+    return this._cloneThreads(this.chatThreads.get(chatId) || []);
+  },
+
+  replaceThreads(chatId, threads = []) {
+    const normalizedThreads = this._cloneThreads(threads);
+    this.chatThreads.set(chatId, normalizedThreads);
+    if (this.activeChatId === chatId) {
+      this.threads = this._cloneThreads(normalizedThreads);
+    }
+    return this.getThreads();
+  },
 
   addThread(thread) {
     const normalized = this._normalizeThread(thread);
     this.threads.push(normalized);
+    this._syncActiveChatCache();
   },
 
   addMessage(threadId, message) {
@@ -1419,6 +1578,7 @@ const Store = {
       t.messages.push(this._normalizeMessage(message));
       t.lastActivityAt = message.sentAt || Date.now();
       this._recalculateThreadState(t);
+      this._syncActiveChatCache();
     }
   },
 
@@ -1427,14 +1587,14 @@ const Store = {
     if (!t) return null;
     Object.assign(t, patch);
     this._recalculateThreadState(t);
+    this._syncActiveChatCache();
     return t;
   },
 
   getThreads()          {
     return [...this.threads].sort((a, b) =>
-      (b.unheardCount || 0) - (a.unheardCount || 0) ||
-      (b.lastHeardAt || 0) - (a.lastHeardAt || 0) ||
-      (b.lastActivityAt || b.createdAt || 0) - (a.lastActivityAt || a.createdAt || 0)
+      (a.createdAt || a.lastActivityAt || 0) - (b.createdAt || b.lastActivityAt || 0) ||
+      (a.lastActivityAt || 0) - (b.lastActivityAt || 0)
     );
   },
   getThread(threadId)   { return this.threads.find(t => t.id === threadId); },
@@ -1483,6 +1643,13 @@ const Store = {
 
     this._recalculateThreadState(normalized);
     return normalized;
+  },
+  _cloneThreads(threads = []) {
+    return threads.map(thread => this._normalizeThread(thread));
+  },
+  _syncActiveChatCache() {
+    if (!this.activeChatId) return;
+    this.chatThreads.set(this.activeChatId, this._cloneThreads(this.threads));
   },
   _normalizeMessage(message) {
     const isCurrentUser = message.authorId === getCurrentUserId();
@@ -1539,10 +1706,26 @@ async function getTopicThreads(chatId) {
 async function hydrateChatFromSupabase(chatId) {
   if (!supabaseClient || !chatId) return [];
 
+  const cachedThreads = Store.getCachedThreads(chatId);
+
   const [topicThreads, voiceMessages] = await Promise.all([
     getTopicThreads(chatId),
     getVoiceMessages(chatId),
   ]);
+
+  const authorIds = [...new Set((voiceMessages || []).map(message => message.author_id).filter(Boolean))];
+  const authorsById = new Map();
+  if (authorIds.length) {
+    const { data: authors } = await supabaseClient
+      .from('users')
+      .select('*')
+      .in('id', authorIds);
+
+    for (const authorRecord of authors || []) {
+      const author = registerUserRecord(authorRecord);
+      if (author) authorsById.set(author.id, author);
+    }
+  }
 
   const threadMap = new Map(
     topicThreads.map(thread => [thread.id, {
@@ -1567,7 +1750,7 @@ async function hydrateChatFromSupabase(chatId) {
   );
 
   for (const voiceMessage of sortedMessages) {
-    const author = Object.values(USERS).find(user => user.id === voiceMessage.author_id) || USERS.sooim;
+    const author = authorsById.get(voiceMessage.author_id) || getUserById(voiceMessage.author_id) || getCurrentUser();
     const progress = Array.isArray(voiceMessage.playback_progress)
       ? voiceMessage.playback_progress.find(entry => entry.user_id === getCurrentUserId())
       : null;
@@ -1681,9 +1864,11 @@ async function hydrateChatFromSupabase(chatId) {
 
   await Promise.all(audioHydrationJobs);
 
-  Store.clear();
-  hydratedThreads.forEach(thread => Store.addThread(thread));
-  return Store.getThreads();
+  if (!hydratedThreads.length && cachedThreads.length) {
+    return Store.replaceThreads(chatId, cachedThreads);
+  }
+
+  return Store.replaceThreads(chatId, hydratedThreads);
 }
 
 function clipDebugText(text, maxWords = 24) {
@@ -1694,11 +1879,10 @@ function clipDebugText(text, maxWords = 24) {
 
 function isVisibleConversationThread(thread) {
   if (!thread || !Array.isArray(thread.messages) || thread.messages.length === 0) return false;
-
-  const userMessages = thread.messages.filter(message => message.authorId === getCurrentUserId());
-  if (!userMessages.length) return false;
-
-  return !userMessages.every(message => isLegacyDemoText(message.transcript) || isLegacyDemoText(message.label));
+  if (thread.messages.every(message => isLegacyDemoText(message.transcript) || isLegacyDemoText(message.label))) {
+    return false;
+  }
+  return true;
 }
 
 function isLegacyDemoText(value) {

@@ -275,17 +275,15 @@ function renderTopics() {
 }
 
 function _topicCardInner(thread) {
-  const topicMessage = _topicPrimaryMessage(thread);
-  const replies = thread.messages.filter(message => message.authorId !== getCurrentUserId());
+  const orderedMessages = _threadMessagesChronological(thread);
+  const topicMessage = orderedMessages[0] || _topicPrimaryMessage(thread);
+  const replies = orderedMessages.slice(1);
   const expanded = _expandedThreadId === thread.id
     ? `
       <div class="topic-thread">
         <div class="topic-thread__replies">
           ${replies.map(_replyRowHTML).join('')}
         </div>
-        <button class="topic-thread__reply-btn" type="button" data-reply-thread="${thread.id}">
-          Reply with voice
-        </button>
       </div>
     `
     : '';
@@ -300,7 +298,10 @@ function _topicCardInner(thread) {
 
 function _topicRowHTML(thread, message, replies) {
   const segments = [
-    { duration: Number(message.durationMs) || 0, speaker: 'you' },
+    {
+      duration: Number(message.durationMs) || 0,
+      speaker: message.authorId === getCurrentUserId() ? 'you' : (message.author?.name?.toLowerCase() || 'reply'),
+    },
     ...replies.map(reply => ({
       duration: Number(reply.durationMs) || 0,
       speaker: reply.author?.name?.toLowerCase() || 'reply',
@@ -333,6 +334,7 @@ function _topicRowHTML(thread, message, replies) {
 
 function _replyRowHTML(message) {
   const playable = _isPlayable(message) ? ' is-playable' : '';
+  const speakerName = message.authorId === getCurrentUserId() ? 'You' : (message.author?.name || 'Friend');
   return `
     <button class="reply-row${playable}" type="button"
             data-playable-id="${message.id}"
@@ -341,6 +343,7 @@ function _replyRowHTML(message) {
         <span class="reply-row__play"><span class="topic-row__play-icon"></span></span>
         <span class="reply-row__title">${escapeHtml(message.label || message.transcript || '')}</span>
         <span class="reply-row__meta">
+          <span class="reply-row__speaker">${escapeHtml(speakerName)}</span>
           <span class="reply-row__time">${_formatClockTime(message.sentAt)}</span>
           <span class="reply-row__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>
         </span>
@@ -376,6 +379,12 @@ function _topicPrimaryMessage(thread) {
   return userMessages[userMessages.length - 1] || thread.parentMemoMessage || thread.messages[0];
 }
 
+function _threadMessagesChronological(thread) {
+  return [...(thread?.messages || [])].sort((a, b) =>
+    (a.sentAt || 0) - (b.sentAt || 0)
+  );
+}
+
 function addReplyToTopic(threadId, message) {
   renderTopics();
 }
@@ -406,16 +415,6 @@ function _handleTopicInteraction(event) {
     event.preventDefault();
     event.stopPropagation();
     toggleTopicExpand(expandToggle.dataset.expandThread);
-    return;
-  }
-
-  const replyTrigger = event.target.closest('[data-reply-thread]');
-  if (replyTrigger) {
-    event.preventDefault();
-    event.stopPropagation();
-    document.dispatchEvent(new CustomEvent('yap:thread:reply', {
-      detail: { threadId: replyTrigger.dataset.replyThread },
-    }));
   }
 }
 
@@ -439,11 +438,7 @@ function _restorePlaybackStateClass() {
 
 function _threadPlaybackSequence(thread) {
   if (!thread) return [];
-
-  const topicMessage = _topicPrimaryMessage(thread);
-  const replies = thread.messages.filter(message => message.authorId !== getCurrentUserId());
-
-  return [topicMessage, ...replies].filter(item => _isPlayable(item));
+  return _threadMessagesChronological(thread).filter(item => _isPlayable(item));
 }
 
 async function resolvePlayableSource(item) {
@@ -528,6 +523,16 @@ function _formatClockTime(sentAt) {
 async function _markMessageHeard(messageId, voiceMessageId, durationSeconds) {
   const found = Store.markMessageHeard(messageId, Math.round((durationSeconds || 0) * 1000));
   if (!found) return;
+
+  if (found.message.authorId !== getCurrentUserId()) {
+    AppState.playback.lastHeardChatId = AppState.activeChat?.id || null;
+    AppState.playback.lastHeardThreadId = found.thread?.id || null;
+    AppState.playback.lastHeardMessageId = found.message.id || null;
+    AppState.playback.lastHeardAt = Date.now();
+    AppState.playback.lastHeardAuthor = found.message.author?.name || '';
+    AppState.playback.lastHeardLabel = found.message.label || '';
+    AppState.playback.lastHeardTranscript = found.message.transcript || found.thread?.transcript || '';
+  }
 
   savePlaybackProgressRecord({
     userId: getCurrentUserId(),

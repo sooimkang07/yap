@@ -11,7 +11,6 @@ const AppState = {
   chatsSearchQuery: '',
   chatsSearchOpen: false,
   supabaseOk: false,
-  contactsConnected: false,
   conversationHydrating: null,
   conversationHydratedAt: 0,
   auth: {
@@ -28,6 +27,15 @@ const AppState = {
   recording: {
     manager: null,
     phase:   'idle',       // idle | recording | stopped | sending
+  },
+  playback: {
+    lastHeardChatId: null,
+    lastHeardThreadId: null,
+    lastHeardMessageId: null,
+    lastHeardAt: 0,
+    lastHeardAuthor: '',
+    lastHeardLabel: '',
+    lastHeardTranscript: '',
   },
 };
 
@@ -55,7 +63,6 @@ function cacheDOM() {
     contactsHub: document.getElementById('screen-contacts-hub'),
     profile:      document.getElementById('screen-profile'),
     groupSettings: document.getElementById('screen-group-settings'),
-    permission:  document.getElementById('screen-contacts-permission'),
     chats:       document.getElementById('screen-chats'),
     chat:        document.getElementById('screen-chat'),
   };
@@ -64,6 +71,7 @@ function cacheDOM() {
   DOM.btnGetStarted = document.getElementById('btn-get-started');
   DOM.formAuthPhone = document.getElementById('form-auth-phone');
   DOM.inputAuthPhone = document.getElementById('input-auth-phone');
+  DOM.authPhoneSubtitle = document.getElementById('auth-phone-subtitle');
   DOM.btnSendCode = document.getElementById('btn-send-code');
   DOM.btnAuthPhoneBack = document.getElementById('btn-auth-phone-back');
   DOM.authPhoneFeedback = document.getElementById('auth-phone-feedback');
@@ -74,6 +82,7 @@ function cacheDOM() {
   DOM.authVerifyFeedback = document.getElementById('auth-verify-feedback');
   DOM.authVerifySubtitle = document.getElementById('auth-verify-subtitle');
   DOM.formProfileSetup = document.getElementById('form-profile-setup');
+  DOM.profileSetupSubtitle = document.getElementById('profile-setup-subtitle');
   DOM.inputProfileName = document.getElementById('input-profile-name');
   DOM.inputProfileAvatar = document.getElementById('input-profile-avatar');
   DOM.btnSaveProfile = document.getElementById('btn-save-profile');
@@ -91,6 +100,8 @@ function cacheDOM() {
   DOM.btnCreateGroup = document.getElementById('btn-create-group');
   DOM.createGroupFeedback = document.getElementById('create-group-feedback');
   DOM.btnContactsHubBack = document.getElementById('btn-contacts-hub-back');
+  DOM.contactsHubTitle = document.getElementById('contacts-hub-title');
+  DOM.contactsHubBody = document.getElementById('contacts-hub-body');
   DOM.btnContactsHubDevice = document.getElementById('btn-contacts-hub-device');
   DOM.btnContactsImportVCard = document.getElementById('btn-contacts-import-vcard');
   DOM.inputContactsHubFile = document.getElementById('input-contacts-hub-file');
@@ -126,12 +137,9 @@ function cacheDOM() {
   DOM.inputChatSearch = document.getElementById('input-chat-search');
   DOM.btnClearSearch = document.getElementById('btn-clear-search');
   DOM.selfAvatar = document.getElementById('self-avatar');
-  DOM.permissionSelfAvatar = document.getElementById('permission-self-avatar');
   DOM.btnStartChat = document.getElementById('btn-start-chat');
   DOM.btnSearch = document.getElementById('btn-search');
-  DOM.btnAllowContacts = document.getElementById('btn-allow-contacts');
-  DOM.btnSelectContacts = document.getElementById('btn-select-contacts');
-  DOM.btnDenyContacts = document.getElementById('btn-deny-contacts');
+  DOM.btnComposeChat = document.getElementById('btn-compose-chat');
 
   // Chat screen
   DOM.chatTitle      = document.getElementById('chat-title');
@@ -143,6 +151,10 @@ function cacheDOM() {
   DOM.btnBack        = document.getElementById('btn-back');
   DOM.btnMic         = document.getElementById('btn-mic');
   DOM.btnChatMore    = document.getElementById('btn-chat-more');
+  DOM.floatingChloe = document.getElementById('floating-chloe');
+  DOM.floatingMaria = document.getElementById('floating-maria');
+  DOM.floatingChloeLabel = document.getElementById('floating-chloe-label');
+  DOM.floatingMariaLabel = document.getElementById('floating-maria-label');
   DOM.floatingChloePhoto = document.querySelector('#floating-chloe .floating-avatar__photo');
   DOM.floatingMariaPhoto = document.querySelector('#floating-maria .floating-avatar__photo');
 
@@ -195,7 +207,6 @@ function navigate(toId, direction = 'forward') {
   to.classList.add('active');
 }
 
-// ── Chats list rendering ───────────────────────────────
 function renderChatsList() {
   const chats = AppState.chats.length ? AppState.chats : [];
   const showEmptyState = chats.length === 0;
@@ -212,7 +223,6 @@ function renderChatsList() {
   }
 
   setElementImage(DOM.selfAvatar, currentUser.avatarUrl);
-  setElementImage(DOM.permissionSelfAvatar, currentUser.avatarUrl);
 
   if (showEmptyState) {
     DOM.chatsGrid.innerHTML = '';
@@ -250,13 +260,71 @@ function closeChatsSearch() {
   renderChatsList();
 }
 
-// Derive readable text color from a light pastel
-function _tintColor(hex) {
-  const r = parseInt(hex.slice(1,3), 16);
-  const g = parseInt(hex.slice(3,5), 16);
-  const b = parseInt(hex.slice(5,7), 16);
-  const luminance = (0.299*r + 0.587*g + 0.114*b) / 255;
-  return luminance > 0.7 ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.65)';
+function _hexToRgb(hex) {
+  const normalized = String(hex || '').trim();
+  if (!/^#([0-9a-f]{6})$/i.test(normalized)) return '217, 222, 234';
+  const value = normalized.slice(1);
+  return `${parseInt(value.slice(0, 2), 16)}, ${parseInt(value.slice(2, 4), 16)}, ${parseInt(value.slice(4, 6), 16)}`;
+}
+
+function getChatOtherMembers(chat) {
+  return (chat?.members || []).filter(member => member.id !== getCurrentUserId());
+}
+
+function canManageActiveChat() {
+  const role = AppState.activeChat?.currentUserRole;
+  return role === 'owner' || role === 'admin' || role === 'member';
+}
+
+function buildAvatarClass(baseClass, member) {
+  return `${baseClass}${member?.avatarUrl ? '' : ' avatar-fallback'}`;
+}
+
+function buildAvatarStyle(member) {
+  const accent = member?.color || pickUserColor(member?.name || member?.phoneE164 || member?.id || '');
+  return member?.avatarUrl
+    ? `background-image:url('${member.avatarUrl}')`
+    : `--avatar-accent:${accent}`;
+}
+
+function buildAvatarContent(member, fallbackSeed = 'Y') {
+  if (member?.avatarUrl) return '';
+  const initials = escapeHtml(member?.initials || buildUserInitials(member?.name || member?.phoneE164 || fallbackSeed));
+  return `<span>${initials}</span>`;
+}
+
+function buildMemberAvatarMarkup(member, extraClass = '') {
+  return `
+    <div class="${buildAvatarClass(extraClass, member)}" style="${buildAvatarStyle(member)}">
+      ${buildAvatarContent(member)}
+    </div>
+  `;
+}
+
+function renderAvatarElement(element, member, fallbackSeed = 'Y') {
+  if (!element) return;
+  element.classList.toggle('avatar-fallback', !member?.avatarUrl);
+  element.style.backgroundImage = member?.avatarUrl ? `url('${member.avatarUrl}')` : '';
+  element.style.backgroundSize = member?.avatarUrl ? 'cover' : '';
+  element.style.backgroundPosition = member?.avatarUrl ? 'center' : '';
+  if (member?.avatarUrl) {
+    element.style.removeProperty('--avatar-accent');
+  } else {
+    element.style.setProperty('--avatar-accent', member?.color || pickUserColor(member?.name || member?.phoneE164 || fallbackSeed));
+  }
+  element.innerHTML = buildAvatarContent(member, fallbackSeed);
+}
+
+function renderFloatingProfile(wrapper, label, photo, member, fallbackSeed) {
+  if (wrapper) {
+    const accent = member?.color || pickUserColor(member?.name || member?.phoneE164 || fallbackSeed);
+    wrapper.style.setProperty('--floating-accent', accent);
+    wrapper.style.setProperty('--floating-accent-rgb', _hexToRgb(accent));
+  }
+  if (label) {
+    label.textContent = member?.name || fallbackSeed;
+  }
+  renderAvatarElement(photo, member, fallbackSeed);
 }
 
 function _chatArtHTML(chat) {
@@ -294,32 +362,66 @@ function _chatArtHTML(chat) {
     return `<div class="chat-art-circle chat-art-circle--mushroom"></div>`;
   }
 
+  const artMembers = getChatOtherMembers(chat).slice(0, 2);
+  if (artMembers.length) {
+    return `
+      <div class="chat-art-besties">
+        ${artMembers.map((member, index) => buildMemberAvatarMarkup(
+          member,
+          `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
+        )).join('')}
+      </div>
+    `;
+  }
+
   return `<div class="chat-art-circle"><span>${chat.emoji || '💬'}</span></div>`;
+}
+
+function renderActiveChatShell(chat) {
+  DOM.chatTitle.textContent = chat.name;
+
+  DOM.chatMemberPips.innerHTML = (chat.members || [])
+    .map(member => `<div class="member-pip" style="background-image:url('${member.avatarUrl || ''}'); background-color:${member.color || pickUserColor(member.name || member.phoneE164 || member.id || '')}"></div>`)
+    .join('');
+
+  const otherMembers = getChatOtherMembers(chat);
+  DOM.chatPresence.innerHTML = otherMembers
+    .map(member => `
+      <div class="${buildAvatarClass('chat-presence__avatar', member)}" style="${buildAvatarStyle(member)}">
+        ${buildAvatarContent(member)}
+      </div>
+    `)
+    .join('');
+
+  const featuredMembers = otherMembers.slice(0, 2);
+  const firstMember = featuredMembers[0];
+  const secondMember = featuredMembers[1];
+
+  renderFloatingProfile(DOM.floatingChloe, DOM.floatingChloeLabel, DOM.floatingChloePhoto, firstMember, 'Invite someone');
+  renderFloatingProfile(DOM.floatingMaria, DOM.floatingMariaLabel, DOM.floatingMariaPhoto, secondMember, 'Add a friend');
 }
 
 // ── Open a chat ───────────────────────────────────────
 async function openChat(chat) {
   AppState.activeChat = chat;
+  Store.setActiveChat(chat.id);
 
-  // Update header
-  DOM.chatTitle.textContent = chat.name;
-
-  // Member color pips
-  DOM.chatMemberPips.innerHTML = chat.members
-    .map(u => `<div class="member-pip" style="background-image:url('${u.avatarUrl || ''}'); background-color:${u.color}"></div>`)
-    .join('');
-  DOM.chatPresence.innerHTML = chat.members
-    .filter(u => u.id !== getCurrentUserId())
-    .map(u => `<div class="chat-presence__avatar" style="background-image:url('${u.avatarUrl || ''}'); background-color:${u.color}"></div>`)
-    .join('');
-  setElementImage(DOM.floatingChloePhoto, USERS.chloe.avatarUrl);
-  setElementImage(DOM.floatingMariaPhoto, USERS.maria.avatarUrl);
+  renderActiveChatShell(chat);
 
   setDisplay(DOM.chatEmpty, false);
   setDisplay(DOM.chatTopics, false);
   setDisplay(DOM.chatProcessing, true, 'flex');
   setDisplay(DOM.chatPresence, false);
   navigate('chat', 'forward');
+
+  const cachedThreads = Store.getThreads();
+  if (cachedThreads.length > 0) {
+    setDisplay(DOM.chatProcessing, false);
+    DOM.chatMemberPips.style.visibility = 'visible';
+    setDisplay(DOM.chatEmpty, false);
+    setDisplay(DOM.chatPresence, true, 'flex');
+    renderTopics();
+  }
 
   await hydrateActiveConversation(true);
 
@@ -397,9 +499,178 @@ function clearReplyTarget() {
   AppState.replyTargetThreadId = null;
 }
 
-function _navigateToChats() {
-  navigate('chats', 'back');
-  requestAnimationFrame(renderChatsList);
+function updateAuthEntryCopy() {
+  if (DOM.authPhoneSubtitle) {
+    DOM.authPhoneSubtitle.textContent = AppState.auth.pendingInviteToken
+      ? 'We’ll text you a verification code, then open your invite.'
+      : AppState.auth.pendingChatId
+        ? 'We’ll text you a verification code, then open your chat.'
+        : 'We’ll text you a verification code so you can join chats securely.';
+  }
+
+  if (DOM.profileSetupSubtitle) {
+    DOM.profileSetupSubtitle.textContent = AppState.auth.pendingInviteToken
+      ? 'Choose the name people in this group will see when you join.'
+      : 'Pick the name your friends will see in chats and invites.';
+  }
+}
+
+function supportsDeviceContacts() {
+  return !!navigator.contacts?.select;
+}
+
+function parsePickedContacts(pickedContacts = []) {
+  const contacts = [];
+
+  for (const contact of pickedContacts) {
+    const name = (contact.name?.[0] || '').trim();
+    for (const rawPhone of (contact.tel || [])) {
+      const phone = normalizePhoneNumber(rawPhone);
+      if (phone) {
+        contacts.push({ name: name || phone, phone });
+      }
+    }
+  }
+
+  return contacts;
+}
+
+async function pickDeviceContacts() {
+  if (!supportsDeviceContacts()) {
+    throw new Error('Device contacts are not supported in this browser. Use "Import iCloud / vCard" instead.');
+  }
+
+  const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+  return parsePickedContacts(picked);
+}
+
+async function addContactsToGroupDraft(contacts) {
+  const fresh = contacts.filter(contact =>
+    !AppState.onboarding.pendingMembers.some(member => member.phone === contact.phone)
+  );
+
+  if (!fresh.length) {
+    return 0;
+  }
+
+  AppState.onboarding.pendingMembers.push(...fresh);
+  renderPendingGroupMembers();
+
+  if (AppState.supabaseOk) {
+    await saveImportedContacts(getCurrentUserId(), fresh, 'device').catch(() => {});
+  }
+
+  return fresh.length;
+}
+
+async function addContactsToActiveChat(contacts) {
+  if (!AppState.activeChat?.id) return 0;
+
+  const fresh = contacts.filter(contact => {
+    const alreadyMember = AppState.activeChat.members?.some(member => member.phoneE164 === contact.phone);
+    return !alreadyMember;
+  });
+
+  if (!fresh.length) {
+    return 0;
+  }
+
+  await addMembersToChat({
+    chatId: AppState.activeChat.id,
+    ownerUserId: getCurrentUserId(),
+    members: fresh,
+  });
+  await refreshActiveChatAndSettings();
+
+  return fresh.length;
+}
+
+async function importDeviceContactsIntoCurrentTarget() {
+  const contacts = await pickDeviceContacts();
+  if (!contacts.length) return 0;
+
+  if (AppState.onboarding.contactsTarget === 'group-settings') {
+    return addContactsToActiveChat(contacts);
+  }
+
+  return addContactsToGroupDraft(contacts);
+}
+
+function activeContactsFeedbackNode() {
+  return AppState.onboarding.contactsTarget === 'group-settings'
+    ? DOM.groupSettingsFeedback
+    : DOM.createGroupFeedback;
+}
+
+async function handleDirectDeviceContactsImport() {
+  const feedbackNode = activeContactsFeedbackNode();
+  setFeedback(feedbackNode, '');
+
+  try {
+    const addedCount = await importDeviceContactsIntoCurrentTarget();
+    const successMessage = AppState.onboarding.contactsTarget === 'group-settings'
+      ? (addedCount
+        ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'} to this group.`
+        : 'Those contacts are already in this group.')
+      : (addedCount
+        ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'} to the To field.`
+        : 'Those contacts are already in this new group.');
+
+    if (AppState.onboarding.contactsTarget === 'group-settings') {
+      await refreshActiveChatAndSettings();
+    } else {
+      renderPendingGroupMembers();
+    }
+
+    setFeedback(feedbackNode, successMessage, addedCount ? 'success' : '');
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    setFeedback(feedbackNode, error.message || 'We could not load contacts.', 'error');
+  }
+}
+
+function triggerDirectContactsEntry(target = 'create-group') {
+  AppState.onboarding.contactsTarget = target;
+
+  if (supportsDeviceContacts()) {
+    return handleDirectDeviceContactsImport();
+  }
+
+  if (target === 'group-settings') {
+    openContactsHub().then(() => {
+      setFeedback(
+        DOM.contactsHubFeedback,
+        'Direct iPhone contact picking is not available in this browser. Import an iCloud/vCard file instead.',
+        'error'
+      );
+    });
+    return Promise.resolve();
+  }
+
+  openContactsHub().then(() => {
+    setFeedback(
+      DOM.contactsHubFeedback,
+      'Direct iPhone contact picking is not available in this browser. Import an iCloud/vCard file instead.',
+      'error'
+    );
+  });
+  return Promise.resolve();
+}
+
+function updateContactsHubChrome() {
+  const inGroupSettings = AppState.onboarding.contactsTarget === 'group-settings';
+
+  if (DOM.contactsHubTitle) {
+    DOM.contactsHubTitle.textContent = inGroupSettings ? 'Add people to this group.' : 'Your contacts.';
+  }
+  if (DOM.contactsHubBody) {
+    DOM.contactsHubBody.textContent = inGroupSettings
+      ? 'Pull in real contacts, then add them directly into the current group.'
+      : 'Import real contacts, then tap to add them into your group draft.';
+  }
+  if (DOM.btnContactsHubDevice) {
+    DOM.btnContactsHubDevice.hidden = !supportsDeviceContacts();
+  }
 }
 
 // ── Recording flow ────────────────────────────────────
@@ -418,7 +689,9 @@ async function startRecording() {
     window.__yapVoiceVisualizerBridge?.setRecording?.(true);
     DOM.btnMic.classList.add('recording');
   } catch (err) {
-    alert(err.message);
+    const message = err?.message || 'We could not start recording on this device.';
+    console.warn('[yAp] startRecording failed:', err);
+    alert(message);
     _setRecordingIdleState();
     closeRecordingOverlay();
   }
@@ -483,6 +756,7 @@ async function sendRecording() {
         clearReplyTarget();
         renderTopics();
         addReplyToTopic(replyTargetThreadId, replyMessage);
+        refreshChats().then(() => renderChatsList());
         return;
       }
 
@@ -557,6 +831,7 @@ function resetCreateGroupComposer() {
   if (DOM.formCreateGroup) DOM.formCreateGroup.reset();
   renderPendingGroupMembers();
   setFeedback(DOM.createGroupFeedback, '');
+  if (DOM.btnCreateGroup) DOM.btnCreateGroup.disabled = true;
 }
 
 function renderPendingGroupMembers() {
@@ -565,21 +840,20 @@ function renderPendingGroupMembers() {
   if (!AppState.onboarding.pendingMembers.length) {
     DOM.groupMemberList.innerHTML = `
       <div class="entry-member-empty">
-        Add at least one real phone number so the group can actually route invites and membership.
+        Add people to start a new group conversation.
       </div>
     `;
+    if (DOM.btnCreateGroup) DOM.btnCreateGroup.disabled = true;
     return;
   }
 
   DOM.groupMemberList.innerHTML = AppState.onboarding.pendingMembers.map(member => `
     <div class="entry-member-pill" data-member-phone="${escapeHtml(member.phone)}">
-      <div class="entry-member-pill__meta">
-        <span class="entry-member-pill__name">${escapeHtml(member.name || 'New member')}</span>
-        <span class="entry-member-pill__phone">${escapeHtml(member.phone)}</span>
-      </div>
+      <span class="entry-member-pill__name">${escapeHtml(member.name || member.phone || 'New member')}</span>
       <button class="entry-member-pill__remove" type="button" data-remove-member="${escapeHtml(member.phone)}" aria-label="Remove ${escapeHtml(member.name || member.phone)}">×</button>
     </div>
   `).join('');
+  if (DOM.btnCreateGroup) DOM.btnCreateGroup.disabled = false;
 }
 
 function addPendingGroupMember() {
@@ -729,12 +1003,13 @@ async function renderContactsHub() {
 async function refreshChats() {
   if (!AppState.supabaseOk) {
     AppState.chats = CHATS.filter(chat => chat.members.some(member => member.id === getCurrentUserId()));
-    AppState.contactsConnected = AppState.chats.length > 0;
     return AppState.chats;
   }
 
   AppState.chats = await getChatsForUser(getCurrentUserId());
-  AppState.contactsConnected = AppState.chats.length > 0;
+  if (AppState.activeChat?.id) {
+    AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
+  }
   return AppState.chats;
 }
 
@@ -761,18 +1036,25 @@ function renderProfileSettings() {
 function renderGroupSettings(invites = []) {
   const chat = AppState.activeChat;
   if (!chat) return;
+  const canManage = canManageActiveChat();
 
   DOM.inputGroupSettingsName.value = chat.name || '';
+  DOM.inputGroupSettingsName.disabled = !canManage;
+  DOM.inputGroupMemberName.disabled = !canManage;
+  DOM.inputGroupMemberPhone.disabled = !canManage;
+  DOM.btnAddGroupSettingsMember.disabled = !canManage;
+  DOM.btnGroupSettingsBrowseContacts.disabled = !canManage;
+  DOM.btnSaveGroupSettings.disabled = !canManage;
   DOM.groupSettingsMembers.innerHTML = (chat.members || []).map(member => `
     <div class="settings-list__row">
-      <div class="settings-avatar" style="background-image:url('${member.avatarUrl || ''}'); background-color:${member.color || '#eee'}"></div>
+      <div class="${buildAvatarClass('settings-avatar', member)}" style="${buildAvatarStyle(member)}">${buildAvatarContent(member)}</div>
       <div class="settings-list__meta">
         <div class="settings-list__title">${escapeHtml(member.name)}</div>
         <div class="settings-list__sub">${escapeHtml(member.phoneE164 || '')}</div>
       </div>
       <div class="settings-list__actions">
-        <div class="settings-list__badge">${member.id === getCurrentUserId() ? 'You' : 'Member'}</div>
-        ${member.id !== getCurrentUserId()
+        <div class="settings-list__badge">${member.id === getCurrentUserId() ? 'You' : member.pending ? 'Pending' : 'Member'}</div>
+        ${canManage && member.id !== getCurrentUserId() && !member.pending
           ? `<button class="settings-list__action" type="button" data-remove-member="${escapeHtml(member.id)}">Remove</button>`
           : ''}
       </div>
@@ -788,8 +1070,8 @@ function renderGroupSettings(invites = []) {
         </div>
         <div class="settings-list__actions">
           <div class="settings-list__badge">${escapeHtml(invite.status)}</div>
-          <button class="settings-list__action" type="button" data-resend-invite="${escapeHtml(invite.id)}">Resend</button>
-          <button class="settings-list__action" type="button" data-revoke-invite="${escapeHtml(invite.id)}">Revoke</button>
+          ${canManage ? `<button class="settings-list__action" type="button" data-resend-invite="${escapeHtml(invite.id)}">Resend</button>` : ''}
+          ${canManage ? `<button class="settings-list__action" type="button" data-revoke-invite="${escapeHtml(invite.id)}">Revoke</button>` : ''}
         </div>
       </div>
     `).join('')
@@ -814,21 +1096,24 @@ async function refreshActiveChatAndSettings() {
   await refreshChats();
   if (!AppState.activeChat) return;
   AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
+  renderActiveChatShell(AppState.activeChat);
   const invites = AppState.supabaseOk ? await getInvitationsForChat(AppState.activeChat.id) : [];
   renderGroupSettings(invites);
   renderChatsList();
 }
 
-async function openContactsHub(target = 'create-group', autoImport = false) {
+async function openContactsHub(target = 'create-group') {
   AppState.onboarding.contactsTarget = target;
   setFeedback(DOM.contactsHubFeedback, '');
+  updateContactsHubChrome();
   await renderContactsHub();
   navigate('contacts-hub', 'forward');
-
-  // If no contacts are loaded yet (or caller asked), auto-trigger the file picker
-  // so the user doesn't have to figure out what to tap next.
-  if (autoImport || !DOM.contactsHubList?.querySelector('.contacts-hub-row')) {
-    setTimeout(() => DOM.inputContactsHubFile?.click(), 300);
+  if (!DOM.contactsHubList?.querySelector('.contacts-hub-row') && !supportsDeviceContacts()) {
+    setFeedback(
+      DOM.contactsHubFeedback,
+      'Import an iCloud/vCard file to add contacts on iPhone Safari.',
+      'success'
+    );
   }
 }
 
@@ -836,6 +1121,20 @@ async function openContactsHub(target = 'create-group', autoImport = false) {
 async function routeAuthenticatedUser() {
   const authSession = AppState.auth.session;
   if (!authSession) {
+    if (AppState.auth.pendingInviteToken || AppState.auth.pendingChatId) {
+      updateAuthEntryCopy();
+      navigate('auth-phone', 'fade');
+      setFeedback(
+        DOM.authPhoneFeedback,
+        AppState.auth.pendingInviteToken
+          ? 'Sign in with your phone to open this invite.'
+          : 'Sign in with your phone to open this chat.',
+        'success'
+      );
+      DOM.inputAuthPhone?.focus();
+      return;
+    }
+
     navigate('welcome', 'fade');
     return;
   }
@@ -860,18 +1159,28 @@ async function routeAuthenticatedUser() {
   prefillProfileForm(appUser);
 
   if (!appUser.profileCompleted) {
+    updateAuthEntryCopy();
     navigate('profile-setup', 'fade');
     return;
   }
 
   let joinedChatId = null;
   if (AppState.auth.pendingInviteToken) {
-    joinedChatId = await acceptInviteToken(AppState.auth.pendingInviteToken, appUser.id);
-    if (joinedChatId) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('invite');
-      window.history.replaceState({}, '', url.toString());
-      AppState.auth.pendingInviteToken = '';
+    try {
+      joinedChatId = await acceptInviteToken(AppState.auth.pendingInviteToken, appUser.id);
+      if (joinedChatId) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('invite');
+        window.history.replaceState({}, '', url.toString());
+        AppState.auth.pendingInviteToken = '';
+      }
+    } catch (error) {
+      console.warn('[yAp] invite acceptance failed:', error);
+      setFeedback(
+        DOM.authPhoneFeedback,
+        error.message || 'We could not open that invite yet. You can still sign in and try again.',
+        'error'
+      );
     }
   }
 
@@ -907,6 +1216,7 @@ async function resolveInitialRoute() {
   const params = new URLSearchParams(window.location.search);
   AppState.auth.pendingInviteToken = params.get('invite') || '';
   AppState.auth.pendingChatId = params.get('chat') || '';
+  updateAuthEntryCopy();
 
   if (!AppState.supabaseOk) {
     AppState.chats = CHATS.filter(chat => chat.members.some(member => member.id === getCurrentUserId()));
@@ -919,15 +1229,31 @@ async function resolveInitialRoute() {
   await routeAuthenticatedUser();
 }
 
+async function safeResolveInitialRoute() {
+  try {
+    await resolveInitialRoute();
+  } catch (error) {
+    console.error('[yAp] initial route failed:', error);
+    navigate('auth-phone', 'fade');
+    setFeedback(
+      DOM.authPhoneFeedback,
+      error.message || 'We hit a setup error while opening yAp. Try signing in again.',
+      'error'
+    );
+  }
+}
+
 // ── Event wiring ──────────────────────────────────────
 function wireEvents() {
   DOM.btnGetStarted?.addEventListener('click', () => {
+    updateAuthEntryCopy();
     setFeedback(DOM.authPhoneFeedback, '');
     navigate('auth-phone', 'forward');
     DOM.inputAuthPhone?.focus();
   });
 
   DOM.btnAuthPhoneBack?.addEventListener('click', () => {
+    updateAuthEntryCopy();
     setFeedback(DOM.authPhoneFeedback, '');
     navigate('welcome', 'back');
   });
@@ -943,6 +1269,7 @@ function wireEvents() {
       DOM.authVerifySubtitle.textContent = `We sent a verification code to ${phone}.`;
       DOM.inputAuthCode.value = '';
       setFeedback(DOM.authVerifyFeedback, '');
+      updateAuthEntryCopy();
       navigate('auth-verify', 'forward');
       DOM.inputAuthCode.focus();
     } catch (error) {
@@ -953,6 +1280,7 @@ function wireEvents() {
   });
 
   DOM.btnAuthVerifyBack?.addEventListener('click', () => {
+    updateAuthEntryCopy();
     setFeedback(DOM.authVerifyFeedback, '');
     navigate('auth-phone', 'back');
     DOM.inputAuthPhone?.focus();
@@ -1013,36 +1341,8 @@ function wireEvents() {
     }
     navigate('profile-setup', 'back');
   });
-  DOM.btnBrowseContacts?.addEventListener('click', async () => {
-    if (!('contacts' in navigator) || !('ContactsManager' in window)) {
-      setFeedback(DOM.createGroupFeedback, 'Contact picker not supported in this browser. Use "Import iCloud / vCard" or add friends manually.', 'error');
-      return;
-    }
-    try {
-      const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
-      if (!picked?.length) return;
-      const incoming = [];
-      for (const contact of picked) {
-        const name = (contact.name?.[0] || '').trim();
-        for (const raw of (contact.tel || [])) {
-          const phone = normalizePhoneNumber(raw);
-          if (phone) incoming.push({ name: name || phone, phone });
-        }
-      }
-      const fresh = incoming.filter(c => !AppState.onboarding.pendingMembers.some(m => m.phone === c.phone));
-      AppState.onboarding.pendingMembers.push(...fresh);
-      renderPendingGroupMembers();
-      if (AppState.supabaseOk && fresh.length) {
-        await saveImportedContacts(getCurrentUserId(), fresh, 'device').catch(() => {});
-      }
-      setFeedback(DOM.createGroupFeedback,
-        fresh.length ? `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'}.` : 'Already in group draft.',
-        fresh.length ? 'success' : '');
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        setFeedback(DOM.createGroupFeedback, `Contacts error: ${err.message}`, 'error');
-      }
-    }
+  DOM.btnBrowseContacts?.addEventListener('click', () => {
+    triggerDirectContactsEntry('create-group');
   });
 
   DOM.btnImportVCard?.addEventListener('click', () => {
@@ -1055,8 +1355,6 @@ function wireEvents() {
     setButtonBusy(DOM.btnImportVCard, true, 'Importing...');
     try {
       await importContactsFromVCard(file);
-      // After import, go to the hub so the user can tap contacts to add them.
-      await openContactsHub('create-group');
     } catch (error) {
       setFeedback(DOM.createGroupFeedback, error.message || 'We could not import that contact file.', 'error');
     } finally {
@@ -1068,7 +1366,30 @@ function wireEvents() {
     navigate(AppState.onboarding.contactsTarget === 'group-settings' ? 'group-settings' : 'create-group', 'back');
   });
 
-  // navigator.contacts is not supported on any iOS browser — button stays hidden.
+  DOM.btnContactsHubDevice?.addEventListener('click', async () => {
+    setFeedback(DOM.contactsHubFeedback, '');
+    setButtonBusy(DOM.btnContactsHubDevice, true, 'Loading...');
+    try {
+      const addedCount = await importDeviceContactsIntoCurrentTarget();
+      await renderContactsHub();
+      setFeedback(
+        DOM.contactsHubFeedback,
+        addedCount
+          ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'}.`
+          : AppState.onboarding.contactsTarget === 'group-settings'
+            ? 'Those contacts are already in this group.'
+            : 'Those contacts are already in your group draft.',
+        addedCount ? 'success' : ''
+      );
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        setFeedback(DOM.contactsHubFeedback, error.message || 'We could not load device contacts.', 'error');
+      }
+    } finally {
+      setButtonBusy(DOM.btnContactsHubDevice, false);
+    }
+  });
+
   DOM.btnContactsImportVCard?.addEventListener('click', () => {
     DOM.inputContactsHubFile?.click();
   });
@@ -1161,21 +1482,20 @@ function wireEvents() {
     }
   });
 
-  DOM.btnAllowContacts.addEventListener('click', () => {
-    AppState.contactsConnected = true;
-    _navigateToChats();
-  });
-  DOM.btnSelectContacts.addEventListener('click', () => {
-    AppState.contactsConnected = true;
-    _navigateToChats();
-  });
-  DOM.btnDenyContacts.addEventListener('click', () => {
-    _navigateToChats();
-  });
-
   DOM.btnStartChat.addEventListener('click', () => {
     navigate('create-group', 'forward');
     renderPendingGroupMembers();
+  });
+  DOM.btnComposeChat?.addEventListener('click', () => {
+    navigate('create-group', 'forward');
+    renderPendingGroupMembers();
+  });
+
+  DOM.inputMemberPhone?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addPendingGroupMember();
+    }
   });
 
   DOM.selfAvatar?.addEventListener('click', openProfileScreen);
@@ -1256,7 +1576,9 @@ function wireEvents() {
   });
 
   DOM.btnBack.addEventListener('click', () => {
-    navigate('chats', 'back');
+    refreshChats()
+      .then(() => renderChatsList())
+      .finally(() => navigate('chats', 'back'));
   });
   DOM.btnChatMore?.addEventListener('click', openGroupSettingsScreen);
   DOM.btnGroupSettingsBack?.addEventListener('click', () => {
@@ -1265,6 +1587,10 @@ function wireEvents() {
   DOM.formGroupSettings?.addEventListener('submit', async event => {
     event.preventDefault();
     if (!AppState.activeChat) return;
+    if (!canManageActiveChat()) {
+      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can rename this chat.', 'error');
+      return;
+    }
     setButtonBusy(DOM.btnSaveGroupSettings, true, 'Saving...');
     setFeedback(DOM.groupSettingsFeedback, '');
     try {
@@ -1284,6 +1610,10 @@ function wireEvents() {
   });
   DOM.btnAddGroupSettingsMember?.addEventListener('click', async () => {
     if (!AppState.activeChat) return;
+    if (!canManageActiveChat()) {
+      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
+      return;
+    }
     setButtonBusy(DOM.btnAddGroupSettingsMember, true, 'Adding...');
     setFeedback(DOM.groupSettingsFeedback, '');
     try {
@@ -1308,6 +1638,10 @@ function wireEvents() {
   DOM.groupSettingsMembers?.addEventListener('click', async event => {
     const removeButton = event.target.closest('[data-remove-member]');
     if (!removeButton || !AppState.activeChat) return;
+    if (!canManageActiveChat()) {
+      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can remove people.', 'error');
+      return;
+    }
 
     setFeedback(DOM.groupSettingsFeedback, '');
     try {
@@ -1318,38 +1652,21 @@ function wireEvents() {
       setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not remove that member.', 'error');
     }
   });
-  DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', async () => {
-    if (!('contacts' in navigator) || !('ContactsManager' in window)) {
-      await openContactsHub('group-settings');
+  DOM.btnGroupSettingsBrowseContacts?.addEventListener('click', () => {
+    if (!canManageActiveChat()) {
+      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
       return;
     }
-    try {
-      const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
-      if (!picked?.length) return;
-      const incoming = [];
-      for (const contact of picked) {
-        const name = (contact.name?.[0] || '').trim();
-        for (const raw of (contact.tel || [])) {
-          const phone = normalizePhoneNumber(raw);
-          if (phone) incoming.push({ name: name || phone, phone });
-        }
-      }
-      const fresh = incoming.filter(c => !AppState.activeChat?.members?.some(m => m.phoneE164 === c.phone));
-      if (fresh.length) {
-        await addMembersToChat({ chatId: AppState.activeChat.id, ownerUserId: getCurrentUserId(), members: fresh });
-        await refreshActiveChatAndSettings();
-        setFeedback(DOM.groupSettingsFeedback, `Added ${fresh.length} contact${fresh.length === 1 ? '' : 's'}.`, 'success');
-      } else {
-        setFeedback(DOM.groupSettingsFeedback, 'Those contacts are already in this group.', '');
-      }
-    } catch (err) {
-      if (err.name !== 'AbortError') setFeedback(DOM.groupSettingsFeedback, `Contacts error: ${err.message}`, 'error');
-    }
+    triggerDirectContactsEntry('group-settings');
   });
   DOM.groupSettingsInvites?.addEventListener('click', async event => {
     const resendButton = event.target.closest('[data-resend-invite]');
     const revokeButton = event.target.closest('[data-revoke-invite]');
     if (!resendButton && !revokeButton) return;
+    if (!canManageActiveChat()) {
+      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can manage invites.', 'error');
+      return;
+    }
 
     setFeedback(DOM.groupSettingsFeedback, '');
     try {
@@ -1378,6 +1695,7 @@ function wireEvents() {
       }
       const leavingChatId = AppState.activeChat.id;
       AppState.chats = AppState.chats.filter(chat => chat.id !== leavingChatId);
+      Store.clear(leavingChatId);
       AppState.activeChat = null;
       navigate('chats', 'back');
       renderChatsList();
@@ -1438,9 +1756,14 @@ function wirePipelineEvents() {
     });
   });
 
+  document.addEventListener('yap:pipeline:done', () => {
+    refreshChats().then(() => renderChatsList());
+  });
+
   // A Chloe/Maria response arrived → add bar to matching topic card
   document.addEventListener('yap:response:arrived', e => {
     addReplyToTopic(e.detail.threadId, e.detail.message);
+    refreshChats().then(() => renderChatsList());
   });
 
   document.addEventListener('yap:thread:reply', e => {
@@ -1450,12 +1773,23 @@ function wirePipelineEvents() {
   });
 }
 
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(error => {
+      console.warn('[yAp] service worker registration failed:', error);
+    });
+  }, { once: true });
+}
+
 // ── Boot ──────────────────────────────────────────────
 async function boot() {
   setCurrentUserId(getCurrentUserId());
   cacheDOM();
   wireEvents();
   wirePipelineEvents();
+  registerServiceWorker();
   renderPendingGroupMembers();
   setDisplay(DOM.btnChatMore, true);
 
@@ -1468,7 +1802,7 @@ async function boot() {
 
   // Splash auto-advance
   setTimeout(() => {
-    resolveInitialRoute();
+    safeResolveInitialRoute();
   }, 950);
 }
 

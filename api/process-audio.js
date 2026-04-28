@@ -163,7 +163,11 @@ ${JSON.stringify(threadContext, null, 2)}
 Interpretation rules for the thread metadata:
 - "unheardCount" means the user has friend replies in that thread they have not finished hearing yet
 - "lastHeardAt" means the user most recently listened to that thread around that time
+- "recentlyPlayed" means the user very recently finished listening to that thread
+- "lastPlayedMessage" contains the exact friend message they most recently heard in that thread
 - when a semantic match is plausible, prioritize threads with recent heard context or unheard replies before older unrelated threads
+- if the transcript sounds like a direct response to the recently played message, prefer attaching that segment to the same thread
+- if only part of the memo responds to that recently played message, attach only that part and keep unrelated parts as new topics
 
 For each segment, set "assigned_thread_id" to one of the existing ids only when it is clearly the same ongoing topic. Otherwise return null.`
     : 'There are no existing topic threads yet. Use null for every "assigned_thread_id".';
@@ -201,6 +205,7 @@ Rules:
 - if the memo stays on one topic, return one segment
 - excerpt should sound like real language from the memo, not a title
 - use continuity context: a follow-up memo often responds to recently heard or currently unheard friend replies
+- the user may respond right after listening to a friend's voice note; use "recentlyPlayed" and "lastPlayedMessage" as strong but not absolute signals
 - only attach to an existing thread when the semantic match is strong; otherwise create a new topic with null thread id
 - total duration is ${durationMs}ms
 

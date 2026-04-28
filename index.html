@@ -4,10 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>yAp</title>
+  <meta name="application-name" content="yAp">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="yAp">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="format-detection" content="telephone=no">
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png">
   <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png">
   <meta name="theme-color" content="#f7f7fb">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -51,7 +58,7 @@
     <div class="entry-screen entry-screen--form">
       <div class="entry-screen__hero">
         <h1 class="entry-screen__title">Sign in with your phone.</h1>
-        <p class="entry-screen__body">We’ll text you a verification code so you can join chats securely.</p>
+        <p class="entry-screen__body" id="auth-phone-subtitle">We’ll text you a verification code so you can join chats securely.</p>
       </div>
       <form class="entry-form" id="form-auth-phone">
         <label class="entry-label" for="input-auth-phone">Phone number</label>
@@ -89,7 +96,7 @@
     <div class="entry-screen entry-screen--form">
       <div class="entry-screen__hero">
         <h1 class="entry-screen__title">Set up your profile.</h1>
-        <p class="entry-screen__body">Pick the name your friends will see in chats and invites.</p>
+        <p class="entry-screen__body" id="profile-setup-subtitle">Pick the name your friends will see in chats and invites.</p>
       </div>
       <form class="entry-form" id="form-profile-setup">
         <label class="entry-label" for="input-profile-name">Display name</label>
@@ -107,37 +114,36 @@
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-create-group" class="screen" data-screen="create-group">
     <div class="entry-screen entry-screen--form">
-      <div class="settings-header">
-        <button class="entry-btn entry-btn--secondary" id="btn-create-group-back" type="button">Back</button>
-      </div>
-      <div class="entry-screen__hero">
-        <h1 class="entry-screen__title">Create your first group.</h1>
-        <p class="entry-screen__body">Start with a name, then add friends by phone number so yAp can match or invite them.</p>
+      <div class="compose-header">
+        <button class="entry-btn entry-btn--secondary compose-header__back" id="btn-create-group-back" type="button">Cancel</button>
+        <div class="compose-header__title">New Group</div>
+        <button class="entry-btn entry-btn--primary compose-header__action" id="btn-create-group" type="submit" form="form-create-group">Continue</button>
       </div>
       <form class="entry-form" id="form-create-group">
-        <label class="entry-label" for="input-group-name">Group name</label>
-        <input class="entry-input" id="input-group-name" type="text" autocomplete="off" placeholder="besties 💛" maxlength="50" required>
-
-        <div class="entry-member-builder">
-          <div class="entry-member-builder__row">
-            <div class="entry-member-builder__field">
-              <label class="entry-label" for="input-member-name">Friend name</label>
-              <input class="entry-input" id="input-member-name" type="text" autocomplete="off" placeholder="Chloe" maxlength="40">
+        <div class="compose-recipients">
+          <div class="compose-recipients__row">
+            <label class="compose-recipients__label" for="input-member-phone">To:</label>
+            <div class="compose-recipients__field">
+              <div class="entry-member-list entry-member-list--inline" id="group-member-list"></div>
+              <input class="compose-recipients__input" id="input-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="Phone number">
             </div>
-            <div class="entry-member-builder__field">
-              <label class="entry-label" for="input-member-phone">Phone number</label>
-              <input class="entry-input" id="input-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="+1 555 555 0102">
-            </div>
+            <button class="compose-recipients__add" id="btn-add-group-member" type="button">Add</button>
           </div>
-          <button class="entry-btn entry-btn--secondary" id="btn-add-group-member" type="button">Add Member</button>
-          <button class="entry-btn entry-btn--secondary" id="btn-browse-contacts" type="button">Browse Contacts</button>
+        </div>
+
+        <div class="compose-actions">
+          <button class="entry-btn entry-btn--secondary" id="btn-browse-contacts" type="button">Choose From Contacts</button>
           <button class="entry-btn entry-btn--secondary" id="btn-import-vcard" type="button">Import iCloud / vCard</button>
           <input id="input-contact-file" type="file" accept=".vcf,text/vcard" hidden>
         </div>
 
-        <div class="entry-member-list" id="group-member-list"></div>
-
-        <button class="entry-btn entry-btn--primary" id="btn-create-group" type="submit">Create Group</button>
+        <div class="compose-group-meta">
+          <label class="entry-label" for="input-group-name">Group name <span class="entry-label__optional">(optional)</span></label>
+          <input class="entry-input" id="input-group-name" type="text" autocomplete="off" placeholder="Name this group" maxlength="50">
+          <label class="entry-label" for="input-member-name">Label for manual add <span class="entry-label__optional">(optional)</span></label>
+          <input class="entry-input" id="input-member-name" type="text" autocomplete="off" placeholder="Contact name">
+          <p class="entry-screen__meta">Start like Messages: add people first, then yAp opens the conversation so you can send the first voice memo.</p>
+        </div>
         <p class="entry-feedback" id="create-group-feedback" aria-live="polite"></p>
       </form>
     </div>
@@ -152,8 +158,8 @@
         <button class="entry-btn entry-btn--secondary" id="btn-contacts-hub-back" type="button">Back</button>
       </div>
       <div class="entry-screen__hero">
-        <h1 class="entry-screen__title">Your contacts.</h1>
-        <p class="entry-screen__body">Import real contacts, then tap to add them into your group draft.</p>
+        <h1 class="entry-screen__title" id="contacts-hub-title">Your contacts.</h1>
+        <p class="entry-screen__body" id="contacts-hub-body">Import real contacts, then tap to add them into your group draft.</p>
       </div>
       <div class="entry-form">
         <div class="entry-member-builder settings-member-builder">
@@ -246,37 +252,6 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!-- SCREEN: CONTACTS PERMISSION                     -->
-  <!-- ═══════════════════════════════════════════════ -->
-  <div id="screen-contacts-permission" class="screen" data-screen="contacts-permission">
-    <div class="perm-bg">
-      <div class="top-bar top-bar--permission">
-        <h1 class="top-bar__title">Chats</h1>
-        <div class="top-bar__actions">
-          <button class="icon-btn" aria-label="Search">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.6"/>
-              <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-            </svg>
-          </button>
-          <div class="self-avatar self-avatar--static" id="permission-self-avatar"></div>
-        </div>
-      </div>
-    </div>
-    <div class="sheet" id="permission-sheet">
-      <div class="sheet-handle"></div>
-      <img class="perm-app-badge" src="assets/access-contacts.png" alt="" aria-hidden="true">
-      <div class="perm-heading">"yAp" Would Like to<br>Access Your Contacts</div>
-      <div class="perm-sub">yAp uses contacts to show a list of every person or business the app has access to.</div>
-      <div class="perm-actions">
-        <button class="perm-btn perm-btn--primary" id="btn-allow-contacts">Allow Full Access</button>
-        <button class="perm-btn perm-btn--secondary" id="btn-select-contacts">Select Contacts</button>
-        <button class="perm-btn perm-btn--deny" id="btn-deny-contacts">Don't Allow</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════════════ -->
   <!-- SCREEN: CHATS LIST                              -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-chats" class="screen" data-screen="chats">
@@ -287,6 +262,12 @@
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.6"/>
             <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="btn-compose-chat" aria-label="New conversation">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M4.5 15.5L5.2 12.4L12.9 4.7C13.6 4 14.7 4 15.4 4.7L15.8 5.1C16.5 5.8 16.5 6.9 15.8 7.6L8.1 15.3L4.5 15.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M11.9 5.7L14.3 8.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
         </button>
         <div class="self-avatar" id="self-avatar">S</div>
@@ -308,7 +289,7 @@
     <div class="chats-empty-state" id="chats-empty-state">
       <button class="chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
         <span class="chats-empty-state__plus" aria-hidden="true"></span>
-        <span class="chats-empty-state__label">Create a group</span>
+        <span class="chats-empty-state__label">New Message</span>
       </button>
     </div>
   </div>
@@ -346,11 +327,11 @@
       <!-- Empty state: floating member avatars -->
       <div class="chat-empty" id="chat-empty">
         <div class="floating-avatar floating-avatar--chloe" id="floating-chloe">
-          <div class="floating-avatar__label">Chloe</div>
+          <div class="floating-avatar__label" id="floating-chloe-label">Chloe</div>
           <div class="floating-avatar__photo"></div>
         </div>
         <div class="floating-avatar floating-avatar--maria" id="floating-maria">
-          <div class="floating-avatar__label">Maria</div>
+          <div class="floating-avatar__label" id="floating-maria-label">Maria</div>
           <div class="floating-avatar__photo"></div>
         </div>
       </div>

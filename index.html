@@ -10,6 +10,8 @@
   <meta name="apple-mobile-web-app-title" content="yAp">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="format-detection" content="telephone=no">
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+  <link rel="shortcut icon" href="assets/favicon.ico">
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png">
   <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png">
@@ -26,7 +28,7 @@
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-splash" class="screen active" data-screen="splash">
     <div class="splash-content">
-      <img class="splash-logo" src="assets/yap-logo.png" alt="yAp">
+      <img class="splash-logo" src="assets/y.png" alt="yAp">
       <div class="splash-tagline">Less typing. More yapping.</div>
     </div>
   </div>
@@ -37,7 +39,7 @@
   <div id="screen-welcome" class="screen" data-screen="welcome">
     <div class="entry-screen">
       <div class="entry-screen__hero">
-        <img class="entry-screen__logo" src="assets/yap-logo.png" alt="yAp">
+        <img class="entry-screen__logo" src="assets/app-cover.png" alt="yAp">
         <h1 class="entry-screen__title">Voice-first group chat, built for real life.</h1>
         <p class="entry-screen__body">Create a group, send a voice memo, and let yAp organize the conversation into replyable topics.</p>
       </div>
@@ -291,36 +293,10 @@
           <label class="group-details-hero__name-wrap" for="input-group-settings-name">
             <input class="group-details-hero__name" id="input-group-settings-name" type="text" autocomplete="off" maxlength="50" required readonly>
           </label>
-          <div class="group-details-tabs" role="tablist" aria-label="Conversation details tabs">
-            <button class="group-details-tab is-active" id="btn-group-settings-tab-info" type="button" role="tab" aria-selected="true">Info</button>
-            <button class="group-details-tab" id="btn-group-settings-tab-backgrounds" type="button" role="tab" aria-selected="false">Background</button>
-            <button class="group-details-tab" id="btn-group-settings-tab-links" type="button" role="tab" aria-selected="false">Links</button>
-          </div>
         </section>
 
         <section class="group-details-panel is-active" id="group-settings-panel-info" data-group-settings-panel="info">
-          <div class="group-details-summary-card" id="group-settings-summary-card">
-            <div class="group-details-summary-card__eyebrow">Voice-first conversation</div>
-            <div class="group-details-summary-card__title">yAp keeps the group organized into replayable topics.</div>
-            <div class="group-details-summary-grid">
-              <div class="group-details-summary-metric">
-                <div class="group-details-summary-metric__value" id="group-settings-summary-people">0</div>
-                <div class="group-details-summary-metric__label">People</div>
-              </div>
-              <div class="group-details-summary-metric">
-                <div class="group-details-summary-metric__value" id="group-settings-summary-topics">0</div>
-                <div class="group-details-summary-metric__label">Topics</div>
-              </div>
-              <div class="group-details-summary-metric">
-                <div class="group-details-summary-metric__value" id="group-settings-summary-links">0</div>
-                <div class="group-details-summary-metric__label">Links</div>
-              </div>
-            </div>
-          </div>
-
           <div class="group-details-people-strip" id="group-settings-people-strip"></div>
-
-          <div class="group-details-card group-details-card--list" id="group-settings-members"></div>
 
           <div class="group-details-card group-details-card--list group-details-edit-block" id="group-settings-invite-card">
             <label class="ios-settings-row ios-settings-row--input" for="input-group-member-phone">
@@ -344,25 +320,11 @@
             </label>
           </div>
 
-          <div class="group-details-card group-details-card--list" id="group-settings-invites"></div>
-
           <div class="group-details-card group-details-card--list">
             <button class="ios-settings-row ios-settings-row--destructive" id="btn-leave-group" type="button">
               <span class="ios-settings-row__title">Leave this Conversation</span>
             </button>
           </div>
-        </section>
-
-        <section class="group-details-panel" id="group-settings-panel-backgrounds" data-group-settings-panel="backgrounds" hidden>
-          <div class="group-details-background-grid" id="group-settings-background-options"></div>
-          <div class="group-details-suggestions">
-            <h3 class="group-details-suggestions__title">Suggestions</h3>
-            <div class="group-details-suggestions__grid" id="group-settings-background-suggestions"></div>
-          </div>
-        </section>
-
-        <section class="group-details-panel" id="group-settings-panel-links" data-group-settings-panel="links" hidden>
-          <div class="group-details-links-grid" id="group-settings-links-grid"></div>
         </section>
 
         <p class="entry-feedback ios-settings-feedback" id="group-settings-feedback" aria-live="polite"></p>

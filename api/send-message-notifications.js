@@ -18,6 +18,7 @@ module.exports = async function handler(req, res) {
     const baseUrl = String(body?.baseUrl || '').trim();
     const recipients = Array.isArray(body?.recipients) ? body.recipients : [];
     const isReply = !!body?.isReply;
+    const kind = String(body?.kind || 'message').trim() || 'message';
 
     const results = [];
 
@@ -25,10 +26,18 @@ module.exports = async function handler(req, res) {
       if (!recipient?.id || !recipient?.phone_e164) continue;
 
       const openUrl = buildChatUrl(baseUrl, body?.chatId);
-      const opener = isReply ? 'sent a voice reply' : 'sent a new yAp';
-      const preview = transcript ? ` "${clipText(transcript, 18)}"` : '';
       const greeting = recipient.name ? `Hi ${recipient.name}, ` : '';
-      const message = `${greeting}${senderName} ${opener} in "${chatName}" about ${threadLabel}.${preview} Open: ${openUrl}`;
+      const message = kind === 'chat_invite'
+        ? `${greeting}${senderName} added you to "${chatName}" on yAp. Open the chat: ${openUrl}`
+        : buildMessageNotification({
+            greeting,
+            senderName,
+            chatName,
+            threadLabel,
+            transcript,
+            isReply,
+            openUrl,
+          });
 
       try {
         await sendSms(recipient.phone_e164, message);
@@ -75,4 +84,10 @@ function clipText(text, maxWords = 18) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return words.join(' ');
   return `${words.slice(0, maxWords).join(' ')}...`;
+}
+
+function buildMessageNotification({ greeting, senderName, chatName, threadLabel, transcript, isReply, openUrl }) {
+  const opener = isReply ? 'sent a voice reply' : 'sent a new yAp';
+  const preview = transcript ? ` "${clipText(transcript, 18)}"` : '';
+  return `${greeting}${senderName} ${opener} in "${chatName}" about ${threadLabel}.${preview} Open: ${openUrl}`;
 }

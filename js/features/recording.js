@@ -397,7 +397,9 @@ class RecordingManager {
     if (!this.transcriptEl) return;
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
     const clipped = normalized.length > 64 ? '…' + normalized.slice(-64) : normalized;
-    this.transcriptEl.textContent = clipped || APP_COPY.listening;
+    const output = clipped || APP_COPY.listening;
+    this.transcriptEl.textContent = output;
+    this.transcriptEl.classList.toggle('is-placeholder', output === APP_COPY.listening);
   }
 
   _startVideo() {

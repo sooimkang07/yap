@@ -99,13 +99,19 @@ function parseVCardContacts(vcardText) {
 
 function registerUserRecord(user) {
   if (!user?.id) return null;
+  const activeCurrentUserId = typeof getCurrentUserId === 'function' ? getCurrentUserId() : null;
+  const isCurrentUserRecord = user.id === activeCurrentUserId
+    || user.id === APP_DEFAULT_CURRENT_USER_ID
+    || user.auth_user_id === getStoredAuthSession?.()?.user?.id;
 
   const normalized = {
     id: user.id,
     name: user.name || 'You',
     color: user.color || user.color_hex || pickUserColor(user.name),
     initials: user.initials || buildUserInitials(user.name),
-    avatarUrl: user.avatarUrl || user.avatar_url || null,
+    avatarUrl: isCurrentUserRecord
+      ? (user.avatarUrl || user.avatar_url || 'assets/sooim.jpg')
+      : (user.avatarUrl || user.avatar_url || null),
     phoneE164: user.phoneE164 || user.phone_e164 || null,
     authUserId: user.authUserId || user.auth_user_id || null,
     profileCompleted: typeof user.profileCompleted === 'boolean'
@@ -550,6 +556,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
           threadLabel: 'group invite',
           transcript: 'You were added to a yAp chat.',
           isReply: false,
+          kind: 'chat_invite',
         });
 
         const failed = results.filter(result => result.status !== 'sent');
@@ -693,7 +700,7 @@ function dedupeNotificationRecipients(recipients = []) {
   });
 }
 
-async function sendMessageNotifications({ chatId, chatName, senderName, recipients, threadLabel, transcript, isReply }) {
+async function sendMessageNotifications({ chatId, chatName, senderName, recipients, threadLabel, transcript, isReply, kind }) {
   if (!Array.isArray(recipients) || !recipients.length) return [];
 
   const response = await fetch(YAP_SEND_MESSAGE_NOTIFICATIONS_ENDPOINT, {
@@ -709,6 +716,7 @@ async function sendMessageNotifications({ chatId, chatName, senderName, recipien
       threadLabel,
       transcript,
       isReply: !!isReply,
+      kind: String(kind || '').trim() || 'message',
       baseUrl: window.location.origin + window.location.pathname,
     }),
   });
@@ -1161,6 +1169,7 @@ async function createGroupChat({ ownerUserId, name, members }) {
           threadLabel: 'new group',
           transcript: 'You were added to a yAp chat.',
           isReply: false,
+          kind: 'chat_invite',
         });
 
         const failed = results.filter(result => result.status !== 'sent');

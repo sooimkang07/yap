@@ -3,7 +3,7 @@ const { ensureLocalEnv } = require('./_env');
 ensureLocalEnv();
 
 const DEFAULT_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
-const DEFAULT_SEGMENT_MODEL = process.env.OPENAI_SEGMENT_MODEL || 'gpt-4o-mini';
+const DEFAULT_SEGMENT_MODEL = process.env.OPENAI_SEGMENT_MODEL || 'gpt-4o';
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -156,6 +156,7 @@ async function transcribeAudio(buffer, contentType) {
 }
 
 async function segmentTranscript(transcript, durationMs, threadContext) {
+  const normalizedTranscript = normalizeWhitespace(transcript);
   const threadContextBlock = threadContext.length
     ? `Existing topic threads:
 ${JSON.stringify(threadContext, null, 2)}
@@ -192,17 +193,22 @@ Each segment must include:
 - "label": 2-5 words, specific and natural
 - "excerpt": a short phrase lifted from the actual segment, 6-16 words
 - "transcript": the text for just that segment
+- "start_anchor": the first 3-10 exact words of that segment, copied verbatim from the transcript
 - "start_ms": approximate start time
 - "end_ms": approximate end time
 - "assigned_thread_id": an existing thread id or null
 
 Rules:
 - detect genuine topic shifts from discourse and sentence structure
+- prefer fewer segments when the boundary is ambiguous
+- do not split a memo just because it has extra detail, an aside, or another sentence on the same subject
+- split only when the speaker clearly changes subject, starts a new plan/request/story, or directly pivots into a different reply target
 - keep segments contiguous and ordered
 - cover the full transcript
 - max 4 segments
 - do not invent content not present in the transcript
 - if the memo stays on one topic, return one segment
+- every segment transcript must be a verbatim contiguous span from the original transcript, with no paraphrasing or cleanup
 - excerpt should sound like real language from the memo, not a title
 - use continuity context: a follow-up memo often responds to recently heard or currently unheard friend replies
 - the user may respond right after listening to a friend's voice note; use "recentlyPlayed" and "lastPlayedMessage" as strong but not absolute signals
@@ -211,7 +217,7 @@ Rules:
 
 ${threadContextBlock}`,
         },
-        { role: 'user', content: transcript },
+        { role: 'user', content: normalizedTranscript },
       ],
     }),
   });
@@ -226,21 +232,23 @@ ${threadContextBlock}`,
   try {
     const parsed = JSON.parse(content);
     const segments = Array.isArray(parsed?.segments) ? parsed.segments : [];
-    return normalizeSegments(segments, transcript, durationMs, threadContext);
+    return normalizeSegments(segments, normalizedTranscript, durationMs, threadContext);
   } catch {
-    return normalizeSegments([], transcript, durationMs, threadContext);
+    return normalizeSegments([], normalizedTranscript, durationMs, threadContext);
   }
 }
 
 function normalizeSegments(segments, transcript, durationMs, threadContext) {
   const validThreadIds = new Set(threadContext.map(thread => thread.id));
+  const normalizedTranscript = normalizeWhitespace(transcript);
+  const trimmedSegments = Array.isArray(segments) ? segments.slice(0, 4) : [];
 
-  if (!segments.length) {
+  if (!trimmedSegments.length) {
     return [
       {
         label: 'voice memo',
-        excerpt: clipExcerpt(transcript),
-        transcript,
+        excerpt: clipExcerpt(normalizedTranscript),
+        transcript: normalizedTranscript,
         start_ms: 0,
         end_ms: durationMs || 0,
         assigned_thread_id: null,
@@ -248,13 +256,26 @@ function normalizeSegments(segments, transcript, durationMs, threadContext) {
     ];
   }
 
-  return segments.map((segment, index) => {
-    const startMs = Number.isFinite(segment.start_ms) ? segment.start_ms : 0;
-    const fallbackEnd = durationMs || startMs;
-    const endMs = Number.isFinite(segment.end_ms) ? segment.end_ms : fallbackEnd;
+  const reconstructedTranscripts = rebuildSegmentTranscripts(trimmedSegments, normalizedTranscript);
+  const durationBoundaries = computeSegmentBoundaries(
+    reconstructedTranscripts || trimmedSegments.map(segment => normalizeWhitespace(segment?.transcript || '')),
+    durationMs
+  );
+
+  return trimmedSegments.map((segment, index) => {
     const assignedThreadId = typeof segment.assigned_thread_id === 'string' && validThreadIds.has(segment.assigned_thread_id)
       ? segment.assigned_thread_id
       : null;
+    const reconstructedTranscript = normalizeWhitespace(reconstructedTranscripts?.[index] || '');
+    const fallbackTranscript = normalizeWhitespace(segment?.transcript || '');
+    const segmentTranscript = reconstructedTranscript || fallbackTranscript || normalizedTranscript;
+    const startMs = Number.isFinite(durationBoundaries[index]?.start_ms)
+      ? durationBoundaries[index].start_ms
+      : Math.max(0, Number(segment.start_ms) || 0);
+    const fallbackEnd = durationMs || startMs;
+    const endMs = Number.isFinite(durationBoundaries[index]?.end_ms)
+      ? durationBoundaries[index].end_ms
+      : Math.max(startMs, Number(segment.end_ms) || fallbackEnd);
 
     return {
       label: typeof segment.label === 'string' && segment.label.trim()
@@ -262,10 +283,8 @@ function normalizeSegments(segments, transcript, durationMs, threadContext) {
         : `topic ${index + 1}`,
       excerpt: typeof segment.excerpt === 'string' && segment.excerpt.trim()
         ? segment.excerpt.trim()
-        : clipExcerpt(segment.transcript || transcript),
-      transcript: typeof segment.transcript === 'string' && segment.transcript.trim()
-        ? segment.transcript.trim()
-        : transcript,
+        : clipExcerpt(segmentTranscript),
+      transcript: segmentTranscript,
       start_ms: Math.max(0, startMs),
       end_ms: Math.max(Math.max(0, startMs), endMs),
       assigned_thread_id: assignedThreadId,
@@ -274,7 +293,91 @@ function normalizeSegments(segments, transcript, durationMs, threadContext) {
 }
 
 function clipExcerpt(text) {
-  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const words = normalizeWhitespace(text).split(/\s+/).filter(Boolean);
   if (!words.length) return '';
   return words.slice(0, 14).join(' ');
+}
+
+function normalizeWhitespace(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function leadingWords(text, count = 8) {
+  const words = normalizeWhitespace(text).split(/\s+/).filter(Boolean);
+  return words.slice(0, count).join(' ');
+}
+
+function findAnchorIndex(transcript, anchor, fromIndex = 0) {
+  const source = normalizeWhitespace(transcript).toLowerCase();
+  const needle = normalizeWhitespace(anchor).toLowerCase();
+  if (!source || !needle) return -1;
+  return source.indexOf(needle, Math.max(0, fromIndex));
+}
+
+function rebuildSegmentTranscripts(segments, transcript) {
+  const source = normalizeWhitespace(transcript);
+  if (!source || !Array.isArray(segments) || !segments.length) return null;
+  if (segments.length === 1) return [source];
+
+  const boundaries = [0];
+  let cursor = 0;
+
+  for (let index = 1; index < segments.length; index++) {
+    const segment = segments[index] || {};
+    const candidates = [
+      segment.start_anchor,
+      leadingWords(segment.transcript, 8),
+      leadingWords(segment.excerpt, 8),
+    ].filter(Boolean);
+
+    let boundary = -1;
+    for (const candidate of candidates) {
+      boundary = findAnchorIndex(source, candidate, cursor);
+      if (boundary > cursor) break;
+    }
+
+    if (boundary <= cursor) return null;
+
+    boundaries.push(boundary);
+    cursor = boundary;
+  }
+
+  boundaries.push(source.length);
+
+  const slices = [];
+  for (let index = 0; index < segments.length; index++) {
+    const start = boundaries[index];
+    const end = boundaries[index + 1];
+    const slice = normalizeWhitespace(source.slice(start, end));
+    if (!slice) return null;
+    slices.push(slice);
+  }
+
+  return slices;
+}
+
+function computeSegmentBoundaries(transcripts, durationMs) {
+  if (!Array.isArray(transcripts) || !transcripts.length) return [];
+  if (!(durationMs > 0)) {
+    return transcripts.map((_, index) => ({
+      start_ms: index === 0 ? 0 : 0,
+      end_ms: 0,
+    }));
+  }
+
+  const weights = transcripts.map(text => Math.max(normalizeWhitespace(text).length, 1));
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+
+  let consumed = 0;
+  return weights.map((weight, index) => {
+    const startMs = Math.round((consumed / totalWeight) * durationMs);
+    consumed += weight;
+    const endMs = index === weights.length - 1
+      ? durationMs
+      : Math.round((consumed / totalWeight) * durationMs);
+    return {
+      start_ms: startMs,
+      end_ms: Math.max(startMs, endMs),
+    };
+  });
 }

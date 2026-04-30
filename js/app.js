@@ -52,6 +52,7 @@ const AppState = {
     autoTranslate: false,
   },
   navTimer: null,
+  viewportSyncRaf: 0,
 };
 
 // ── DOM refs ──────────────────────────────────────────
@@ -167,8 +168,6 @@ function cacheDOM() {
   DOM.inputGroupMemberPhone = document.getElementById('input-group-member-phone');
   DOM.btnAddGroupSettingsMember = document.getElementById('btn-add-group-settings-member');
   DOM.btnGroupSettingsBrowseContacts = document.getElementById('btn-group-settings-browse-contacts');
-  DOM.groupSettingsMembers = document.getElementById('group-settings-members');
-  DOM.groupSettingsInvites = document.getElementById('group-settings-invites');
   DOM.btnSaveGroupSettings = document.getElementById('btn-save-group-settings');
   DOM.btnLeaveGroup = document.getElementById('btn-leave-group');
   DOM.groupSettingsFeedback = document.getElementById('group-settings-feedback');
@@ -249,7 +248,7 @@ function cacheDOM() {
 }
 
 const SCREEN_TRANSITION_MS = 360;
-const SHEET_TRANSITION_MS = 280;
+const SHEET_TRANSITION_MS = 360;
 
 function isSheetScreen(screenId) {
   return screenId === 'create-group';
@@ -265,6 +264,67 @@ function resetScreenTransitionState(screen) {
   screen.style.transform = '';
   screen.style.opacity = '';
   screen.style.transition = '';
+}
+
+function isTextEntryElement(element) {
+  if (!element || !(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  const tagName = element.tagName;
+  if (tagName === 'TEXTAREA') return true;
+  if (tagName !== 'INPUT') return false;
+  const type = (element.getAttribute('type') || 'text').toLowerCase();
+  return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(type);
+}
+
+function syncFocusedFieldIntoView() {
+  const activeElement = document.activeElement;
+  if (!isTextEntryElement(activeElement)) return;
+  if (activeElement.closest?.('#screen-create-group')) return;
+  requestAnimationFrame(() => {
+    try {
+      activeElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    } catch (_) {}
+  });
+}
+
+function updateViewportMetrics() {
+  const viewport = window.visualViewport;
+  const viewportHeight = Math.round(viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0);
+  const keyboardInset = viewport
+    ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
+    : 0;
+
+  document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
+  document.documentElement.style.setProperty('--keyboard-inset', `${keyboardInset}px`);
+  document.body.classList.toggle('keyboard-open', keyboardInset > 0);
+
+  if (keyboardInset > 0) {
+    syncFocusedFieldIntoView();
+  }
+}
+
+function scheduleViewportMetricsUpdate() {
+  if (AppState.viewportSyncRaf) cancelAnimationFrame(AppState.viewportSyncRaf);
+  AppState.viewportSyncRaf = requestAnimationFrame(() => {
+    AppState.viewportSyncRaf = 0;
+    updateViewportMetrics();
+  });
+}
+
+function wireViewportHandlers() {
+  scheduleViewportMetricsUpdate();
+  window.addEventListener('resize', scheduleViewportMetricsUpdate);
+  window.addEventListener('orientationchange', scheduleViewportMetricsUpdate);
+  window.addEventListener('focusin', event => {
+    if (!isTextEntryElement(event.target)) return;
+    scheduleViewportMetricsUpdate();
+    setTimeout(scheduleViewportMetricsUpdate, 180);
+  });
+  window.addEventListener('focusout', () => {
+    setTimeout(scheduleViewportMetricsUpdate, 120);
+  });
+  window.visualViewport?.addEventListener('resize', scheduleViewportMetricsUpdate);
+  window.visualViewport?.addEventListener('scroll', scheduleViewportMetricsUpdate);
 }
 
 // ── Router ─────────────────────────────────────────────
@@ -398,7 +458,12 @@ function renderChatsList() {
 
   setDisplay(DOM.chatsGrid, !showEmptyState, 'grid');
   setDisplay(DOM.chatsEmptyState, showEmptyState, 'flex');
-  DOM.chatsSearch.hidden = !showSearch;
+  if (DOM.chatsSearch) {
+    DOM.chatsSearch.hidden = false;
+    DOM.chatsSearch.classList.toggle('is-open', showSearch);
+    DOM.chatsSearch.setAttribute('aria-hidden', showSearch ? 'false' : 'true');
+  }
+  DOM.screens?.chats?.classList.toggle('screen-chats-search-open', showSearch);
   if (DOM.inputChatSearch && DOM.inputChatSearch.value !== AppState.chatsSearchQuery) {
     DOM.inputChatSearch.value = AppState.chatsSearchQuery;
   }
@@ -426,6 +491,26 @@ function renderChatsList() {
       </div>
     `;
   }).join('');
+}
+
+function pinChatInLocalLists(chat) {
+  if (!chat?.id) return;
+
+  const pinnedChat = {
+    ...chat,
+    localCreatedAt: Number(chat.localCreatedAt || chat.lastMessageAt || Date.now()),
+    lastMessageAt: Number(chat.lastMessageAt || chat.localCreatedAt || Date.now()),
+  };
+
+  AppState.pendingChats = [
+    pinnedChat,
+    ...(AppState.pendingChats || []).filter(entry => entry.id !== pinnedChat.id),
+  ];
+
+  AppState.chats = [
+    pinnedChat,
+    ...(AppState.chats || []).filter(entry => entry.id !== pinnedChat.id),
+  ].sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
 }
 
 function toggleChatViewMode() {
@@ -771,7 +856,10 @@ function openRecordingOverlay() {
   // Reset to recording-ready state
   _showRecRow('recording');
   DOM.recTimer.textContent = '0:00';
-  if (DOM.recLiveTranscript) DOM.recLiveTranscript.textContent = APP_COPY.listening;
+  if (DOM.recLiveTranscript) {
+    DOM.recLiveTranscript.textContent = APP_COPY.listening;
+    DOM.recLiveTranscript.classList.add('is-placeholder');
+  }
 }
 
 function closeRecordingOverlay() {
@@ -1835,20 +1923,9 @@ function buildGroupSettingsPhotoTiles(chat) {
 }
 
 function renderGroupSettingsTabState() {
-  const tabMap = {
-    info: DOM.btnGroupSettingsTabInfo,
-    backgrounds: DOM.btnGroupSettingsTabBackgrounds,
-    links: DOM.btnGroupSettingsTabLinks,
-  };
-
-  Object.entries(tabMap).forEach(([tab, button]) => {
-    const active = AppState.groupSettingsTab === tab;
-    button?.classList.toggle('is-active', active);
-    button?.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-
+  AppState.groupSettingsTab = 'info';
   DOM.groupSettingsPanels?.forEach(panel => {
-    const active = panel.dataset.groupSettingsPanel === AppState.groupSettingsTab;
+    const active = panel.dataset.groupSettingsPanel === 'info';
     panel.classList.toggle('is-active', active);
     panel.hidden = !active;
   });
@@ -1860,8 +1937,6 @@ function renderGroupSettings(invites = []) {
   const canManage = canManageActiveChat();
   const editing = canManage && AppState.groupSettingsEditing;
   const members = chat.members || [];
-  const threadCount = Array.isArray(chat.threads) ? chat.threads.length : 0;
-  const linkCards = extractLinkCardsFromChat(chat);
   AppState.groupSettingsInvites = invites;
 
   if (DOM.inputGroupSettingsName) {
@@ -1888,11 +1963,27 @@ function renderGroupSettings(invites = []) {
     `).join('');
   }
 
-  if (DOM.groupSettingsSummaryPeople) DOM.groupSettingsSummaryPeople.textContent = String(members.length);
-  if (DOM.groupSettingsSummaryTopics) DOM.groupSettingsSummaryTopics.textContent = String(threadCount);
-  if (DOM.groupSettingsSummaryLinks) DOM.groupSettingsSummaryLinks.textContent = String(linkCards.length);
-
   if (DOM.groupSettingsPeopleStrip) {
+    const invitePhoneSet = new Set(invites.map(invite => invite.phone_e164).filter(Boolean));
+    const peopleStripEntries = [
+      ...members.map(member => ({
+        member,
+        status: member.id === getCurrentUserId() ? 'You' : (member.pending || invitePhoneSet.has(member.phoneE164) ? 'Pending Invite' : ''),
+        key: member.id || member.phoneE164 || member.name || '',
+      })),
+      ...invites
+        .filter(invite => invite.phone_e164 && !members.some(member => member.phoneE164 === invite.phone_e164))
+        .map(invite => ({
+          member: {
+            id: `invite-${invite.id}`,
+            name: invite.invitee_name || invite.phone_e164 || 'Pending invite',
+            phoneE164: invite.phone_e164 || '',
+            pending: true,
+          },
+          status: 'Pending',
+          key: `invite-${invite.id}`,
+        })),
+    ];
     const addNode = canManage ? `
       <button class="group-details-person group-details-person--add" id="btn-group-settings-browse-contacts" type="button" aria-label="Add contact">
         <span class="group-details-person__avatar">+</span>
@@ -1901,110 +1992,17 @@ function renderGroupSettings(invites = []) {
     ` : '';
 
     DOM.groupSettingsPeopleStrip.innerHTML = `
-      ${members.map(member => `
+      ${peopleStripEntries.map(({ member, status }) => `
         <div class="group-details-person">
           <div class="${buildAvatarClass('group-details-person__avatar', member)}" style="${buildAvatarStyle(member)}">
             ${buildAvatarContent(member)}
           </div>
           <div class="group-details-person__name">${escapeHtml(member.name || member.phoneE164 || 'Member')}</div>
+          ${status ? `<div class="group-details-person__status">${escapeHtml(status)}</div>` : ''}
         </div>
       `).join('')}
       ${addNode}
     `;
-  }
-
-  const memberRows = members.map(member => `
-    <div class="ios-settings-row ios-settings-row--member">
-      <div class="${buildAvatarClass('settings-avatar', member)}" style="${buildAvatarStyle(member)}">${buildAvatarContent(member)}</div>
-      <div class="ios-settings-row__stack">
-        <div class="ios-settings-row__title">${escapeHtml(member.name)}</div>
-        <div class="ios-settings-row__sub">${escapeHtml(member.phoneE164 || '')}</div>
-      </div>
-      <div class="ios-settings-row__aside">
-        <div class="ios-settings-row__badge">${member.id === getCurrentUserId() ? 'You' : member.pending ? 'Invited' : ''}</div>
-        ${editing && member.id !== getCurrentUserId() && !member.pending
-          ? `<button class="ios-settings-row__action" type="button" data-remove-member="${escapeHtml(member.id)}">Remove</button>`
-          : ''}
-      </div>
-    </div>
-  `).join('');
-
-  const inviteRows = invites.map(invite => `
-    <div class="ios-settings-row ios-settings-row--member ios-settings-row--invite">
-      <div class="settings-avatar avatar-fallback" style="--avatar-accent:#d8dbe7;">${profilePlaceholderIconHTML()}</div>
-      <div class="ios-settings-row__stack">
-        <div class="ios-settings-row__title">${escapeHtml(invite.invitee_name || invite.phone_e164 || 'Pending invite')}</div>
-        <div class="ios-settings-row__sub">${escapeHtml(invite.phone_e164 || invite.email || '')}</div>
-      </div>
-      <div class="ios-settings-row__aside">
-        <div class="ios-settings-row__badge">Pending</div>
-        ${editing ? `<button class="ios-settings-row__action" type="button" data-resend-invite="${escapeHtml(invite.id)}">Resend</button>` : ''}
-        ${editing ? `<button class="ios-settings-row__action" type="button" data-revoke-invite="${escapeHtml(invite.id)}">Remove</button>` : ''}
-      </div>
-    </div>
-  `).join('');
-
-  if (DOM.groupSettingsMembers) {
-    DOM.groupSettingsMembers.innerHTML = `
-      ${memberRows || '<div class="settings-list__empty">No members yet.</div>'}
-      ${inviteRows ? `<div class="ios-settings-section__inline-label">Pending Invites</div>${inviteRows}` : ''}
-    `;
-  }
-
-  if (DOM.groupSettingsInvites) DOM.groupSettingsInvites.innerHTML = invites.length
-    ? `
-      <div class="group-details-footnote">Pending invites stay attached to the group until each person joins with their phone number.</div>
-    `
-    : `
-      <div class="group-details-footnote">
-        yAp keeps voice replies threaded automatically, so conversations stay organized even when the group drifts across topics.
-      </div>
-    `;
-
-  if (DOM.groupSettingsBackgroundOptions) {
-    const options = [
-      { id: 'none', label: 'None', swatchClass: 'is-none' },
-      { id: 'photo', label: 'Photo', swatchClass: 'is-photo' },
-      { id: 'color', label: 'Color', swatchClass: 'is-color' },
-      { id: 'playground', label: 'Playground', swatchClass: 'is-playground' },
-      { id: 'sky', label: 'Sky', swatchClass: 'is-sky' },
-      { id: 'water', label: 'Water', swatchClass: 'is-water' },
-      { id: 'aurora', label: 'Aurora', swatchClass: 'is-aurora' },
-    ];
-    DOM.groupSettingsBackgroundOptions.innerHTML = options.map(option => `
-      <button class="group-details-background-option ${option.swatchClass} ${AppState.groupSettingsBackground === option.id ? 'is-selected' : ''}"
-        type="button" data-group-background="${option.id}">
-        <span class="group-details-background-option__swatch"></span>
-        <span class="group-details-background-option__label">${option.label}</span>
-      </button>
-    `).join('');
-  }
-
-  if (DOM.groupSettingsBackgroundSuggestions) {
-    DOM.groupSettingsBackgroundSuggestions.innerHTML = ['sky', 'water', 'aurora', 'color']
-      .map(option => `
-        <button class="group-details-suggestion-card group-details-suggestion-card--${option}" type="button" data-group-background="${option}">
-          <span class="group-details-suggestion-card__title">${option[0].toUpperCase()}${option.slice(1)}</span>
-        </button>
-      `).join('');
-  }
-
-  if (DOM.groupSettingsLinksGrid) {
-    DOM.groupSettingsLinksGrid.innerHTML = linkCards.length
-      ? linkCards.map(card => `
-        <a class="group-details-link-card" href="${escapeHtml(card.url)}" target="_blank" rel="noreferrer">
-          <div class="group-details-link-card__thumb" style="--card-accent:${card.accent};">
-            ${card.avatarUrl
-              ? `<span class="group-details-link-card__avatar" style="background-image:url('${card.avatarUrl}')"></span>`
-              : `<span class="group-details-link-card__avatar group-details-link-card__avatar--fallback">${escapeHtml(card.initials)}</span>`}
-          </div>
-          <div class="group-details-link-card__body">
-            <div class="group-details-link-card__title">${escapeHtml(card.title)}</div>
-            <div class="group-details-link-card__host">${escapeHtml(card.host)}</div>
-          </div>
-        </a>
-      `).join('')
-      : '<div class="settings-list__empty">No links shared yet.</div>';
   }
 
   DOM.groupSettings?.setAttribute('data-group-background', AppState.groupSettingsBackground);
@@ -2545,13 +2543,9 @@ function wireEvents() {
       });
 
       resetCreateGroupComposer();
-      AppState.pendingChats = [
-        createdChat,
-        ...(AppState.pendingChats || []).filter(chat => chat.id !== createdChat.id),
-      ];
-      // Add the freshly-created chat (with all members including pending invitees)
-      // to AppState immediately so openChat shows the right people.
-      AppState.chats = [createdChat, ...AppState.chats.filter(c => c.id !== createdChat.id)];
+      // Pin the freshly-created chat immediately so it survives the trip back
+      // to All Chats even if the remote refresh has not caught up yet.
+      pinChatInLocalLists(createdChat);
       renderChatsList();
       // Forcibly close the create-group sheet so it doesn't stay active and
       // intercept the back button when the user navigates out of the new chat.
@@ -2705,10 +2699,18 @@ function wireEvents() {
     if (chat?.active) openChat(chat);
   });
 
-  DOM.btnBack.addEventListener('click', () => {
-    refreshChats()
-      .then(() => renderChatsList())
-      .finally(() => goBack('chats'));
+  DOM.btnBack.addEventListener('click', async () => {
+    if (AppState.activeChat) {
+      pinChatInLocalLists(AppState.activeChat);
+    }
+
+    try {
+      await refreshChats();
+    } finally {
+      renderChatsList();
+      AppState.activeChat = null;
+      navigate('chats', 'back', { replace: true });
+    }
   });
   DOM.btnChatViewToggle?.addEventListener('click', toggleChatViewMode);
   DOM.btnChatMore?.addEventListener('click', openGroupSettingsScreen);
@@ -2779,71 +2781,6 @@ function wireEvents() {
     } finally {
       setButtonBusy(DOM.btnAddGroupSettingsMember, false);
     }
-  });
-  DOM.groupSettingsMembers?.addEventListener('click', async event => {
-    const addContactsButton = event.target.closest('#btn-group-settings-browse-contacts');
-    if (addContactsButton) {
-      if (!canManageActiveChat()) {
-        setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
-        return;
-      }
-      triggerDirectContactsEntry('group-settings');
-      return;
-    }
-
-    const removeButton = event.target.closest('[data-remove-member]');
-    const resendButton = event.target.closest('[data-resend-invite]');
-    const revokeButton = event.target.closest('[data-revoke-invite]');
-
-    if ((resendButton || revokeButton) && AppState.activeChat) {
-      if (!canManageActiveChat()) {
-        setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can manage invites.', 'error');
-        return;
-      }
-
-      setFeedback(DOM.groupSettingsFeedback, '');
-      try {
-        const invites = await getInvitationsForChat(AppState.activeChat.id);
-        if (resendButton) {
-          const invite = invites.find(entry => entry.id === resendButton.dataset.resendInvite);
-          await resendInvitation(invite);
-          setFeedback(DOM.groupSettingsFeedback, 'Invite resent.', 'success');
-        }
-        if (revokeButton) {
-          await revokeInvitation(revokeButton.dataset.revokeInvite);
-          setFeedback(DOM.groupSettingsFeedback, 'Invite removed.', 'success');
-        }
-        await refreshActiveChatAndSettings();
-      } catch (error) {
-        setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not update that invite.', 'error');
-      }
-      return;
-    }
-
-    if (!removeButton || !AppState.activeChat) return;
-    if (!canManageActiveChat()) {
-      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can remove people.', 'error');
-      return;
-    }
-
-    setFeedback(DOM.groupSettingsFeedback, '');
-    try {
-      await removeMemberFromChat(AppState.activeChat.id, removeButton.dataset.removeMember);
-      await refreshActiveChatAndSettings();
-      setFeedback(DOM.groupSettingsFeedback, 'Member removed from group.', 'success');
-    } catch (error) {
-      setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not remove that member.', 'error');
-    }
-  });
-  [
-    ['info', DOM.btnGroupSettingsTabInfo],
-    ['backgrounds', DOM.btnGroupSettingsTabBackgrounds],
-    ['links', DOM.btnGroupSettingsTabLinks],
-  ].forEach(([tab, button]) => {
-    button?.addEventListener('click', () => {
-      AppState.groupSettingsTab = tab;
-      renderGroupSettingsTabState();
-    });
   });
   DOM.groupSettingsPeopleStrip?.addEventListener('click', event => {
     const addContactsButton = event.target.closest('#btn-group-settings-browse-contacts');
@@ -2976,6 +2913,7 @@ function registerServiceWorker() {
 async function boot() {
   setCurrentUserId(getCurrentUserId());
   cacheDOM();
+  wireViewportHandlers();
   wireEvents();
   wirePipelineEvents();
   registerServiceWorker();

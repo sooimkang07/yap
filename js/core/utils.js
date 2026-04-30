@@ -46,12 +46,19 @@ function getCurrentUserId() {
 
 function getCurrentUser() {
   const currentUserId = getCurrentUserId();
-  return getUserById(currentUserId) || {
+  const currentUser = getUserById(currentUserId);
+  if (currentUser) {
+    return {
+      ...currentUser,
+      avatarUrl: currentUser.avatarUrl || 'assets/sooim.jpg',
+    };
+  }
+  return {
     id: currentUserId,
     name: 'You',
     color: '#B8D8FF',
     initials: 'Y',
-    avatarUrl: null,
+    avatarUrl: 'assets/sooim.jpg',
   };
 }
 

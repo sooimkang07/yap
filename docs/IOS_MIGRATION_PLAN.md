@@ -119,7 +119,7 @@ If direct Supabase access is faster this week, use that first. If any query beco
 ## One-Week Build Plan
 
 ### Day 1
-- create `yap-ios` Xcode project
+- create the `yAp-native` Xcode project
 - add bundle id and local signing
 - set up app shell, theme, routing, and config
 - connect app to dev backend base URL
@@ -182,12 +182,14 @@ For this one-week plan:
 - `/api` remains backend edge/serverless logic
 - `/supabase` remains schema and seed source of truth
 - `/docs` contains product and migration docs
-- `/yap-ios` contains native source files to move into Xcode
+- `/yAp-native` contains the native source files and Xcode project
 
 ### Future
 When the iOS app is stable, split if needed into:
 - `yap-backend`
 - `yap-ios`
+
+For now, the native client lives in `/yAp-native`.
 
 For this week, staying in one repo is faster.
 
@@ -203,11 +205,10 @@ The build is successful when, on your real iPhone, you can:
 - play it back
 
 ## Immediate Next Build Step
-Open Xcode and create a new SwiftUI iOS app named `yAp`.
+Open `yAp-native/yAp.xcodeproj` in Xcode.
 
-Then copy the source structure from `/yap-ios` into that project and wire:
+Then wire:
 - signing
 - bundle id
 - backend base URL
 - device permissions
-

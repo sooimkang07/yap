@@ -15,9 +15,6 @@
   <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png">
   <meta name="theme-color" content="#f7f7fb">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="components/voice-visualizer/voice-visualizer.css">
 </head>
@@ -56,15 +53,21 @@
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-auth-phone" class="screen" data-screen="auth-phone">
     <div class="entry-screen entry-screen--form">
+      <div class="entry-screen__topbar">
+        <button class="compose-nav-btn" id="btn-auth-phone-back" type="button" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M12.5 4L6.5 10L12.5 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
       <div class="entry-screen__hero">
         <h1 class="entry-screen__title">Sign in with your phone.</h1>
         <p class="entry-screen__body" id="auth-phone-subtitle">We’ll text you a verification code so you can join chats securely.</p>
       </div>
-      <form class="entry-form" id="form-auth-phone">
+      <form class="entry-form" id="form-auth-phone" novalidate>
         <label class="entry-label" for="input-auth-phone">Phone number</label>
         <input class="entry-input" id="input-auth-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+1 555 555 0101" required>
         <button class="entry-btn entry-btn--primary" id="btn-send-code" type="submit">Send Code</button>
-        <button class="entry-btn entry-btn--secondary" id="btn-auth-phone-back" type="button">Back</button>
         <p class="entry-feedback" id="auth-phone-feedback" aria-live="polite"></p>
       </form>
     </div>
@@ -79,11 +82,12 @@
         <h1 class="entry-screen__title">Enter your code.</h1>
         <p class="entry-screen__body" id="auth-verify-subtitle">We sent a verification code to your phone.</p>
       </div>
-      <form class="entry-form" id="form-auth-verify">
+      <form class="entry-form" id="form-auth-verify" novalidate>
         <label class="entry-label" for="input-auth-code">Verification code</label>
         <input class="entry-input entry-input--code" id="input-auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="6" required>
-        <button class="entry-btn entry-btn--primary" id="btn-verify-code" type="submit">Verify & Continue</button>
+        <button class="entry-btn entry-btn--primary" id="btn-verify-code" type="submit">Verify</button>
         <button class="entry-btn entry-btn--secondary" id="btn-auth-verify-back" type="button">Use a different number</button>
+        <button class="entry-btn entry-btn--secondary" id="btn-auth-verify-resend" type="button">Resend verification code</button>
         <p class="entry-feedback" id="auth-verify-feedback" aria-live="polite"></p>
       </form>
     </div>
@@ -94,15 +98,31 @@
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-profile-setup" class="screen" data-screen="profile-setup">
     <div class="entry-screen entry-screen--form">
+      <div class="entry-screen__topbar">
+        <button class="compose-nav-btn" id="btn-profile-setup-back" type="button" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M12.5 4L6.5 10L12.5 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
       <div class="entry-screen__hero">
         <h1 class="entry-screen__title">Set up your profile.</h1>
         <p class="entry-screen__body" id="profile-setup-subtitle">Pick the name your friends will see in chats and invites.</p>
       </div>
-      <form class="entry-form" id="form-profile-setup">
+      <form class="entry-form" id="form-profile-setup" novalidate>
+        <div class="profile-photo-picker">
+          <button class="profile-photo-picker__button" id="btn-profile-photo-pick" type="button" aria-label="Choose profile photo">
+            <div class="profile-photo-picker__avatar avatar-fallback" id="profile-setup-avatar-preview" style="--avatar-accent:#d7e8ff;"><span>+</span></div>
+            <div class="profile-photo-picker__meta">
+              <div class="profile-photo-picker__title">Profile Photo</div>
+              <div class="profile-photo-picker__action" id="profile-photo-pick-label">Add Photo</div>
+            </div>
+          </button>
+          <input id="input-profile-avatar-file" type="file" accept="image/*" hidden>
+        </div>
         <label class="entry-label" for="input-profile-name">Display name</label>
         <input class="entry-input" id="input-profile-name" type="text" autocomplete="name" placeholder="Your name" maxlength="40" required>
-        <label class="entry-label" for="input-profile-avatar">Avatar image URL <span class="entry-label__optional">(optional)</span></label>
-        <input class="entry-input" id="input-profile-avatar" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/avatar.jpg">
+        <input id="input-profile-avatar" type="url" inputmode="url" autocomplete="url" hidden>
         <button class="entry-btn entry-btn--primary" id="btn-save-profile" type="submit">Save Profile</button>
         <p class="entry-feedback" id="profile-setup-feedback" aria-live="polite"></p>
       </form>
@@ -113,36 +133,43 @@
   <!-- SCREEN: CREATE GROUP                            -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-create-group" class="screen" data-screen="create-group">
-    <div class="entry-screen entry-screen--form">
-      <div class="compose-header">
-        <button class="entry-btn entry-btn--secondary compose-header__back" id="btn-create-group-back" type="button">Cancel</button>
-        <div class="compose-header__title">New Group</div>
-        <button class="entry-btn entry-btn--primary compose-header__action" id="btn-create-group" type="submit" form="form-create-group">Continue</button>
-      </div>
-      <form class="entry-form" id="form-create-group">
-        <div class="compose-recipients">
-          <div class="compose-recipients__row">
-            <label class="compose-recipients__label" for="input-member-phone">To:</label>
-            <div class="compose-recipients__field">
-              <div class="entry-member-list entry-member-list--inline" id="group-member-list"></div>
-              <input class="compose-recipients__input" id="input-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="Phone number">
-            </div>
-            <button class="compose-recipients__add" id="btn-add-group-member" type="button">Add</button>
+    <div class="entry-screen entry-screen--form entry-screen--compose">
+      <form class="entry-form compose-form" id="form-create-group">
+        <div class="create-chat-picker">
+          <div class="create-chat-picker__header">
+            <div class="create-chat-picker__title">New chat</div>
+            <button class="create-chat-picker__close" id="btn-create-group-back" type="button" aria-label="Close new chat">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+            </button>
           </div>
-        </div>
 
-        <div class="compose-actions">
-          <button class="entry-btn entry-btn--secondary" id="btn-browse-contacts" type="button">Choose From Contacts</button>
-          <button class="entry-btn entry-btn--secondary" id="btn-import-vcard" type="button">Import iCloud / vCard</button>
+          <div class="create-chat-picker__recipient-shell">
+            <div class="create-chat-picker__recipient-row">
+              <div class="create-chat-picker__recipient-label">To:</div>
+              <div class="create-chat-picker__recipient-field">
+                <div class="entry-member-list entry-member-list--inline create-chat-picker__selected-list" id="group-member-list"></div>
+                <input class="create-chat-picker__recipient-input" id="input-create-group-search" type="text" inputmode="text" autocomplete="off" placeholder="">
+              </div>
+            </div>
+            <button class="create-chat-picker__recipient-add" id="btn-add-group-member" type="button" aria-label="Add person or create chat">
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+                <path d="M11 4.25V17.75M4.25 11H17.75" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="create-chat-picker__contacts" id="create-chat-contacts"></div>
+
+          <div id="create-chat-create-bar" class="create-chat-create-bar" hidden>
+            <button class="create-chat-create-btn" type="submit">Create</button>
+          </div>
+
           <input id="input-contact-file" type="file" accept=".vcf,text/vcard" hidden>
-        </div>
-
-        <div class="compose-group-meta">
-          <label class="entry-label" for="input-group-name">Group name <span class="entry-label__optional">(optional)</span></label>
-          <input class="entry-input" id="input-group-name" type="text" autocomplete="off" placeholder="Name this group" maxlength="50">
-          <label class="entry-label" for="input-member-name">Label for manual add <span class="entry-label__optional">(optional)</span></label>
-          <input class="entry-input" id="input-member-name" type="text" autocomplete="off" placeholder="Contact name">
-          <p class="entry-screen__meta">Start like Messages: add people first, then yAp opens the conversation so you can send the first voice memo.</p>
+          <input id="input-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" hidden>
+          <input id="input-member-name" type="text" autocomplete="off" hidden>
+          <button id="btn-create-group" type="submit" hidden aria-hidden="true"></button>
         </div>
         <p class="entry-feedback" id="create-group-feedback" aria-live="polite"></p>
       </form>
@@ -153,21 +180,51 @@
   <!-- SCREEN: CONTACTS HUB                            -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-contacts-hub" class="screen" data-screen="contacts-hub">
-    <div class="entry-screen entry-screen--form">
-      <div class="settings-header">
-        <button class="entry-btn entry-btn--secondary" id="btn-contacts-hub-back" type="button">Back</button>
+    <div class="entry-screen entry-screen--form entry-screen--compose">
+      <div class="compose-header">
+        <button class="compose-nav-btn" id="btn-contacts-hub-back" type="button" aria-label="Back to new chat">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M12.5 4L6.5 10L12.5 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="compose-header__title">Contacts</div>
+        <button class="compose-close-btn" id="btn-contacts-hub-close" type="button" aria-label="Close contacts">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
-      <div class="entry-screen__hero">
-        <h1 class="entry-screen__title" id="contacts-hub-title">Your contacts.</h1>
-        <p class="entry-screen__body" id="contacts-hub-body">Import real contacts, then tap to add them into your group draft.</p>
-      </div>
-      <div class="entry-form">
-        <div class="entry-member-builder settings-member-builder">
-          <button class="entry-btn entry-btn--primary" id="btn-contacts-hub-device" type="button" hidden>Use Device Contacts</button>
-          <button class="entry-btn entry-btn--secondary" id="btn-contacts-import-vcard" type="button">Import iCloud / vCard</button>
-          <input id="input-contacts-hub-file" type="file" accept=".vcf,text/vcard" hidden>
+      <div class="entry-form compose-form">
+        <div class="contacts-hub-intro" id="contacts-hub-intro">
+          <h1 class="contacts-hub-intro__title" id="contacts-hub-title">Connect your contacts.</h1>
+          <p class="contacts-hub-intro__body" id="contacts-hub-body">Allow access to the people on your phone so starting your first chat feels instant.</p>
         </div>
-        <div class="contacts-hub-list" id="contacts-hub-list"></div>
+        <div class="compose-shell contacts-hub-shell">
+          <div class="compose-actions compose-actions--list">
+            <button class="compose-list-row" id="btn-contacts-hub-device" type="button" hidden>
+              <span class="compose-list-row__title">Use Device Contacts</span>
+              <span class="compose-list-row__chevron">›</span>
+            </button>
+            <button class="compose-list-row" id="btn-contacts-import-vcard" type="button">
+              <span class="compose-list-row__title">Import iCloud / vCard</span>
+              <span class="compose-list-row__chevron">›</span>
+            </button>
+          </div>
+          <input id="input-contacts-hub-file" type="file" accept=".vcf,text/vcard" hidden>
+          <div class="contacts-hub-list" id="contacts-hub-list"></div>
+        </div>
+        <div class="contacts-search-bar">
+          <svg class="contacts-search-bar__icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <span class="contacts-search-bar__label">Search</span>
+          <svg class="contacts-search-bar__mic" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 12.5C11.381 12.5 12.5 11.381 12.5 10V5.75C12.5 4.36929 11.381 3.25 10 3.25C8.61929 3.25 7.5 4.36929 7.5 5.75V10C7.5 11.381 8.61929 12.5 10 12.5Z" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M5.75 9.75V10C5.75 12.3472 7.65279 14.25 10 14.25C12.3472 14.25 14.25 12.3472 14.25 10V9.75" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            <path d="M10 14.25V17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </div>
         <p class="entry-feedback" id="contacts-hub-feedback" aria-live="polite"></p>
       </div>
     </div>
@@ -177,78 +234,140 @@
   <!-- SCREEN: PROFILE                                 -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-profile" class="screen" data-screen="profile">
-    <div class="entry-screen entry-screen--form">
-      <div class="settings-header">
-        <button class="entry-btn entry-btn--secondary" id="btn-profile-back" type="button">Back</button>
+    <form class="ios-settings-screen" id="form-profile-manage" novalidate>
+      <div class="ios-settings-nav">
+        <button class="ios-settings-nav__btn ios-settings-nav__btn--back" id="btn-profile-back" type="button" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M12.5 4L6.5 10L12.5 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="ios-settings-nav__title">Profile</div>
+        <span class="ios-settings-nav__spacer" aria-hidden="true"></span>
       </div>
-      <div class="entry-screen__hero">
-        <h1 class="entry-screen__title">Your profile.</h1>
-        <p class="entry-screen__body">Update how you appear across chats and invites.</p>
-      </div>
-      <form class="entry-form" id="form-profile-manage">
-        <div class="settings-avatar-card">
-          <div class="settings-avatar" id="profile-settings-avatar"></div>
-          <div class="settings-avatar__meta">
-            <div class="settings-avatar__name" id="profile-settings-name">You</div>
-            <div class="settings-avatar__sub" id="profile-settings-phone">Phone number</div>
+      <div class="ios-settings-scroll">
+        <div class="ios-settings-card ios-settings-card--hero">
+          <div class="ios-profile-hero">
+            <button class="ios-profile-photo-button" id="btn-manage-profile-photo" type="button" aria-label="Change profile photo">
+              <div class="settings-avatar settings-avatar--xl" id="profile-settings-avatar"></div>
+            </button>
+            <input class="ios-profile-hero__name ios-profile-hero__name-input" id="input-manage-profile-name" type="text" autocomplete="name" maxlength="40" value="You" aria-label="Display name">
+            <div class="ios-profile-hero__sub" id="profile-settings-phone">Phone number</div>
           </div>
         </div>
-        <label class="entry-label" for="input-manage-profile-name">Display name</label>
-        <input class="entry-input" id="input-manage-profile-name" type="text" autocomplete="name" maxlength="40" required>
-        <label class="entry-label" for="input-manage-profile-avatar">Avatar image URL</label>
-        <input class="entry-input" id="input-manage-profile-avatar" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/avatar.jpg">
-        <button class="entry-btn entry-btn--primary" id="btn-update-profile" type="submit">Save Changes</button>
-        <button class="entry-btn entry-btn--secondary" id="btn-sign-out" type="button">Sign Out</button>
-        <p class="entry-feedback" id="profile-manage-feedback" aria-live="polite"></p>
-      </form>
-    </div>
+
+        <input id="input-manage-profile-avatar" type="url" inputmode="url" autocomplete="url" hidden>
+        <input id="input-manage-profile-avatar-file" type="file" accept="image/*" hidden>
+
+        <section class="ios-settings-section">
+          <div class="ios-settings-card ios-settings-card--list">
+            <button class="ios-settings-row ios-settings-row--destructive" id="btn-sign-out" type="button">
+              <span class="ios-settings-row__title">Sign Out</span>
+            </button>
+          </div>
+        </section>
+
+        <p class="entry-feedback ios-settings-feedback" id="profile-manage-feedback" aria-live="polite"></p>
+      </div>
+    </form>
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
   <!-- SCREEN: GROUP SETTINGS                          -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-group-settings" class="screen" data-screen="group-settings">
-    <div class="entry-screen entry-screen--form">
-      <div class="settings-header">
-        <button class="entry-btn entry-btn--secondary" id="btn-group-settings-back" type="button">Back</button>
-      </div>
-      <div class="entry-screen__hero">
-        <h1 class="entry-screen__title">Group details.</h1>
-        <p class="entry-screen__body">Manage the name, see who is in the chat, and track any pending invites.</p>
-      </div>
-      <form class="entry-form" id="form-group-settings">
-        <label class="entry-label" for="input-group-settings-name">Group name</label>
-        <input class="entry-input" id="input-group-settings-name" type="text" autocomplete="off" maxlength="50" required>
+    <form class="ios-settings-screen" id="form-group-settings" novalidate>
+      <div class="ios-settings-scroll">
+        <div class="group-details-topbar">
+          <button class="group-details-topbar__round group-details-topbar__round--back" id="btn-group-settings-back" type="button" aria-label="Back to conversation">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M12.5 4L6.5 10L12.5 16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="group-details-topbar__pill" id="btn-save-group-settings" type="button">Edit</button>
+        </div>
 
-        <div class="settings-section">
-          <div class="settings-section__title">Members</div>
-          <div class="entry-member-builder settings-member-builder">
-            <div class="entry-member-builder__row">
-              <div class="entry-member-builder__field">
-                <label class="entry-label" for="input-group-member-name">Friend name</label>
-                <input class="entry-input" id="input-group-member-name" type="text" autocomplete="off" placeholder="New friend" maxlength="40">
+        <section class="group-details-hero">
+          <div class="group-details-hero__avatars" id="group-settings-hero-avatars"></div>
+          <label class="group-details-hero__name-wrap" for="input-group-settings-name">
+            <input class="group-details-hero__name" id="input-group-settings-name" type="text" autocomplete="off" maxlength="50" required readonly>
+          </label>
+          <div class="group-details-tabs" role="tablist" aria-label="Conversation details tabs">
+            <button class="group-details-tab is-active" id="btn-group-settings-tab-info" type="button" role="tab" aria-selected="true">Info</button>
+            <button class="group-details-tab" id="btn-group-settings-tab-backgrounds" type="button" role="tab" aria-selected="false">Background</button>
+            <button class="group-details-tab" id="btn-group-settings-tab-links" type="button" role="tab" aria-selected="false">Links</button>
+          </div>
+        </section>
+
+        <section class="group-details-panel is-active" id="group-settings-panel-info" data-group-settings-panel="info">
+          <div class="group-details-summary-card" id="group-settings-summary-card">
+            <div class="group-details-summary-card__eyebrow">Voice-first conversation</div>
+            <div class="group-details-summary-card__title">yAp keeps the group organized into replayable topics.</div>
+            <div class="group-details-summary-grid">
+              <div class="group-details-summary-metric">
+                <div class="group-details-summary-metric__value" id="group-settings-summary-people">0</div>
+                <div class="group-details-summary-metric__label">People</div>
               </div>
-              <div class="entry-member-builder__field">
-                <label class="entry-label" for="input-group-member-phone">Phone number</label>
-                <input class="entry-input" id="input-group-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="+1 555 555 0104">
+              <div class="group-details-summary-metric">
+                <div class="group-details-summary-metric__value" id="group-settings-summary-topics">0</div>
+                <div class="group-details-summary-metric__label">Topics</div>
+              </div>
+              <div class="group-details-summary-metric">
+                <div class="group-details-summary-metric__value" id="group-settings-summary-links">0</div>
+                <div class="group-details-summary-metric__label">Links</div>
               </div>
             </div>
-            <button class="entry-btn entry-btn--secondary" id="btn-add-group-settings-member" type="button">Add to Group</button>
-            <button class="entry-btn entry-btn--secondary" id="btn-group-settings-browse-contacts" type="button">Browse Contacts</button>
           </div>
-          <div class="settings-list" id="group-settings-members"></div>
-        </div>
 
-        <div class="settings-section">
-          <div class="settings-section__title">Pending invites</div>
-          <div class="settings-list" id="group-settings-invites"></div>
-        </div>
+          <div class="group-details-people-strip" id="group-settings-people-strip"></div>
 
-        <button class="entry-btn entry-btn--primary" id="btn-save-group-settings" type="submit">Save Group</button>
-        <button class="entry-btn entry-btn--secondary" id="btn-leave-group" type="button">Leave Group</button>
-        <p class="entry-feedback" id="group-settings-feedback" aria-live="polite"></p>
-      </form>
-    </div>
+          <div class="group-details-card group-details-card--list" id="group-settings-members"></div>
+
+          <div class="group-details-card group-details-card--list group-details-edit-block" id="group-settings-invite-card">
+            <label class="ios-settings-row ios-settings-row--input" for="input-group-member-phone">
+              <span class="ios-settings-row__title">Phone</span>
+              <input class="ios-settings-row__field" id="input-group-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="+1 555 555 0104">
+            </label>
+            <label class="ios-settings-row ios-settings-row--input ios-settings-row--secondary" for="input-group-member-name">
+              <span class="ios-settings-row__title">Label</span>
+              <input class="ios-settings-row__field" id="input-group-member-name" type="text" autocomplete="off" placeholder="Optional" maxlength="40">
+            </label>
+            <button class="ios-settings-row ios-settings-row--action" id="btn-add-group-settings-member" type="button">
+              <span class="ios-settings-row__title">Send Invite</span>
+            </button>
+          </div>
+
+          <div class="group-details-card group-details-card--list group-details-card--toggles">
+            <label class="group-details-toggle-row">
+              <span class="group-details-toggle-row__title">Mute Notifications</span>
+              <input class="group-details-toggle" id="toggle-group-hide-alerts" type="checkbox">
+              <span class="group-details-toggle__ui" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div class="group-details-card group-details-card--list" id="group-settings-invites"></div>
+
+          <div class="group-details-card group-details-card--list">
+            <button class="ios-settings-row ios-settings-row--destructive" id="btn-leave-group" type="button">
+              <span class="ios-settings-row__title">Leave this Conversation</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="group-details-panel" id="group-settings-panel-backgrounds" data-group-settings-panel="backgrounds" hidden>
+          <div class="group-details-background-grid" id="group-settings-background-options"></div>
+          <div class="group-details-suggestions">
+            <h3 class="group-details-suggestions__title">Suggestions</h3>
+            <div class="group-details-suggestions__grid" id="group-settings-background-suggestions"></div>
+          </div>
+        </section>
+
+        <section class="group-details-panel" id="group-settings-panel-links" data-group-settings-panel="links" hidden>
+          <div class="group-details-links-grid" id="group-settings-links-grid"></div>
+        </section>
+
+        <p class="entry-feedback ios-settings-feedback" id="group-settings-feedback" aria-live="polite"></p>
+      </div>
+    </form>
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
@@ -274,13 +393,19 @@
       </div>
     </div>
     <div class="chats-search" id="chats-search" hidden>
-      <div class="chats-search__field">
-        <svg class="chats-search__icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.6"/>
-          <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        </svg>
-        <input class="chats-search__input" id="input-chat-search" type="search" autocomplete="off" placeholder="Search chats">
-        <button class="chats-search__clear" id="btn-clear-search" type="button">Clear</button>
+      <div class="chats-search__row">
+        <div class="chats-search__field">
+          <svg class="chats-search__icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <input class="chats-search__input" id="input-chat-search" type="search" autocomplete="off" placeholder="Search chats">
+        </div>
+        <button class="chats-search__close" id="btn-clear-search" type="button" aria-label="Close search">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
     </div>
     <div class="chats-grid" id="chats-grid">
@@ -289,7 +414,7 @@
     <div class="chats-empty-state" id="chats-empty-state">
       <button class="chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
         <span class="chats-empty-state__plus" aria-hidden="true"></span>
-        <span class="chats-empty-state__label">New Message</span>
+        <span class="chats-empty-state__label">New chat</span>
       </button>
     </div>
   </div>
@@ -335,6 +460,8 @@
           <div class="floating-avatar__photo"></div>
         </div>
       </div>
+
+      <div class="chat-immersive" id="chat-immersive"></div>
 
       <!-- Topic cards (Phase 3+) -->
       <div class="chat-topics" id="chat-topics"></div>
@@ -404,7 +531,10 @@
             </svg>
           </button>
           <button class="rec-action-btn rec-action-btn--send" id="btn-send" aria-label="Send memo">
-            <img class="rec-action-btn__asset" src="assets/send-button.png" alt="" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+              <path d="M13 20V6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+              <path d="M7 12L13 6L19 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </button>
         </div>
 
@@ -429,10 +559,9 @@
 
       <div class="recording-backdrop"></div>
 
-      <div class="recording-sheet">
+      <div class="recording-sheet recording-sheet--analysis">
         <div class="recording-sheet__handle"></div>
 
-        <!-- Header: cancel / ✦ Analyzing / spacer -->
         <div class="rec-row rec-row--top">
           <button class="rec-icon-btn" id="btn-analysis-cancel" aria-label="Cancel analysis">
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -446,7 +575,32 @@
           <div class="rec-spacer"></div>
         </div>
 
-        <!-- Segment bars appear here -->
+        <div class="analysis-hero">
+          <div class="analysis-visual-field" aria-hidden="true">
+            <span class="analysis-visual-field__glow analysis-visual-field__glow--one"></span>
+            <span class="analysis-visual-field__glow analysis-visual-field__glow--two"></span>
+            <span class="analysis-visual-field__glow analysis-visual-field__glow--three"></span>
+            <span class="analysis-ribbon analysis-ribbon--one"></span>
+            <span class="analysis-ribbon analysis-ribbon--two"></span>
+            <span class="analysis-ribbon analysis-ribbon--three"></span>
+            <span class="analysis-ribbon analysis-ribbon--four"></span>
+            <span class="analysis-core"></span>
+            <div class="analysis-wave-cluster">
+              <span class="analysis-wave analysis-wave--one"></span>
+              <span class="analysis-wave analysis-wave--two"></span>
+              <span class="analysis-wave analysis-wave--three"></span>
+              <span class="analysis-wave analysis-wave--four"></span>
+            </div>
+          </div>
+          <div class="analysis-hero__title" id="analysis-title">Breaking your memo into topics</div>
+          <div class="analysis-hero__body" id="analysis-body">Listening for replies, new ideas, and moments that should stay together.</div>
+        </div>
+
+        <div class="analysis-status-strip" id="analysis-status-strip">
+          <span class="analysis-status-strip__dot"></span>
+          <span id="analysis-status-copy">Pulling apart the voice memo…</span>
+        </div>
+
         <div class="analysis-bars" id="analysis-bars"></div>
 
       </div>
@@ -459,14 +613,24 @@
 </div>
 <!-- /app -->
 
-<script defer src="js/config.js"></script>
-<script defer src="js/utils.js"></script>
+<div class="ios-alert-overlay" id="ios-alert-overlay" aria-hidden="true" hidden>
+  <div class="ios-alert">
+    <div class="ios-alert__body">
+      <div class="ios-alert__title" id="ios-alert-title">Alert</div>
+      <div class="ios-alert__message" id="ios-alert-message"></div>
+    </div>
+    <button class="ios-alert__action" id="ios-alert-action" type="button">OK</button>
+  </div>
+</div>
+
+<script defer src="js/core/config.js"></script>
+<script defer src="js/core/utils.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script defer src="js/data.js"></script>
-<script defer src="js/recording.js"></script>
-<script defer src="js/pipeline.js"></script>
-<script defer src="js/analysis.js"></script>
-<script defer src="js/chat.js"></script>
+<script defer src="js/core/data.js"></script>
+<script defer src="js/features/recording.js"></script>
+<script defer src="js/features/pipeline.js"></script>
+<script defer src="js/features/analysis.js"></script>
+<script defer src="js/features/chat.js"></script>
 <script defer src="js/app.js"></script>
 <script defer type="module" src="components/voice-visualizer/mount.js"></script>
 </body>

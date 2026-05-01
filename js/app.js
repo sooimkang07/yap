@@ -693,6 +693,27 @@ async function openPendingLinkedChatIfAvailable() {
   return true;
 }
 
+function sleep(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+async function waitForChatAvailability(chatId, { attempts = 5, delayMs = 700 } = {}) {
+  if (!chatId || !AppState.supabaseOk || !getCurrentUserId()) {
+    return AppState.chats.find(chat => chat.id === chatId) || null;
+  }
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await refreshChats();
+    const found = AppState.chats.find(chat => chat.id === chatId) || null;
+    if (found) return found;
+    if (attempt < attempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  return AppState.chats.find(chat => chat.id === chatId) || null;
+}
+
 function toggleChatViewMode() {
   AppState.chatViewMode = AppState.chatViewMode === 'immersive' ? 'threads' : 'immersive';
   DOM.btnChatViewToggle?.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
@@ -2335,14 +2356,19 @@ async function routeAuthenticatedUser() {
 
   await refreshChats();
 
+  if (AppState.auth.pendingChatId) {
+    const linkedChat = await waitForChatAvailability(AppState.auth.pendingChatId, { attempts: 6, delayMs: 850 });
+    if (linkedChat) {
+      clearPendingChatLink();
+      await openChat(linkedChat);
+      return;
+    }
+  }
+
   if (!AppState.chats.length) {
     AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
     navigate('chats', 'fade');
     renderChatsList();
-    return;
-  }
-
-  if (await openPendingLinkedChatIfAvailable()) {
     return;
   }
 
@@ -2743,11 +2769,13 @@ function wireEvents() {
         name: DOM.inputGroupName?.value || '',
         members: AppState.onboarding.pendingMembers,
       });
+      const persistedChat = await waitForChatAvailability(createdChat.id, { attempts: 5, delayMs: 650 });
+      const nextChat = persistedChat || createdChat;
 
       resetCreateGroupComposer();
       // Pin the freshly-created chat immediately so it survives the trip back
       // to All Chats even if the remote refresh has not caught up yet.
-      pinChatInLocalLists(createdChat);
+      pinChatInLocalLists(nextChat);
       renderChatsList();
       // Forcibly close the create-group sheet so it doesn't stay active and
       // intercept the back button when the user navigates out of the new chat.
@@ -2757,7 +2785,7 @@ function wireEvents() {
         resetScreenTransitionState(createGroupSheet);
       }
       if (AppState.navTimer) { clearTimeout(AppState.navTimer); AppState.navTimer = null; }
-      await openChat(createdChat);
+      await openChat(nextChat);
       // Refresh from DB in background to sync any server-side changes.
       refreshChats().then(() => renderChatsList());
     } catch (error) {

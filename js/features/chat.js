@@ -6,16 +6,15 @@
 let _expandedThreadId = null;
 
 function _syncChatViewToggle(threads = []) {
-  if (!DOM.btnChatViewToggle) return;
+  if (!DOM.chatViewTabs) return;
   const hasThreads = Array.isArray(threads) && threads.length > 0;
-  DOM.btnChatViewToggle.hidden = !hasThreads;
-  DOM.btnChatViewToggle.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
-  DOM.btnChatViewToggle.setAttribute(
-    'aria-label',
-    AppState.chatViewMode === 'immersive'
-      ? 'Switch to linear thread view'
-      : 'Switch to circle topic view'
-  );
+  DOM.chatViewTabs.hidden = !hasThreads;
+  DOM.btnChatViewBubbles?.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
+  DOM.btnChatViewThreads?.classList.toggle('is-active', AppState.chatViewMode === 'threads');
+  DOM.btnChatViewBubbles?.setAttribute('aria-selected', AppState.chatViewMode === 'immersive' ? 'true' : 'false');
+  DOM.btnChatViewThreads?.setAttribute('aria-selected', AppState.chatViewMode === 'threads' ? 'true' : 'false');
+  DOM.btnChatViewBubbles?.setAttribute('tabindex', AppState.chatViewMode === 'immersive' ? '0' : '-1');
+  DOM.btnChatViewThreads?.setAttribute('tabindex', AppState.chatViewMode === 'threads' ? '0' : '-1');
 }
 
 const PlaybackController = {
@@ -370,7 +369,7 @@ function renderImmersiveThreads(threads) {
                     style="${person.avatarUrl ? `background-image:url('${person.avatarUrl}')` : `--avatar-accent:${personAccent};`}">
                 ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
               </span>
-              <span class="immersive-cluster__speaker-name">${escapeHtml(person.name || 'You')}</span>
+              <span class="immersive-cluster__speaker-name">${escapeHtml(person.name || 'Friend')}</span>
             </span>
           `;
         }).join('')}
@@ -445,13 +444,14 @@ function _topicRowHTML(thread, message, replies) {
 function _replyRowHTML(message) {
   const playable = _isPlayable(message) ? ' is-playable' : '';
   const speakerName = message.authorId === getCurrentUserId() ? 'You' : (message.author?.name || 'Friend');
+  const replyTitle = message.label || 'Voice reply';
   return `
     <button class="reply-row${playable}" type="button"
             data-playable-id="${message.id}"
             data-voice-message-id="${message.voiceMessageId || message.id}">
       <div class="reply-row__header">
         <span class="reply-row__play"><span class="topic-row__play-icon"></span></span>
-        <span class="reply-row__title">${escapeHtml(message.label || message.transcript || '')}</span>
+        <span class="reply-row__title">${escapeHtml(replyTitle)}</span>
         <span class="reply-row__meta">
           <span class="reply-row__speaker">${escapeHtml(speakerName)}</span>
           <span class="reply-row__time">${_formatClockTime(message.sentAt)}</span>

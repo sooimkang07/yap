@@ -39,7 +39,7 @@
   <div id="screen-welcome" class="screen" data-screen="welcome">
     <div class="entry-screen">
       <div class="entry-screen__hero">
-        <img class="entry-screen__logo" src="assets/app-cover.png" alt="yAp">
+        <img class="entry-screen__logo" src="assets/y.png" alt="yAp">
         <h1 class="entry-screen__title">Voice-first group chat, built for real life.</h1>
         <p class="entry-screen__body">Create a group, send a voice memo, and let yAp organize the conversation into replyable topics.</p>
       </div>
@@ -345,12 +345,6 @@
             <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
         </button>
-        <button class="icon-btn" id="btn-compose-chat" aria-label="New conversation">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M4.5 15.5L5.2 12.4L12.9 4.7C13.6 4 14.7 4 15.4 4.7L15.8 5.1C16.5 5.8 16.5 6.9 15.8 7.6L8.1 15.3L4.5 15.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-            <path d="M11.9 5.7L14.3 8.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          </svg>
-        </button>
         <div class="self-avatar" id="self-avatar">S</div>
       </div>
     </div>
@@ -396,16 +390,16 @@
       <div class="chat-header__center">
         <div class="chat-member-pips" id="chat-member-pips"></div>
         <h2 class="chat-title" id="chat-title">besties 👋</h2>
+        <div class="chat-view-tabs" id="chat-view-tabs" role="tablist" aria-label="Chat view" hidden>
+          <button class="chat-view-tabs__tab" id="btn-chat-view-bubbles" type="button" role="tab" aria-selected="true">
+            Bubbles
+          </button>
+          <button class="chat-view-tabs__tab" id="btn-chat-view-threads" type="button" role="tab" aria-selected="false">
+            Threads
+          </button>
+        </div>
       </div>
       <div class="chat-header__right">
-        <button class="icon-btn icon-btn--header btn-chat-view-toggle" id="btn-chat-view-toggle" aria-label="Switch to linear thread view" hidden>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <circle cx="5" cy="5" r="2.25" fill="currentColor"/>
-            <circle cx="13" cy="5" r="2.25" fill="currentColor" opacity="0.65"/>
-            <path d="M3 12.25H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-            <path d="M5.5 15H12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.65"/>
-          </svg>
-        </button>
         <button class="icon-btn icon-btn--header" id="btn-chat-more" aria-label="More options">
           <svg width="18" height="4" viewBox="0 0 18 4" fill="none">
             <circle cx="2" cy="2" r="2" fill="currentColor"/>

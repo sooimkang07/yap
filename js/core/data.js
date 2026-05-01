@@ -103,12 +103,16 @@ function registerUserRecord(user) {
   const isCurrentUserRecord = user.id === activeCurrentUserId
     || user.id === APP_DEFAULT_CURRENT_USER_ID
     || user.auth_user_id === getStoredAuthSession?.()?.user?.id;
+  const fallbackName = isCurrentUserRecord
+    ? 'You'
+    : (user.phoneE164 || user.phone_e164 || 'Friend');
+  const resolvedName = user.name || fallbackName;
 
   const normalized = {
     id: user.id,
-    name: user.name || 'You',
-    color: user.color || user.color_hex || pickUserColor(user.name),
-    initials: user.initials || buildUserInitials(user.name),
+    name: resolvedName,
+    color: user.color || user.color_hex || pickUserColor(resolvedName),
+    initials: user.initials || buildUserInitials(resolvedName),
     avatarUrl: isCurrentUserRecord
       ? (user.avatarUrl || user.avatar_url || 'assets/sooim.jpg')
       : (user.avatarUrl || user.avatar_url || null),
@@ -270,14 +274,23 @@ async function getAppUserByAuthUserId(authUserId) {
     .from('users')
     .select('*')
     .eq('auth_user_id', authUserId)
-    .maybeSingle();
+    .order('updated_at', { ascending: false, nullsFirst: false })
+    .limit(5);
 
   if (error) {
     console.error('[yAp] getAppUserByAuthUserId failed:', error);
     return null;
   }
 
-  return data ? registerUserRecord(data) : null;
+  const rows = Array.isArray(data) ? data : (data ? [data] : []);
+  const chosen = rows.sort((a, b) => {
+    const aScore = (a?.profile_completed ? 4 : 0) + (a?.phone_e164 ? 2 : 0) + (a?.auth_user_id ? 1 : 0);
+    const bScore = (b?.profile_completed ? 4 : 0) + (b?.phone_e164 ? 2 : 0) + (b?.auth_user_id ? 1 : 0);
+    if (bScore !== aScore) return bScore - aScore;
+    return new Date(b?.updated_at || b?.created_at || 0).getTime() - new Date(a?.updated_at || a?.created_at || 0).getTime();
+  })[0];
+
+  return chosen ? registerUserRecord(chosen) : null;
 }
 
 async function getAppUserByPhone(phone) {
@@ -289,14 +302,23 @@ async function getAppUserByPhone(phone) {
     .from('users')
     .select('*')
     .eq('phone_e164', normalizedPhone)
-    .maybeSingle();
+    .order('updated_at', { ascending: false, nullsFirst: false })
+    .limit(5);
 
   if (error) {
     console.error('[yAp] getAppUserByPhone failed:', error);
     return null;
   }
 
-  return data ? registerUserRecord(data) : null;
+  const rows = Array.isArray(data) ? data : (data ? [data] : []);
+  const chosen = rows.sort((a, b) => {
+    const aScore = (a?.profile_completed ? 4 : 0) + (a?.auth_user_id ? 2 : 0) + (a?.avatar_url ? 1 : 0);
+    const bScore = (b?.profile_completed ? 4 : 0) + (b?.auth_user_id ? 2 : 0) + (b?.avatar_url ? 1 : 0);
+    if (bScore !== aScore) return bScore - aScore;
+    return new Date(b?.updated_at || b?.created_at || 0).getTime() - new Date(a?.updated_at || a?.created_at || 0).getTime();
+  })[0];
+
+  return chosen ? registerUserRecord(chosen) : null;
 }
 
 async function ensureAppUserFromAuthSession(session) {
@@ -382,13 +404,18 @@ async function ensureAppUserFromAuthSession(session) {
 
 async function saveUserProfile({ userId, authUserId, name, avatarUrl, phone }) {
   if (!supabaseClient || !userId || !name) throw new Error('Missing user profile details.');
+  const normalizedPhone = normalizePhoneNumber(phone) || null;
+  const existingByAuth = authUserId ? await getAppUserByAuthUserId(authUserId) : null;
+  const existingByPhone = normalizedPhone ? await getAppUserByPhone(normalizedPhone) : null;
+  const canonicalUser = existingByAuth || existingByPhone || null;
+  const targetUserId = canonicalUser?.id || userId;
 
   // Try the full payload first (requires migrate.sql to have been run).
   // On any schema-cache miss, fall back to the 4 columns guaranteed in the original table.
-  const base = { id: userId, name: name.trim(), color_hex: pickUserColor(name), avatar_url: avatarUrl || null };
+  const base = { id: targetUserId, name: name.trim(), color_hex: pickUserColor(name), avatar_url: avatarUrl || null };
   const full = {
     ...base,
-    phone_e164: normalizePhoneNumber(phone) || null,
+    phone_e164: normalizedPhone,
     initials: buildUserInitials(name),
     profile_completed: true,
     updated_at: new Date().toISOString(),
@@ -402,7 +429,7 @@ async function saveUserProfile({ userId, authUserId, name, avatarUrl, phone }) {
   }
 
   if (error) throw error;
-  const saved = registerUserRecord({ ...data, phone_e164: normalizePhoneNumber(phone) || null });
+  const saved = registerUserRecord({ ...data, phone_e164: normalizedPhone });
   if (saved) saved.profileCompleted = true;
   return saved;
 }
@@ -832,21 +859,12 @@ async function getImportedContactsForUser(ownerUserId) {
 }
 
 async function getRegisteredUserByPhone(phone) {
-  const normalizedPhone = normalizePhoneNumber(phone);
-  if (!supabaseClient || !normalizedPhone) return null;
-
-  const { data, error } = await supabaseClient
-    .from('users')
-    .select('*')
-    .eq('phone_e164', normalizedPhone)
-    .maybeSingle();
-
-  if (error) {
+  try {
+    return await getAppUserByPhone(phone);
+  } catch (error) {
     console.warn('[yAp] getRegisteredUserByPhone failed:', error);
     return null;
   }
-
-  return data ? registerUserRecord(data) : null;
 }
 
 async function getChatsForUser(userId) {
@@ -1731,12 +1749,25 @@ async function hydrateChatFromSupabase(chatId) {
 
   const cachedThreads = Store.getCachedThreads(chatId);
 
-  const [topicThreads, voiceMessages] = await Promise.all([
+  const [topicThreads, voiceMessages, participantRows] = await Promise.all([
     getTopicThreads(chatId),
     getVoiceMessages(chatId),
+    supabaseClient
+      .from('chat_participants')
+      .select('user_id')
+      .eq('chat_id', chatId)
+      .eq('invite_status', 'joined'),
   ]);
 
-  const authorIds = [...new Set((voiceMessages || []).map(message => message.author_id).filter(Boolean))];
+  const joinedParticipantIds = new Set(
+    ((participantRows?.data || [])).map(row => row.user_id).filter(Boolean)
+  );
+  const safeVoiceMessages = (voiceMessages || []).filter(message => {
+    const authorId = message?.author_id;
+    return !authorId || !joinedParticipantIds.size || joinedParticipantIds.has(authorId);
+  });
+
+  const authorIds = [...new Set(safeVoiceMessages.map(message => message.author_id).filter(Boolean))];
   const authorsById = new Map();
   if (authorIds.length) {
     const { data: authors } = await supabaseClient
@@ -1768,7 +1799,7 @@ async function hydrateChatFromSupabase(chatId) {
     }])
   );
 
-  const sortedMessages = [...voiceMessages].sort((a, b) =>
+  const sortedMessages = [...safeVoiceMessages].sort((a, b) =>
     new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
   );
 

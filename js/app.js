@@ -59,6 +59,7 @@ const AppState = {
   },
   navTimer: null,
   viewportSyncRaf: 0,
+  viewportBaseHeight: 0,
 };
 
 // ── DOM refs ──────────────────────────────────────────
@@ -201,7 +202,6 @@ function cacheDOM() {
   DOM.selfAvatar = document.getElementById('self-avatar');
   DOM.btnStartChat = document.getElementById('btn-start-chat');
   DOM.btnSearch = document.getElementById('btn-search');
-  DOM.btnComposeChat = document.getElementById('btn-compose-chat');
 
   // Chat screen
   DOM.chatTitle      = document.getElementById('chat-title');
@@ -212,7 +212,9 @@ function cacheDOM() {
   DOM.chatPresence   = document.getElementById('chat-presence');
   DOM.btnBack        = document.getElementById('btn-back');
   DOM.btnMic         = document.getElementById('btn-mic');
-  DOM.btnChatViewToggle = document.getElementById('btn-chat-view-toggle');
+  DOM.chatViewTabs = document.getElementById('chat-view-tabs');
+  DOM.btnChatViewBubbles = document.getElementById('btn-chat-view-bubbles');
+  DOM.btnChatViewThreads = document.getElementById('btn-chat-view-threads');
   DOM.btnChatMore    = document.getElementById('btn-chat-more');
   DOM.floatingChloe = document.getElementById('floating-chloe');
   DOM.floatingMaria = document.getElementById('floating-maria');
@@ -299,8 +301,14 @@ function updateViewportMetrics() {
   const keyboardInset = viewport
     ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
     : 0;
+  const nextBaseHeight = keyboardInset > 0
+    ? Math.max(AppState.viewportBaseHeight || 0, viewportHeight)
+    : viewportHeight;
+
+  AppState.viewportBaseHeight = Math.max(nextBaseHeight || 0, viewportHeight || 0);
 
   document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
+  document.documentElement.style.setProperty('--layout-height', `${AppState.viewportBaseHeight || viewportHeight}px`);
   document.documentElement.style.setProperty('--keyboard-inset', `${keyboardInset}px`);
   document.body.classList.toggle('keyboard-open', keyboardInset > 0);
 
@@ -504,6 +512,7 @@ function pinChatInLocalLists(chat) {
 
   const pinnedChat = {
     ...chat,
+    persistLocally: chat.persistLocally !== false,
     localCreatedAt: Number(chat.localCreatedAt || chat.lastMessageAt || Date.now()),
     lastMessageAt: Number(chat.lastMessageAt || chat.localCreatedAt || Date.now()),
   };
@@ -714,9 +723,13 @@ async function waitForChatAvailability(chatId, { attempts = 5, delayMs = 700 } =
   return AppState.chats.find(chat => chat.id === chatId) || null;
 }
 
-function toggleChatViewMode() {
-  AppState.chatViewMode = AppState.chatViewMode === 'immersive' ? 'threads' : 'immersive';
-  DOM.btnChatViewToggle?.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
+function setChatViewMode(mode) {
+  if (mode !== 'immersive' && mode !== 'threads') return;
+  if (AppState.chatViewMode === mode) {
+    renderTopics();
+    return;
+  }
+  AppState.chatViewMode = mode;
   renderTopics();
 }
 
@@ -990,7 +1003,7 @@ function renderActiveChatShell(chat) {
 async function openChat(chat) {
   AppState.activeChat = chat;
   Store.setActiveChat(chat.id);
-  if (DOM.btnChatViewToggle) DOM.btnChatViewToggle.hidden = true;
+  if (DOM.chatViewTabs) DOM.chatViewTabs.hidden = true;
 
   renderActiveChatShell(chat);
 
@@ -2017,6 +2030,7 @@ async function refreshChats() {
   const now = Date.now();
 
   AppState.pendingChats = (AppState.pendingChats || []).filter(chat => {
+    if (chat?.persistLocally) return !!chat?.id;
     const createdAt = Number(chat?.localCreatedAt || chat?.lastMessageAt || 0);
     return !!chat?.id && (now - createdAt) < pendingChatFreshnessMs;
   });
@@ -2084,6 +2098,68 @@ async function persistManagedProfile({ showSuccess = false } = {}) {
     setFeedback(DOM.profileManageFeedback, 'Profile updated.', 'success');
   }
   return savedUser;
+}
+
+async function saveManagedProfileNameFromEditor() {
+  if (!DOM.inputManageProfileName) return;
+  if (DOM.inputManageProfileName.dataset.saving === 'true') return;
+
+  if (!DOM.inputManageProfileName.value.trim()) {
+    DOM.inputManageProfileName.value = 'You';
+  }
+  if (DOM.inputManageProfileName.value.trim() === (getCurrentUser().name || '')) return;
+
+  DOM.inputManageProfileName.dataset.saving = 'true';
+  setFeedback(DOM.profileManageFeedback, '');
+  try {
+    await persistManagedProfile({ showSuccess: true });
+  } catch (error) {
+    setFeedback(DOM.profileManageFeedback, error.message || 'We could not save your profile yet.', 'error');
+  } finally {
+    delete DOM.inputManageProfileName.dataset.saving;
+  }
+}
+
+async function saveGroupSettingsNameFromEditor() {
+  if (!AppState.activeChat || !AppState.groupSettingsEditing) return;
+  if (!canManageActiveChat()) return;
+  if (!validateFormWithIOSAlert(DOM.formGroupSettings)) return;
+  if (DOM.btnSaveGroupSettings?.dataset.saving === 'true') return;
+
+  setButtonBusy(DOM.btnSaveGroupSettings, true, 'Saving...');
+  if (DOM.btnSaveGroupSettings) {
+    DOM.btnSaveGroupSettings.dataset.saving = 'true';
+  }
+  setFeedback(DOM.groupSettingsFeedback, '');
+  try {
+    const updated = AppState.supabaseOk
+      ? await renameChat(AppState.activeChat.id, DOM.inputGroupSettingsName.value)
+      : { id: AppState.activeChat.id, name: DOM.inputGroupSettingsName.value };
+    const updatedChat = {
+      ...AppState.activeChat,
+      ...updated,
+      name: updated.name,
+      lastMessageAt: Number(AppState.activeChat.lastMessageAt || Date.now()),
+      localCreatedAt: Number(AppState.activeChat.localCreatedAt || AppState.activeChat.lastMessageAt || Date.now()),
+      persistLocally: true,
+    };
+    AppState.activeChat = updatedChat;
+    pinChatInLocalLists(updatedChat);
+    await refreshChats();
+    AppState.activeChat = AppState.chats.find(chat => chat.id === updated.id) || updatedChat;
+    DOM.chatTitle.textContent = updated.name;
+    AppState.groupSettingsEditing = false;
+    renderChatsList();
+    renderGroupSettings(AppState.supabaseOk ? await getInvitationsForChat(AppState.activeChat.id) : []);
+    setFeedback(DOM.groupSettingsFeedback, 'Group updated.', 'success');
+  } catch (error) {
+    setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not update this group.', 'error');
+  } finally {
+    if (DOM.btnSaveGroupSettings) {
+      delete DOM.btnSaveGroupSettings.dataset.saving;
+    }
+    setButtonBusy(DOM.btnSaveGroupSettings, false);
+  }
 }
 
 function extractLinkCardsFromChat(chat) {
@@ -2796,9 +2872,6 @@ function wireEvents() {
   DOM.btnStartChat.addEventListener('click', () => {
     openCreateGroupComposer();
   });
-  DOM.btnComposeChat?.addEventListener('click', () => {
-    openCreateGroupComposer();
-  });
 
   DOM.inputMemberPhone?.addEventListener('keydown', event => {
     if (event.key === 'Enter') {
@@ -2829,19 +2902,11 @@ function wireEvents() {
   DOM.inputManageProfileName?.addEventListener('keydown', async event => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
+    await saveManagedProfileNameFromEditor();
     DOM.inputManageProfileName?.blur();
   });
   DOM.inputManageProfileName?.addEventListener('blur', async () => {
-    if (!DOM.inputManageProfileName?.value.trim()) {
-      DOM.inputManageProfileName.value = 'You';
-    }
-    if (DOM.inputManageProfileName.value.trim() === (getCurrentUser().name || '')) return;
-    setFeedback(DOM.profileManageFeedback, '');
-    try {
-      await persistManagedProfile({ showSuccess: true });
-    } catch (error) {
-      setFeedback(DOM.profileManageFeedback, error.message || 'We could not save your profile yet.', 'error');
-    }
+    await saveManagedProfileNameFromEditor();
   });
   DOM.inputManageProfileAvatarFile?.addEventListener('change', async event => {
     const file = event.target.files?.[0];
@@ -2926,7 +2991,8 @@ function wireEvents() {
       navigate('chats', 'back', { replace: true });
     }
   });
-  DOM.btnChatViewToggle?.addEventListener('click', toggleChatViewMode);
+  DOM.btnChatViewBubbles?.addEventListener('click', () => setChatViewMode('immersive'));
+  DOM.btnChatViewThreads?.addEventListener('click', () => setChatViewMode('threads'));
   DOM.btnChatMore?.addEventListener('click', openGroupSettingsScreen);
   DOM.btnGroupSettingsBack?.addEventListener('click', () => {
     AppState.groupSettingsEditing = false;
@@ -2943,27 +3009,13 @@ function wireEvents() {
       DOM.inputGroupSettingsName?.select();
       return;
     }
-
-    if (!validateFormWithIOSAlert(DOM.formGroupSettings)) return;
-
-    setButtonBusy(DOM.btnSaveGroupSettings, true, 'Saving...');
-    setFeedback(DOM.groupSettingsFeedback, '');
-    try {
-      const updated = AppState.supabaseOk
-        ? await renameChat(AppState.activeChat.id, DOM.inputGroupSettingsName.value)
-        : { id: AppState.activeChat.id, name: DOM.inputGroupSettingsName.value };
-      AppState.activeChat.name = updated.name;
-      AppState.chats = AppState.chats.map(chat => chat.id === updated.id ? { ...chat, name: updated.name } : chat);
-      DOM.chatTitle.textContent = updated.name;
-      AppState.groupSettingsEditing = false;
-      renderChatsList();
-      renderGroupSettings(AppState.supabaseOk ? await getInvitationsForChat(AppState.activeChat.id) : []);
-      setFeedback(DOM.groupSettingsFeedback, 'Group updated.', 'success');
-    } catch (error) {
-      setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not update this group.', 'error');
-    } finally {
-      setButtonBusy(DOM.btnSaveGroupSettings, false);
-    }
+    await saveGroupSettingsNameFromEditor();
+  });
+  DOM.inputGroupSettingsName?.addEventListener('keydown', async event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    await saveGroupSettingsNameFromEditor();
+    DOM.inputGroupSettingsName?.blur();
   });
   DOM.btnAddGroupSettingsMember?.addEventListener('click', async () => {
     if (!AppState.activeChat) return;
@@ -3030,6 +3082,7 @@ function wireEvents() {
       }
       const leavingChatId = AppState.activeChat.id;
       AppState.chats = AppState.chats.filter(chat => chat.id !== leavingChatId);
+      AppState.pendingChats = (AppState.pendingChats || []).filter(chat => chat.id !== leavingChatId);
       Store.clear(leavingChatId);
       AppState.activeChat = null;
       clearScreenHistory();

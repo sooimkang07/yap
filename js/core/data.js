@@ -479,7 +479,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
   );
 
   const participantRows = [];
-  const inviteRows = [];
+  const unmatchedMembers = [];
 
   for (const member of normalizedMembers) {
     const matchedUser = existingByPhone.get(member.phone);
@@ -492,16 +492,13 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
         invited_by: ownerUserId,
       });
     } else {
-      inviteRows.push({
-        id: generateAppRecordId('invite'),
-        chat_id: chatId,
-        inviter_id: ownerUserId,
-        invitee_name: member.name || null,
-        phone_e164: member.phone,
-        invite_token: makeUuid(),
-        status: 'pending',
-      });
+      unmatchedMembers.push(member);
     }
+  }
+
+  if (unmatchedMembers.length) {
+    const labels = unmatchedMembers.map(member => member.name || member.phone).join(', ');
+    throw new Error(`${labels} ${unmatchedMembers.length === 1 ? 'is' : 'are'} not on yAp yet. Right now you can only add registered users.`);
   }
 
   if (participantRows.length) {
@@ -509,68 +506,6 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
       .from('chat_participants')
       .upsert(participantRows, { onConflict: 'chat_id,user_id' });
     if (participantError) throw participantError;
-  }
-
-  let smsWarning = null;
-
-  if (inviteRows.length) {
-    const { error: inviteError } = await supabaseClient
-      .from('invitations')
-      .insert(inviteRows);
-    if (inviteError) throw inviteError;
-
-    try {
-      const inviteResults = await sendInviteMessages({
-        chatName: AppState?.activeChat?.name || 'yAp group',
-        inviterName: getCurrentUser().name,
-        invites: inviteRows,
-      });
-      await updateInvitationStatuses(inviteResults);
-
-      const failed = inviteResults.filter(result => result.status !== 'sent');
-      if (failed.length) {
-        smsWarning = `Invite SMS failed for ${failed.length} contact(s).`;
-      }
-    } catch (error) {
-      smsWarning = error.message || 'Invite delivery failed.';
-    }
-  }
-
-  if (participantRows.length) {
-    try {
-      const recipients = participantRows
-        .map(row => getUserById(row.user_id))
-        .filter(user => user?.phoneE164 && user.id !== ownerUserId)
-        .map(user => ({
-          id: user.id,
-          name: user.name || '',
-          phone_e164: user.phoneE164,
-        }));
-
-      if (recipients.length) {
-        const results = await sendMessageNotifications({
-          chatId,
-          chatName: AppState?.activeChat?.name || 'yAp group',
-          senderName: getCurrentUser().name,
-          recipients,
-          threadLabel: 'group invite',
-          transcript: 'You were added to a yAp chat.',
-          isReply: false,
-          kind: 'chat_invite',
-        });
-
-        const failed = results.filter(result => result.status !== 'sent');
-        if (failed.length) {
-          smsWarning = smsWarning
-            ? `${smsWarning} Member notification failed for ${failed.length} contact(s).`
-            : `Member notification failed for ${failed.length} contact(s).`;
-        }
-      }
-    } catch (error) {
-      smsWarning = smsWarning
-        ? `${smsWarning} ${error.message || 'Member notification failed.'}`
-        : (error.message || 'Member notification failed.');
-    }
   }
 
   const manualContactRows = normalizedMembers.map(member => ({
@@ -594,8 +529,8 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
 
   return {
     addedUsers: participantRows.map(row => getUserById(row.user_id)).filter(Boolean),
-    invitesCreated: inviteRows.length,
-    smsWarning,
+    invitesCreated: 0,
+    smsWarning: null,
   };
 }
 
@@ -896,6 +831,24 @@ async function getImportedContactsForUser(ownerUserId) {
   });
 }
 
+async function getRegisteredUserByPhone(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!supabaseClient || !normalizedPhone) return null;
+
+  const { data, error } = await supabaseClient
+    .from('users')
+    .select('*')
+    .eq('phone_e164', normalizedPhone)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[yAp] getRegisteredUserByPhone failed:', error);
+    return null;
+  }
+
+  return data ? registerUserRecord(data) : null;
+}
+
 async function getChatsForUser(userId) {
   if (!supabaseClient || !userId) return [];
 
@@ -1055,7 +1008,6 @@ async function createGroupChat({ ownerUserId, name, members }) {
     .join(', ');
 
   const chatId = generateAppRecordId('chat');
-  const inviteRows = [];
   const participantRows = [{
     chat_id: chatId,
     user_id: ownerUserId,
@@ -1078,6 +1030,8 @@ async function createGroupChat({ ownerUserId, name, members }) {
     })
   );
 
+  const unmatchedMembers = [];
+
   for (const member of normalizedMembers) {
     const matchedUser = existingByPhone.get(member.phone);
     if (matchedUser) {
@@ -1089,16 +1043,13 @@ async function createGroupChat({ ownerUserId, name, members }) {
         invited_by: ownerUserId,
       });
     } else {
-      inviteRows.push({
-        id: generateAppRecordId('invite'),
-        chat_id: chatId,
-        inviter_id: ownerUserId,
-        invitee_name: member.name || null,
-        phone_e164: member.phone,
-        invite_token: makeUuid(),
-        status: 'pending',
-      });
+      unmatchedMembers.push(member);
     }
+  }
+
+  if (unmatchedMembers.length) {
+    const labels = unmatchedMembers.map(member => member.name || member.phone).join(', ');
+    throw new Error(`${labels} ${unmatchedMembers.length === 1 ? 'is' : 'are'} not on yAp yet. Right now you can only create chats with registered users.`);
   }
 
   let { error: chatError } = await supabaseClient
@@ -1115,76 +1066,6 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .insert(participantRows.map(r => ({ chat_id: r.chat_id, user_id: r.user_id }))));
   }
   if (participantError) throw participantError;
-
-  let smsWarning = null;
-
-  if (inviteRows.length) {
-    const { error: inviteError } = await supabaseClient
-      .from('invitations')
-      .insert(inviteRows);
-
-    if (inviteError) {
-      console.error('[yAp] invitations insert failed:', inviteError.message);
-      smsWarning = inviteError.message;
-    } else {
-      try {
-        const inviteResults = await sendInviteMessages({
-          chatName: normalizedName,
-          inviterName: getCurrentUser().name,
-          invites: inviteRows,
-        });
-        console.log('[yAp] invite SMS results:', JSON.stringify(inviteResults));
-        await updateInvitationStatuses(inviteResults);
-
-        const failed = inviteResults.filter(r => r.status !== 'sent');
-        if (failed.length) {
-          smsWarning = `SMS failed for ${failed.length} contact(s): ${failed.map(r => r.error).join('; ')}`;
-          console.warn('[yAp] some invites failed:', smsWarning);
-        }
-      } catch (smsErr) {
-        smsWarning = smsErr.message;
-        console.error('[yAp] sendInviteMessages error:', smsErr.message);
-      }
-    }
-  }
-
-  if (participantRows.length > 1) {
-    try {
-      const recipients = participantRows
-        .filter(row => row.user_id !== ownerUserId)
-        .map(row => getUserById(row.user_id))
-        .filter(user => user?.phoneE164)
-        .map(user => ({
-          id: user.id,
-          name: user.name || '',
-          phone_e164: user.phoneE164,
-        }));
-
-      if (recipients.length) {
-        const results = await sendMessageNotifications({
-          chatId,
-          chatName: normalizedName,
-          senderName: getCurrentUser().name,
-          recipients,
-          threadLabel: 'new group',
-          transcript: 'You were added to a yAp chat.',
-          isReply: false,
-          kind: 'chat_invite',
-        });
-
-        const failed = results.filter(result => result.status !== 'sent');
-        if (failed.length) {
-          smsWarning = smsWarning
-            ? `${smsWarning} Member notification failed for ${failed.length} contact(s).`
-            : `Member notification failed for ${failed.length} contact(s).`;
-        }
-      }
-    } catch (error) {
-      smsWarning = smsWarning
-        ? `${smsWarning} ${error.message || 'Member notification failed.'}`
-        : (error.message || 'Member notification failed.');
-    }
-  }
 
   // imported_contacts is also optional — warn and continue if table missing.
   const manualContactRows = normalizedMembers.map(member => ({
@@ -1213,22 +1094,10 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .filter(Boolean)
   );
 
-  // Include invited (not-yet-registered) members as pending placeholders so they
-  // appear immediately in the chat member list.
-  const pendingPlaceholders = inviteRows.map(invite => ({
-    id: `pending-${invite.invite_token}`,
-    name: invite.invitee_name || invite.phone_e164,
-    initials: buildUserInitials(invite.invitee_name || invite.phone_e164),
-    color: pickUserColor(invite.phone_e164),
-    avatarUrl: null,
-    phoneE164: invite.phone_e164,
-    pending: true,
-  }));
-
   return {
     id: chatId,
     name: normalizedName,
-    members: [...membersForChat, ...pendingPlaceholders],
+    members: membersForChat,
     unread: 0,
     active: true,
     visual: 'default',
@@ -1238,8 +1107,8 @@ async function createGroupChat({ ownerUserId, name, members }) {
     localCreatedAt: Date.now(),
     preview: '',
     previewAuthorId: null,
-    pendingInvites: inviteRows,
-    smsWarning,
+    pendingInvites: [],
+    smsWarning: null,
   };
 }
 

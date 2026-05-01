@@ -5,6 +5,19 @@
 
 let _expandedThreadId = null;
 
+function _syncChatViewToggle(threads = []) {
+  if (!DOM.btnChatViewToggle) return;
+  const hasThreads = Array.isArray(threads) && threads.length > 0;
+  DOM.btnChatViewToggle.hidden = !hasThreads;
+  DOM.btnChatViewToggle.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
+  DOM.btnChatViewToggle.setAttribute(
+    'aria-label',
+    AppState.chatViewMode === 'immersive'
+      ? 'Switch to linear thread view'
+      : 'Switch to circle topic view'
+  );
+}
+
 const PlaybackController = {
   audio: new Audio(),
   activeItemId: null,
@@ -257,6 +270,7 @@ const PlaybackController = {
 function renderTopics() {
   PlaybackController.init();
   const threads = Store.getThreads();
+  _syncChatViewToggle(threads);
 
   const useImmersive = AppState.chatViewMode === 'immersive' && !!threads.length;
 
@@ -327,7 +341,6 @@ function renderImmersiveThreads(threads) {
 
     const displayPeople = people.slice(0, 3);
     const clusterPositions = positions[index % positions.length];
-    const excerpt = clipWords(latestMessage?.transcript || latestMessage?.label || thread.transcript || '', 10);
     const replyCount = Math.max(0, orderedMessages.length - 1);
 
     return `
@@ -341,7 +354,6 @@ function renderImmersiveThreads(threads) {
         <span class="immersive-cluster__ring"></span>
         <span class="immersive-cluster__card">
           <span class="immersive-cluster__label">${escapeHtml(thread.label || 'Topic')}</span>
-          <span class="immersive-cluster__excerpt">${escapeHtml(excerpt)}</span>
           <span class="immersive-cluster__meta">
             <span>${replyCount ? `${replyCount} repl${replyCount === 1 ? 'y' : 'ies'}` : 'New thread'}</span>
             <span>${totalDurationMs ? formatDurationClock(totalDurationMs) : ''}</span>

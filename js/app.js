@@ -789,6 +789,7 @@ function renderActiveChatShell(chat) {
 async function openChat(chat) {
   AppState.activeChat = chat;
   Store.setActiveChat(chat.id);
+  if (DOM.btnChatViewToggle) DOM.btnChatViewToggle.hidden = true;
 
   renderActiveChatShell(chat);
 
@@ -910,7 +911,6 @@ function buildBackendReadinessMessage(readiness) {
   }
 
   const warnings = [];
-  if (!readiness.checks.twilioMessaging?.ok) warnings.push('invite SMS');
   if (!readiness.checks.openai?.ok) warnings.push('audio processing');
 
   if (!warnings.length) return '';
@@ -955,9 +955,17 @@ async function pickDeviceContacts() {
 }
 
 async function addContactsToGroupDraft(contacts) {
-  const fresh = contacts.filter(contact =>
+  let fresh = contacts.filter(contact =>
     !AppState.onboarding.pendingMembers.some(member => member.phone === contact.phone)
   );
+
+  if (AppState.supabaseOk && fresh.length) {
+    const matched = await Promise.all(fresh.map(async contact => {
+      const user = await getRegisteredUserByPhone(contact.phone);
+      return user ? { name: user.name || contact.name || contact.phone, phone: contact.phone } : null;
+    }));
+    fresh = matched.filter(Boolean);
+  }
 
   if (!fresh.length) {
     return 0;
@@ -1088,14 +1096,14 @@ async function handleDirectDeviceContactsImport() {
     const successMessage = AppState.onboarding.contactsTarget === 'group-settings'
       ? (addedCount
         ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'} to this group.`
-        : 'Those contacts are already in this group.')
+        : 'No new registered yAp users were found in those contacts.')
       : isContactsOnboardingTarget()
         ? (addedCount
           ? `Connected ${addedCount} contact${addedCount === 1 ? '' : 's'} from your phone.`
           : 'Those contacts are already connected.')
       : (addedCount
         ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'} to the To field.`
-        : 'Those contacts are already in this new group.');
+        : 'No new registered yAp users were found in those contacts.');
 
     if (AppState.onboarding.contactsTarget === 'group-settings') {
       await refreshActiveChatAndSettings();
@@ -1523,19 +1531,20 @@ function renderCreateGroupContactRow(contact, { compact = false } = {}) {
     ? 'You'
     : matchedUser
       ? 'On yAp'
-      : 'Invite by link';
+      : 'Not on yAp';
   const subtitle = isSelf
     ? 'Message yourself'
     : matchedUser
       ? (compact ? phone : 'Can join instantly')
-      : (compact ? phone : 'Needs invite link');
+      : (compact ? phone : 'Registered users only');
   const compactSubline = compact ? '' : `<div class="create-chat-picker__contact-sub">${escapeHtml(subtitle)}</div>`;
   const avatarContent = matchedUser?.avatarUrl
     ? ''
     : `<img class="create-chat-picker__contact-placeholder" src="assets/contact-placeholder.svg" alt="" aria-hidden="true">`;
+  const isAddable = !!matchedUser && !isSelected;
 
   return `
-    <button class="create-chat-picker__contact-row${isSelected ? ' is-added' : ''}" type="button" data-add-create-group-contact="${escapeHtml(phone)}" ${isSelected ? 'disabled' : ''}>
+    <button class="create-chat-picker__contact-row${isSelected ? ' is-added' : ''}" type="button" data-add-create-group-contact="${escapeHtml(phone)}" ${isAddable ? '' : 'disabled'}>
       <div class="create-chat-picker__contact-avatar ${matchedUser?.avatarUrl ? '' : 'avatar-fallback'}" style="${matchedUser?.avatarUrl ? `background-image:url('${matchedUser.avatarUrl}')` : `--avatar-accent:${pickUserColor(displayName)}`}">
         ${avatarContent}
       </div>
@@ -1567,7 +1576,9 @@ async function renderCreateGroupPicker() {
     });
 
   const exactPhone = normalizePhoneNumber(query);
+  const manualMatchedUser = exactPhone ? await getRegisteredUserByPhone(exactPhone) : null;
   const canAddManual = !!exactPhone
+    && !!manualMatchedUser
     && !allContacts.some(contact => contact.phone_e164 === exactPhone)
     && !AppState.onboarding.pendingMembers.some(member => member.phone === exactPhone);
 
@@ -1584,7 +1595,8 @@ async function renderCreateGroupPicker() {
         <img class="create-chat-picker__contact-placeholder" src="assets/contact-placeholder.svg" alt="" aria-hidden="true">
       </div>
       <div class="create-chat-picker__contact-meta">
-        <div class="create-chat-picker__contact-name">${escapeHtml(exactPhone)}</div>
+        <div class="create-chat-picker__contact-name">${escapeHtml(manualMatchedUser?.name || exactPhone)}</div>
+        <div class="create-chat-picker__contact-sub">${escapeHtml(exactPhone)}</div>
       </div>
     </button>
   ` : '';
@@ -1592,7 +1604,7 @@ async function renderCreateGroupPicker() {
   DOM.createChatContacts.hidden = false;
   DOM.createChatContacts.innerHTML = rows || manualRow
     ? `<div class="create-chat-picker__contact-card">${manualRow}${rows}</div>`
-    : `<div class="create-chat-picker__empty">No matches yet.</div>`;
+    : `<div class="create-chat-picker__empty">${exactPhone ? 'That number is not on yAp yet.' : 'No matches yet.'}</div>`;
 }
 
 async function addPendingGroupMember() {
@@ -1618,6 +1630,16 @@ async function addPendingGroupMember() {
     setFeedback(DOM.createGroupFeedback, 'Add a valid phone number for each member.', 'error');
     DOM.inputCreateGroupSearch?.focus();
     return;
+  }
+
+  if (AppState.supabaseOk) {
+    const matchedUser = await getRegisteredUserByPhone(resolvedPhone);
+    if (!matchedUser) {
+      setFeedback(DOM.createGroupFeedback, 'That phone number is not on yAp yet. Right now you can only add registered users.', 'error');
+      DOM.inputCreateGroupSearch?.focus();
+      return;
+    }
+    resolvedName = matchedUser.name || resolvedName || resolvedPhone;
   }
 
   if (AppState.onboarding.pendingMembers.some(member => member.phone === resolvedPhone)) {
@@ -1749,18 +1771,18 @@ async function renderContactsHub() {
     const status = inOnboarding
       ? (matchedUser ? 'On yAp' : 'Imported')
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? (inGroup ? 'In Conversation' : invited ? 'Pending' : matchedUser ? 'On yAp' : '')
-      : (selected ? 'Added' : matchedUser ? 'On yAp' : '');
+      ? (inGroup ? 'In Conversation' : invited ? 'Pending' : matchedUser ? 'On yAp' : 'Not on yAp')
+      : (selected ? 'Added' : matchedUser ? 'On yAp' : 'Not on yAp');
     const isDisabled = inOnboarding
       ? true
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? inGroup || invited
-      : selected;
+      ? inGroup || invited || !matchedUser
+      : selected || !matchedUser;
     const buttonLabel = inOnboarding
       ? 'Saved'
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? (inGroup ? 'Added' : invited ? 'Pending' : 'Add')
-      : (selected ? 'Added' : 'Add');
+      ? (inGroup ? 'Added' : invited ? 'Pending' : matchedUser ? 'Add' : 'Unavailable')
+      : (selected ? 'Added' : matchedUser ? 'Add' : 'Unavailable');
 
     return `
       <div class="contacts-hub-row" data-contact-phone="${escapeHtml(phone)}">
@@ -2470,8 +2492,8 @@ function wireEvents() {
         await renderContactsHub();
         setFeedback(
           DOM.contactsHubFeedback,
-          result?.smsWarning ? `${name} added to this group. ${result.smsWarning}` : `${name} added to this group.`,
-          result?.smsWarning ? 'error' : 'success'
+          `${name} added to this group.`,
+          'success'
         );
       }).catch(error => {
         setFeedback(DOM.contactsHubFeedback, error.message || 'We could not add that contact to the group.', 'error');
@@ -2558,23 +2580,6 @@ function wireEvents() {
       await openChat(createdChat);
       // Refresh from DB in background to sync any server-side changes.
       refreshChats().then(() => renderChatsList());
-
-      if (createdChat.smsWarning) {
-        const shared = await shareInviteLinks(createdChat.pendingInvites || [], { source: 'group' }).catch(() => false);
-        setFeedback(
-          DOM.createGroupFeedback,
-          shared
-            ? `Group created. SMS was blocked, so invite links were prepared instead. ${createdChat.smsWarning}`
-            : `Group created. SMS issue: ${createdChat.smsWarning}`,
-          'error'
-        );
-        if (shared) {
-          showIOSAlert(
-            'SMS is not available right now, so yAp generated invite links for this group instead. Paste those links into Messages, WhatsApp, or any chat to bring people in tonight.',
-            { title: 'Invite Links Ready' }
-          );
-        }
-      }
     } catch (error) {
       setFeedback(DOM.createGroupFeedback, error.message || 'We could not create your group yet.', 'error');
     }
@@ -2773,8 +2778,8 @@ function wireEvents() {
       await refreshActiveChatAndSettings();
       setFeedback(
         DOM.groupSettingsFeedback,
-        result?.smsWarning ? `Member added or invite sent. ${result.smsWarning}` : 'Member added or invite sent.',
-        result?.smsWarning ? 'error' : 'success'
+        'Member added.',
+        'success'
       );
     } catch (error) {
       setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not add that member.', 'error');

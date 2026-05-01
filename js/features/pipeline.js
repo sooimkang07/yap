@@ -85,8 +85,6 @@ const Pipeline = {
       transcript,
       isReply: false,
     }).catch(error => console.warn('[yAp] Message notifications failed:', error));
-
-    this._generateAndApplyResponses(chatId, touches);
   },
 
   async replyToThread(blob, durationMs, chatId, authorId, threadId, localAudioUrl) {
@@ -366,44 +364,6 @@ const Pipeline = {
     }));
 
     await markVoiceMessageDone(messageId);
-  },
-
-  // ── Generate + apply Chloe/Maria responses ────────────
-  async _generateAndApplyResponses(chatId, touches) {
-    for (const touch of touches) {
-      setTimeout(async () => {
-        try {
-          const replies = await this._requestReplies(touch.thread, touch.userMessage);
-          let staggerMs = 0;
-
-          for (const reply of replies) {
-            const perReplyDelay = _nextReplyDelayMs(reply.author_name, staggerMs === 0);
-            staggerMs += perReplyDelay;
-
-            setTimeout(async () => {
-              try {
-                const message = await this._materializeReply(chatId, touch.thread, reply);
-                Store.addMessage(touch.thread.id, message);
-                this._notifyHumanRecipients({
-                  chatId,
-                  chatName: AppState?.activeChat?.name || 'yAp group',
-                  authorId: message.authorId,
-                  senderName: message.author?.name || 'A friend',
-                  touches: [{ thread: touch.thread, userMessage: message }],
-                  transcript: message.transcript || '',
-                  isReply: true,
-                }).catch(error => console.warn('[yAp] AI reply notifications failed:', error));
-                _pEmit('yap:response:arrived', { threadId: touch.thread.id, message });
-              } catch (error) {
-                console.warn('[yAp] Reply materialization failed:', error);
-              }
-            }, staggerMs);
-          }
-        } catch (error) {
-          console.warn('[yAp] Reply generation failed:', error);
-        }
-      }, 2200 + Math.random() * 1200);
-    }
   },
 
   async _requestReplies(thread, userMessage) {

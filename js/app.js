@@ -51,6 +51,12 @@ const AppState = {
     sharedWithYou: true,
     autoTranslate: false,
   },
+  sync: {
+    intervalId: 0,
+    inFlight: false,
+    handlersBound: false,
+    chatSnapshot: null,
+  },
   navTimer: null,
   viewportSyncRaf: 0,
 };
@@ -513,6 +519,180 @@ function pinChatInLocalLists(chat) {
   ].sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
 }
 
+function buildChatActivitySnapshot(chats = AppState.chats) {
+  return new Map((Array.isArray(chats) ? chats : []).map(chat => [
+    chat.id,
+    {
+      lastMessageAt: Number(chat?.lastMessageAt || 0),
+      unread: Number(chat?.unread || 0),
+      previewAuthorId: chat?.previewAuthorId || null,
+    },
+  ]));
+}
+
+async function showLocalChatNotification(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    if (registration?.showNotification) {
+      await registration.showNotification(title, {
+        body,
+        tag,
+        renotify: false,
+      });
+      return;
+    }
+  } catch (error) {
+    console.warn('[yAp] service worker notification failed:', error);
+  }
+
+  try {
+    new Notification(title, { body, tag });
+  } catch (error) {
+    console.warn('[yAp] local notification failed:', error);
+  }
+}
+
+function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) {
+  if (!previousSnapshot || !('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const currentUserId = getCurrentUserId();
+  const isBackgrounded = document.hidden || !document.hasFocus();
+  if (!isBackgrounded || !currentUserId) return;
+
+  for (const chat of Array.isArray(chats) ? chats : []) {
+    const previous = previousSnapshot.get(chat.id);
+    if (!previous) {
+      showLocalChatNotification(chat.name || 'New chat', 'You were added to a chat.', `chat-${chat.id}`);
+      continue;
+    }
+
+    const nextLastMessageAt = Number(chat?.lastMessageAt || 0);
+    const nextUnread = Number(chat?.unread || 0);
+    const hasNewRemoteMessage = nextLastMessageAt > Number(previous.lastMessageAt || 0)
+      && nextUnread > Number(previous.unread || 0)
+      && chat?.previewAuthorId
+      && chat.previewAuthorId !== currentUserId;
+
+    if (!hasNewRemoteMessage) continue;
+
+    showLocalChatNotification(
+      chat.name || 'New message',
+      chat.preview || 'New voice memo',
+      `chat-${chat.id}-message`
+    );
+  }
+}
+
+async function syncRemoteState({ forceConversation = false } = {}) {
+  if (!AppState.supabaseOk || !AppState.auth.session || !getCurrentUserId() || AppState.sync.inFlight) return;
+
+  AppState.sync.inFlight = true;
+  const previousSnapshot = AppState.sync.chatSnapshot;
+  const activeChatId = AppState.activeChat?.id || null;
+
+  try {
+    await refreshChats();
+
+    if (activeChatId) {
+      AppState.activeChat = AppState.chats.find(chat => chat.id === activeChatId) || AppState.activeChat;
+    }
+
+    renderChatsList();
+
+    if (AppState.screen === 'chat' && AppState.activeChat?.id) {
+      renderActiveChatShell(AppState.activeChat);
+      await hydrateActiveConversation(true);
+      const threads = Store.getThreads();
+      if (threads.length) {
+        DOM.chatMemberPips.style.visibility = 'visible';
+        setDisplay(DOM.chatProcessing, false);
+        setDisplay(DOM.chatEmpty, false);
+        setDisplay(DOM.chatPresence, true, 'flex');
+        renderTopics();
+      } else {
+        DOM.chatMemberPips.style.visibility = 'hidden';
+        setDisplay(DOM.chatProcessing, false);
+        setDisplay(DOM.chatEmpty, true);
+        setDisplay(DOM.chatTopics, false);
+        setDisplay(DOM.chatPresence, false);
+      }
+    } else if (AppState.screen === 'group-settings' && AppState.activeChat?.id) {
+      renderGroupSettings(AppState.groupSettingsInvites || []);
+    }
+
+    if (AppState.auth.pendingChatId && !AppState.activeChat) {
+      const opened = await openPendingLinkedChatIfAvailable();
+      if (opened) {
+        AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
+        return;
+      }
+    }
+
+    notifyAboutRemoteChatChanges(previousSnapshot, AppState.chats);
+    AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
+  } catch (error) {
+    console.warn('[yAp] remote sync failed:', error);
+  } finally {
+    AppState.sync.inFlight = false;
+  }
+}
+
+function startRemoteSync() {
+  if (AppState.sync.intervalId) return;
+
+  AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
+  AppState.sync.intervalId = window.setInterval(() => {
+    syncRemoteState({ forceConversation: AppState.screen === 'chat' });
+  }, 8000);
+
+  if (AppState.sync.handlersBound) return;
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      syncRemoteState({ forceConversation: AppState.screen === 'chat' });
+    }
+  });
+  window.addEventListener('focus', () => {
+    syncRemoteState({ forceConversation: AppState.screen === 'chat' });
+  });
+  window.addEventListener('online', () => {
+    syncRemoteState({ forceConversation: true });
+  });
+  AppState.sync.handlersBound = true;
+}
+
+function stopRemoteSync() {
+  if (AppState.sync.intervalId) {
+    window.clearInterval(AppState.sync.intervalId);
+  }
+  AppState.sync.intervalId = 0;
+  AppState.sync.inFlight = false;
+  AppState.sync.chatSnapshot = null;
+}
+
+function clearPendingChatLink() {
+  AppState.auth.pendingChatId = '';
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('chat');
+    window.history.replaceState({}, '', url.toString());
+  } catch {}
+}
+
+async function openPendingLinkedChatIfAvailable() {
+  const pendingChatId = AppState.auth.pendingChatId;
+  if (!pendingChatId) return false;
+
+  const linkedChat = AppState.chats.find(chat => chat.id === pendingChatId);
+  if (!linkedChat) return false;
+
+  clearPendingChatLink();
+  await openChat(linkedChat);
+  return true;
+}
+
 function toggleChatViewMode() {
   AppState.chatViewMode = AppState.chatViewMode === 'immersive' ? 'threads' : 'immersive';
   DOM.btnChatViewToggle?.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
@@ -636,7 +816,7 @@ function openCreateGroupComposer() {
 
   renderPendingGroupMembers();
   renderCreateGroupPicker();
-  requestAnimationFrame(() => DOM.inputCreateGroupSearch?.focus());
+  scheduleViewportMetricsUpdate();
 }
 
 function _hexToRgb(hex) {
@@ -2083,6 +2263,7 @@ async function openContactsHub(target = 'create-group') {
 async function routeAuthenticatedUser() {
   const authSession = AppState.auth.session;
   if (!authSession) {
+    stopRemoteSync();
     clearScreenHistory();
     if (AppState.auth.pendingInviteToken || AppState.auth.pendingChatId) {
       updateAuthEntryCopy();
@@ -2102,6 +2283,7 @@ async function routeAuthenticatedUser() {
     return;
   }
 
+  startRemoteSync();
   const appUser = await ensureAppUserFromAuthSession(authSession);
   if (!appUser?.id) {
     // DB lookup/insert failed, but the user IS verified (Twilio OTP succeeded).
@@ -2154,17 +2336,14 @@ async function routeAuthenticatedUser() {
   await refreshChats();
 
   if (!AppState.chats.length) {
+    AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
     navigate('chats', 'fade');
     renderChatsList();
     return;
   }
 
-  if (AppState.auth.pendingChatId) {
-    const linkedChat = AppState.chats.find(chat => chat.id === AppState.auth.pendingChatId);
-    if (linkedChat) {
-      await openChat(linkedChat);
-      return;
-    }
+  if (await openPendingLinkedChatIfAvailable()) {
+    return;
   }
 
   if (joinedChatId) {
@@ -2175,6 +2354,7 @@ async function routeAuthenticatedUser() {
     }
   }
 
+  AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
   navigate('chats', 'fade');
   requestAnimationFrame(renderChatsList);
 }
@@ -2668,6 +2848,7 @@ function wireEvents() {
       AppState.auth.pendingChatId = '';
       AppState.activeChat = null;
       AppState.chats = [];
+      stopRemoteSync();
       Store.clear();
       clearScreenHistory();
       navigate('welcome', 'fade');
@@ -2928,6 +3109,7 @@ async function boot() {
   setDisplay(DOM.btnChatMore, true);
 
   AppState.supabaseOk = initSupabase();
+  startRemoteSync();
   if (AppState.supabaseOk && supabaseClient?.auth) {
     supabaseClient.auth.onAuthStateChange((_event, session) => {
       AppState.auth.session = session || getStoredAuthSession() || null;

@@ -933,8 +933,7 @@ button {
   flex-direction: column;
   height: 100%;
   min-height: 100%;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
   position: relative;
   background: var(--screen-background);
 }
@@ -1051,12 +1050,14 @@ button {
 .chats-grid {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px 20px 32px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   align-content: start;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .chat-card {
@@ -1930,6 +1931,7 @@ html, body {
   padding: 40px 24px 120px;
   position: relative;
   z-index: 1;
+  overflow: hidden;
 }
 
 .chats-empty-state__cta {
@@ -6324,7 +6326,8 @@ select,
 #screen-create-group .entry-screen--compose {
   width: 100%;
   min-height: 0;
-  height: calc(var(--app-height) - var(--top-safe-pad));
+  height: calc(100% - env(safe-area-inset-top, 0px));
+  max-height: calc(100% - env(safe-area-inset-top, 0px));
   margin-top: auto;
   gap: 12px;
   padding:
@@ -6344,7 +6347,8 @@ select,
 #screen-create-group .compose-form {
   width: 100%;
   flex: 1 1 auto;
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
   padding: 0;
   background: transparent;
   border: 0;
@@ -6357,10 +6361,12 @@ select,
 
 #screen-create-group .create-chat-picker {
   width: 100%;
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
   gap: 12px;
   padding: 0 0 env(safe-area-inset-bottom);
   background: #ffffff;
+  overflow: hidden;
 }
 
 #screen-create-group .create-chat-picker__header {
@@ -6576,7 +6582,7 @@ select,
 }
 
 #screen-create-group.active .entry-screen--compose {
-  transform: translate3d(0, var(--compose-sheet-offset), 0);
+  transform: translate3d(0, clamp(0px, var(--compose-sheet-offset), 56px), 0);
 }
 
 #screen-create-group.screen-sheet-closing .entry-screen--compose {

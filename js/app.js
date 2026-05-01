@@ -262,7 +262,11 @@ function isSheetScreen(screenId) {
   return screenId === 'create-group';
 }
 
-function isProfileScreen(screenId) {
+function isOnboardingFlowScreen(screenId) {
+  return ['welcome', 'auth-phone', 'auth-verify', 'profile-setup'].includes(screenId);
+}
+
+function isOpaquePushScreen(screenId) {
   return screenId === 'profile';
 }
 
@@ -288,6 +292,7 @@ function syncFocusedFieldIntoView() {
   const activeElement = document.activeElement;
   if (!isTextEntryElement(activeElement)) return;
   if (activeElement.closest?.('#screen-create-group')) return;
+  if (activeElement.closest?.('#screen-auth-phone, #screen-auth-verify, #screen-profile-setup')) return;
   requestAnimationFrame(() => {
     try {
       activeElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -323,6 +328,19 @@ function scheduleViewportMetricsUpdate() {
     AppState.viewportSyncRaf = 0;
     updateViewportMetrics();
   });
+}
+
+function focusFieldAfterTransition(element, delay = 420) {
+  if (!element) return;
+  window.setTimeout(() => {
+    try {
+      element.focus({ preventScroll: true });
+    } catch (_) {
+      try { element.focus(); } catch (__) {}
+    }
+    scheduleViewportMetricsUpdate();
+    window.setTimeout(scheduleViewportMetricsUpdate, 140);
+  }, delay);
 }
 
 function wireViewportHandlers() {
@@ -383,8 +401,9 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
 
   const openingSheet = isSheetScreen(toId) && direction !== 'back';
   const closingSheet = isSheetScreen(fromId) && direction === 'back';
-  const profileTransition = isProfileScreen(toId) || isProfileScreen(fromId);
-  const screenTransitionMs = profileTransition ? 240 : SCREEN_TRANSITION_MS;
+  const onboardingFlowTransition = isOnboardingFlowScreen(toId) || isOnboardingFlowScreen(fromId);
+  const opaquePushTransition = isOpaquePushScreen(toId) || isOpaquePushScreen(fromId);
+  const screenTransitionMs = onboardingFlowTransition ? 430 : SCREEN_TRANSITION_MS;
 
   if (openingSheet) {
     to.classList.add('active');
@@ -410,7 +429,7 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
   to.classList.add('active');
 
   if (direction === 'fade') {
-    to.style.opacity = profileTransition ? '1' : '0';
+    to.style.opacity = '0';
     to.style.transform = 'scale(0.985)';
     requestAnimationFrame(() => {
       to.style.transition = `opacity ${screenTransitionMs}ms ease, transform ${screenTransitionMs}ms ease`;
@@ -421,26 +440,26 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
       from.style.transform = 'scale(1.01)';
     });
   } else if (direction === 'back') {
-    to.style.opacity = profileTransition ? '1' : '0.92';
-    to.style.transform = 'translate3d(-22px, 0, 0)';
+    to.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.92';
+    to.style.transform = onboardingFlowTransition ? 'translate3d(-8%, 0, 0)' : 'translate3d(-22px, 0, 0)';
     requestAnimationFrame(() => {
       to.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       from.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       to.style.opacity = '1';
       to.style.transform = 'translate3d(0, 0, 0)';
-      from.style.opacity = profileTransition ? '1' : '0.96';
+      from.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.96';
       from.style.transform = 'translate3d(100%, 0, 0)';
     });
   } else {
-    to.style.opacity = profileTransition ? '1' : '0.96';
+    to.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.96';
     to.style.transform = 'translate3d(100%, 0, 0)';
     requestAnimationFrame(() => {
       to.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       from.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       to.style.opacity = '1';
       to.style.transform = 'translate3d(0, 0, 0)';
-      from.style.opacity = profileTransition ? '1' : '0.9';
-      from.style.transform = 'translate3d(-22px, 0, 0)';
+      from.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.9';
+      from.style.transform = onboardingFlowTransition ? 'translate3d(-8%, 0, 0)' : 'translate3d(-22px, 0, 0)';
     });
   }
 
@@ -1737,9 +1756,11 @@ function buildCreateGroupContactIndex(contacts = []) {
 
 function renderCreateGroupContactRow(contact, { compact = false } = {}) {
   const phone = contact.phone_e164 || '';
-  const matchedUser = contact.matchedUser || null;
+  const matchedUser = contact.matched_user_id
+    ? (getUserById(contact.matched_user_id) || contact.matchedUser || null)
+    : (contact.matchedUser || null);
   const isSelected = AppState.onboarding.pendingMembers.some(member => member.phone === phone);
-  const displayName = contact.display_name || matchedUser?.name || phone || 'Unknown contact';
+  const displayName = matchedUser?.name || contact.display_name || phone || 'Unknown contact';
   const isSelf = matchedUser?.id === getCurrentUserId();
   const statusBadge = isSelf
     ? 'You'
@@ -1749,7 +1770,7 @@ function renderCreateGroupContactRow(contact, { compact = false } = {}) {
   const subtitle = isSelf
     ? 'Message yourself'
     : matchedUser
-      ? (compact ? phone : 'Can join instantly')
+      ? phone
       : (compact ? phone : 'Registered users only');
   const compactSubline = compact ? '' : `<div class="create-chat-picker__contact-sub">${escapeHtml(subtitle)}</div>`;
   const avatarContent = matchedUser?.avatarUrl
@@ -1765,10 +1786,10 @@ function renderCreateGroupContactRow(contact, { compact = false } = {}) {
       <div class="create-chat-picker__contact-meta">
         <div class="create-chat-picker__contact-name-row">
           <div class="create-chat-picker__contact-name">${escapeHtml(displayName)}</div>
-          <span class="create-chat-picker__contact-badge create-chat-picker__contact-badge--${isSelf ? 'self' : matchedUser ? 'registered' : 'invite'}">${escapeHtml(statusBadge)}</span>
         </div>
         ${compactSubline}
       </div>
+      <span class="create-chat-picker__contact-badge create-chat-picker__contact-badge--${isSelf ? 'self' : matchedUser ? 'registered' : 'invite'}">${escapeHtml(statusBadge)}</span>
     </button>
   `;
 }
@@ -1802,7 +1823,7 @@ async function renderCreateGroupPicker() {
     return;
   }
 
-  const rows = filteredContacts.map(contact => renderCreateGroupContactRow(contact, { compact: true })).join('');
+  const rows = filteredContacts.map(contact => renderCreateGroupContactRow(contact)).join('');
   const manualRow = canAddManual ? `
     <button class="create-chat-picker__contact-row" type="button" data-add-manual-create-group="${escapeHtml(exactPhone)}">
       <div class="create-chat-picker__contact-avatar avatar-fallback" style="--avatar-accent:${pickUserColor(exactPhone)}">
@@ -2039,9 +2060,16 @@ async function refreshChats() {
   const mergedChats = [
     ...remoteChats,
     ...AppState.pendingChats.filter(chat => !remoteIds.has(chat.id)),
-  ].sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
+  ];
 
-  AppState.chats = mergedChats;
+  const seenChatIds = new Set();
+  const dedupedChats = mergedChats.filter(chat => {
+    if (!chat?.id || seenChatIds.has(chat.id)) return false;
+    seenChatIds.add(chat.id);
+    return true;
+  }).sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
+
+  AppState.chats = dedupedChats;
   AppState.pendingChats = AppState.pendingChats.filter(chat => !remoteIds.has(chat.id));
   if (AppState.activeChat?.id) {
     AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
@@ -2359,6 +2387,7 @@ async function openContactsHub(target = 'create-group') {
 
 async function routeAuthenticatedUser() {
   const authSession = AppState.auth.session;
+  const cameFromVerifyStep = AppState.screen === 'auth-verify';
   if (!authSession) {
     stopRemoteSync();
     clearScreenHistory();
@@ -2372,7 +2401,7 @@ async function routeAuthenticatedUser() {
           : 'Sign in with your phone to open this chat.',
         'success'
       );
-      DOM.inputAuthPhone?.focus();
+      focusFieldAfterTransition(DOM.inputAuthPhone, 460);
       return;
     }
 
@@ -2390,7 +2419,7 @@ async function routeAuthenticatedUser() {
     if (hasVerifiedPhone) {
       const pendingId = generateAppRecordId('user');
       setCurrentUserId(pendingId);
-      navigate('profile-setup', 'fade');
+      navigate('profile-setup', cameFromVerifyStep ? 'forward' : 'fade');
       return;
     }
     navigate('welcome', 'fade');
@@ -2402,7 +2431,7 @@ async function routeAuthenticatedUser() {
 
   if (!appUser.profileCompleted) {
     updateAuthEntryCopy();
-    navigate('profile-setup', 'fade');
+    navigate('profile-setup', cameFromVerifyStep ? 'forward' : 'fade');
     return;
   }
 
@@ -2443,7 +2472,7 @@ async function routeAuthenticatedUser() {
 
   if (!AppState.chats.length) {
     AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
-    navigate('chats', 'fade');
+    navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
     renderChatsList();
     return;
   }
@@ -2457,7 +2486,7 @@ async function routeAuthenticatedUser() {
   }
 
   AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
-  navigate('chats', 'fade');
+  navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
   requestAnimationFrame(renderChatsList);
 }
 
@@ -2517,7 +2546,7 @@ function wireEvents() {
     updateAuthEntryCopy();
     setFeedback(DOM.authPhoneFeedback, '');
     navigate('auth-phone', 'forward');
-    DOM.inputAuthPhone?.focus();
+    focusFieldAfterTransition(DOM.inputAuthPhone, 460);
   });
 
   DOM.btnAuthPhoneBack?.addEventListener('click', () => {
@@ -2540,7 +2569,7 @@ function wireEvents() {
       setFeedback(DOM.authVerifyFeedback, '');
       updateAuthEntryCopy();
       navigate('auth-verify', 'forward');
-      DOM.inputAuthCode.focus();
+      focusFieldAfterTransition(DOM.inputAuthCode, 460);
     } catch (error) {
       setFeedback(DOM.authPhoneFeedback, error.message || 'We could not send a verification code right now.', 'error');
     } finally {
@@ -2552,7 +2581,7 @@ function wireEvents() {
     updateAuthEntryCopy();
     setFeedback(DOM.authVerifyFeedback, '');
     goBack('auth-phone');
-    DOM.inputAuthPhone?.focus();
+    focusFieldAfterTransition(DOM.inputAuthPhone, 460);
   });
 
   DOM.btnAuthVerifyResend?.addEventListener('click', async () => {
@@ -2565,7 +2594,7 @@ function wireEvents() {
       DOM.authVerifySubtitle.textContent = `We sent a verification code to ${phone}.`;
       DOM.inputAuthCode.value = '';
       setFeedback(DOM.authVerifyFeedback, 'A new verification code has been sent.', 'success');
-      DOM.inputAuthCode?.focus();
+      focusFieldAfterTransition(DOM.inputAuthCode, 180);
     } catch (error) {
       setFeedback(DOM.authVerifyFeedback, 'We could not resend the verification code right now.', 'error');
     } finally {

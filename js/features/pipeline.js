@@ -177,7 +177,21 @@ const Pipeline = {
   async _notifyHumanRecipients({ chatId, chatName, authorId, senderName, touches, transcript, isReply }) {
     if (!isSupabaseReady() || !chatId || !authorId) return;
 
-    const recipients = await getNotificationRecipients(chatId, authorId);
+    const expectedRecipients = new Set(
+      (AppState?.activeChat?.members || [])
+        .filter(member => member?.id && member.id !== authorId && member?.phoneE164)
+        .map(member => member.id)
+    ).size;
+
+    let recipients = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      recipients = await getNotificationRecipients(chatId, authorId);
+      if (recipients.length && recipients.length >= expectedRecipients) break;
+      if (attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 450));
+      }
+    }
+
     if (!recipients.length) return;
 
     const primaryTouch = Array.isArray(touches) && touches.length ? touches[0] : null;

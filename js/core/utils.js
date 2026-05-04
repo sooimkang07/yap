@@ -99,7 +99,9 @@ function clipWords(text, maxWords = 8) {
 function setElementImage(element, imageUrl) {
   if (!element) return;
   element.textContent = '';
+  element.classList.toggle('has-image', !!imageUrl);
   element.style.backgroundImage = imageUrl ? `url('${imageUrl}')` : '';
+  element.style.background = imageUrl ? 'transparent' : '';
   element.style.backgroundSize = imageUrl ? 'cover' : '';
   element.style.backgroundPosition = imageUrl ? 'center' : '';
 }

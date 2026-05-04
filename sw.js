@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'yap-shell-v3';
+const SHELL_CACHE = 'yap-shell-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -53,6 +53,30 @@ self.addEventListener('fetch', event => {
   }
 
   if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  const isAppShellAsset =
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.webmanifest');
+
+  if (isAppShellAsset) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (!response || response.status !== 200 || response.type !== 'basic') {
+            return response;
+          }
+
+          const copy = response.clone();
+          caches.open(SHELL_CACHE).then(cache => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached || caches.match('/index.html')))
+    );
     return;
   }
 

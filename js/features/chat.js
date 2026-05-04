@@ -341,6 +341,10 @@ function renderImmersiveThreads(threads) {
     const displayPeople = people.slice(0, 3);
     const clusterPositions = positions[index % positions.length];
     const replyCount = Math.max(0, orderedMessages.length - 1);
+    const heroPerson = latestMessage?.author || primaryMessage?.author || displayPeople[0] || {};
+    const heroAccent = heroPerson.color || accent;
+    const heroInitials = buildUserInitials(heroPerson.name || thread.label || 'Y');
+    const heroPhoto = heroPerson.avatarUrl || '';
 
     return `
       <button class="immersive-cluster${playableSequence.length ? ' is-playable' : ''}"
@@ -351,8 +355,12 @@ function renderImmersiveThreads(threads) {
               style="--immersive-accent:${accent};">
         <span class="immersive-cluster__halo"></span>
         <span class="immersive-cluster__ring"></span>
-        <span class="immersive-cluster__card">
-          <span class="immersive-cluster__label">${escapeHtml(thread.label || 'Topic')}</span>
+        <span class="immersive-cluster__core">
+          <span class="immersive-cluster__bubble ${heroPhoto ? '' : 'avatar-fallback'}"
+                style="${heroPhoto ? `background-image:url('${heroPhoto}')` : `--avatar-accent:${heroAccent};`}">
+            <span class="immersive-cluster__subject">${escapeHtml(thread.label || 'Topic')}</span>
+            ${heroPhoto ? '' : `<span class="immersive-cluster__bubble-initials">${escapeHtml(heroInitials)}</span>`}
+          </span>
           <span class="immersive-cluster__meta">
             <span>${replyCount ? `${replyCount} repl${replyCount === 1 ? 'y' : 'ies'}` : 'New thread'}</span>
             <span>${totalDurationMs ? formatDurationClock(totalDurationMs) : ''}</span>
@@ -365,11 +373,11 @@ function renderImmersiveThreads(threads) {
             <span class="immersive-cluster__speaker immersive-cluster__speaker--${clusterPositions[personIndex] || 'bottom-right'}"
                   data-author-id="${escapeHtml(person.id || person.name || `speaker-${personIndex}`)}"
                   style="--speaker-accent:${personAccent};">
+              <span class="immersive-cluster__speaker-label">${escapeHtml(person.name || 'Friend')}</span>
               <span class="immersive-cluster__speaker-photo ${person.avatarUrl ? '' : 'avatar-fallback'}"
                     style="${person.avatarUrl ? `background-image:url('${person.avatarUrl}')` : `--avatar-accent:${personAccent};`}">
                 ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
               </span>
-              <span class="immersive-cluster__speaker-name">${escapeHtml(person.name || 'Friend')}</span>
             </span>
           `;
         }).join('')}

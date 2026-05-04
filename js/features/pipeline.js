@@ -21,14 +21,17 @@ const Pipeline = {
     let audioPath = null;
 
     if (isSupabaseReady()) {
-      const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
-      if (!saved?.messageId) {
-        throw new Error('We could not save your voice memo. Check your connection and try again.');
-      }
-      if (saved) {
-        messageId = saved.messageId;
-        audioUrl = saved.audioUrl || localAudioUrl;
-        audioPath = saved.audioPath || null;
+      try {
+        const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
+        if (saved?.messageId) {
+          messageId = saved.messageId;
+          audioUrl = saved.audioUrl || localAudioUrl;
+          audioPath = saved.audioPath || null;
+        } else {
+          console.warn('[yAp] saveVoiceMessage returned no message id; continuing with local memo fallback');
+        }
+      } catch (error) {
+        console.warn('[yAp] Voice memo save failed — continuing with local-only fallback:', error);
       }
     }
 
@@ -43,18 +46,16 @@ const Pipeline = {
       segments = Array.isArray(processed.segments) ? processed.segments : [];
       _pEmit('yap:pipeline:transcribed', { transcript });
     } catch (error) {
+      console.warn('[yAp] Audio processing failed — saving memo with fallback threading:', error);
       if (YAP_DEV_ALLOW_MOCK_FALLBACK) {
-        console.warn('[yAp] Audio processing failed — running in mock mode:', error);
         transcript = 'Hey what are you guys up to this weekend? Also wanted to tell you about something funny that happened today.';
         segments = this._mockSegments(durationMs);
         _pEmit('yap:pipeline:transcribed', { transcript });
       } else {
-        if (isSupabaseReady() && !String(messageId).startsWith('local-')) {
-          markVoiceMessageFailed(messageId).catch(updateError => {
-            console.warn('[yAp] Failed to mark voice message failed:', updateError);
-          });
-        }
-        throw error;
+        transcript = '';
+        transcriptWords = null;
+        segments = this._fallbackSegments(durationMs, transcript);
+        _pEmit('yap:pipeline:transcribed', { transcript: '' });
       }
     }
 
@@ -96,14 +97,17 @@ const Pipeline = {
     let audioPath = null;
 
     if (isSupabaseReady()) {
-      const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
-      if (!saved?.messageId) {
-        throw new Error('We could not save your reply. Check your connection and try again.');
-      }
-      if (saved) {
-        messageId = saved.messageId;
-        audioUrl = saved.audioUrl || localAudioUrl;
-        audioPath = saved.audioPath || null;
+      try {
+        const saved = await saveVoiceMessage(chatId, authorId, blob, durationMs);
+        if (saved?.messageId) {
+          messageId = saved.messageId;
+          audioUrl = saved.audioUrl || localAudioUrl;
+          audioPath = saved.audioPath || null;
+        } else {
+          console.warn('[yAp] saveVoiceMessage returned no message id for reply; continuing with local reply fallback');
+        }
+      } catch (error) {
+        console.warn('[yAp] Voice reply save failed — continuing with local-only fallback:', error);
       }
     }
 
@@ -114,12 +118,9 @@ const Pipeline = {
       transcript = processed.transcript || '';
       _pEmit('yap:pipeline:transcribed', { transcript });
     } catch (error) {
-      if (isSupabaseReady() && !String(messageId).startsWith('local-')) {
-        markVoiceMessageFailed(messageId).catch(updateError => {
-          console.warn('[yAp] Failed to mark voice reply failed:', updateError);
-        });
-      }
-      throw error;
+      console.warn('[yAp] Reply processing failed — saving fallback reply:', error);
+      transcript = '';
+      _pEmit('yap:pipeline:transcribed', { transcript: '' });
     }
 
     const currentAuthor = getUserById(authorId) || getCurrentUser();
@@ -207,11 +208,8 @@ const Pipeline = {
   },
 
   async _processAudio(blob, durationMs, threadContext) {
+    const mimeType = blob.type || 'audio/webm';
     const audioBase64 = await _blobToBase64(blob);
-    const payload = {
-      mimeType: blob.type || 'audio/webm',
-      audioBase64,
-    };
 
     const res = await fetch(YAP_PROCESS_AUDIO_ENDPOINT, {
       method: 'POST',
@@ -220,7 +218,10 @@ const Pipeline = {
         'X-Yap-Duration-Ms': String(durationMs || 0),
         'X-Yap-Thread-Context': _toBase64Json(threadContext),
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        mimeType,
+        audioBase64,
+      }),
     });
 
     if (!res.ok) {
@@ -485,6 +486,20 @@ const Pipeline = {
         transcript: 'something funny happened today',
         start_ms: half,
         end_ms: durationMs,
+      },
+    ];
+  },
+
+  _fallbackSegments(durationMs, transcript = '') {
+    const normalizedTranscript = String(transcript || '').trim();
+    return [
+      {
+        label: 'Voice memo',
+        excerpt: normalizedTranscript ? clipWords(normalizedTranscript, 10) : 'New voice memo',
+        transcript: normalizedTranscript || 'Voice memo',
+        start_ms: 0,
+        end_ms: Math.max(0, Number(durationMs) || 0),
+        assigned_thread_id: null,
       },
     ];
   },

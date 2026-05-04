@@ -77,6 +77,29 @@ function pickUserColor(name = '') {
   return palette[score % palette.length];
 }
 
+function scoreRegisteredUserCandidate(user) {
+  if (!user) return -1;
+  return (user.profileCompleted ? 4 : 0)
+    + (user.authUserId || user.auth_user_id ? 2 : 0)
+    + (user.avatarUrl || user.avatar_url ? 1 : 0);
+}
+
+function mapBestUsersByPhone(users = []) {
+  const usersByPhone = new Map();
+
+  for (const user of users) {
+    const registeredUser = registerUserRecord(user);
+    if (!registeredUser?.phoneE164) continue;
+
+    const current = usersByPhone.get(registeredUser.phoneE164);
+    if (!current || scoreRegisteredUserCandidate(registeredUser) >= scoreRegisteredUserCandidate(current)) {
+      usersByPhone.set(registeredUser.phoneE164, registeredUser);
+    }
+  }
+
+  return usersByPhone;
+}
+
 function parseVCardContacts(vcardText) {
   const cards = String(vcardText || '')
     .split(/END:VCARD/i)
@@ -330,6 +353,21 @@ async function getAppUserByPhone(phone) {
   return chosen ? registerUserRecord(chosen) : null;
 }
 
+async function resolveCanonicalAppUser(user) {
+  if (!user?.id) return null;
+
+  const normalized = registerUserRecord(user);
+  if (!normalized) return null;
+  if (normalized.avatarUrl && normalized.name && normalized.name !== 'Friend') return normalized;
+
+  const [byAuth, byPhone] = await Promise.all([
+    normalized.authUserId ? getAppUserByAuthUserId(normalized.authUserId) : null,
+    normalized.phoneE164 ? getAppUserByPhone(normalized.phoneE164) : null,
+  ]);
+
+  return byAuth || byPhone || normalized;
+}
+
 async function ensureAppUserFromAuthSession(session) {
   const authUser = session?.user;
   if (!supabaseClient || !authUser) return null;
@@ -507,12 +545,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
 
   if (existingError) throw existingError;
 
-  const existingByPhone = new Map(
-    (existingMatches || []).map(user => {
-      const registeredUser = registerUserRecord(user);
-      return [registeredUser.phoneE164, registeredUser];
-    })
-  );
+  const existingByPhone = mapBestUsersByPhone(existingMatches || []);
 
   const participantRows = [];
   const unmatchedMembers = [];
@@ -563,10 +596,43 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
     }
   }
 
+  let smsWarning = null;
+  try {
+    const recipients = participantRows
+      .filter(row => row.user_id && row.user_id !== ownerUserId)
+      .map(row => getUserById(row.user_id))
+      .filter(member => member?.id && member?.phoneE164)
+      .map(member => ({
+        id: member.id,
+        name: member.name || '',
+        phone_e164: normalizePhoneNumber(member.phoneE164),
+      }));
+
+    if (recipients.length) {
+      const { data: chatRow } = await supabaseClient
+        .from('chats')
+        .select('name')
+        .eq('id', chatId)
+        .maybeSingle();
+
+      const owner = getUserById(ownerUserId) || getCurrentUser();
+      await sendMessageNotifications({
+        chatId,
+        chatName: String(chatRow?.name || AppState?.activeChat?.name || 'your yAp chat').trim() || 'your yAp chat',
+        senderName: owner?.name || 'A friend',
+        recipients,
+        kind: 'chat_invite',
+      });
+    }
+  } catch (error) {
+    smsWarning = error instanceof Error ? error.message : 'Members were added, but notifications could not be sent.';
+    console.warn('[yAp] addMembersToChat notifications failed:', error);
+  }
+
   return {
     addedUsers: participantRows.map(row => getUserById(row.user_id)).filter(Boolean),
     invitesCreated: 0,
-    smsWarning: null,
+    smsWarning,
   };
 }
 
@@ -922,13 +988,35 @@ async function getChatsForUser(userId) {
 
   const { data: participants, error: participantError } = await supabaseClient
     .from('chat_participants')
-    .select('chat_id, user_id, role, invite_status, users(id, name, color_hex, avatar_url, initials, phone_e164, profile_completed, auth_user_id)')
+    .select('chat_id, user_id, role, invite_status')
     .in('chat_id', chatIds)
     .eq('invite_status', 'joined');
 
   if (participantError) {
     console.error('[yAp] getChatsForUser participants failed:', participantError);
     return [];
+  }
+
+  const participantUserIds = [...new Set(
+    (participants || []).map(entry => entry?.user_id).filter(Boolean)
+  )];
+
+  const usersById = new Map();
+  if (participantUserIds.length) {
+    const { data: participantUsers, error: participantUsersError } = await supabaseClient
+      .from('users')
+      .select('*')
+      .in('id', participantUserIds);
+
+    if (participantUsersError) {
+      console.error('[yAp] getChatsForUser participant users failed:', participantUsersError);
+      return [];
+    }
+
+    for (const user of participantUsers || []) {
+      const canonicalUser = await resolveCanonicalAppUser(user);
+      if (canonicalUser?.id) usersById.set(canonicalUser.id, canonicalUser);
+    }
   }
 
   // Also fetch pending invitations so not-yet-registered invitees show as members.
@@ -962,8 +1050,8 @@ async function getChatsForUser(userId) {
   const participantsByChat = new Map();
   for (const entry of participants || []) {
     const members = participantsByChat.get(entry.chat_id) || [];
-    const user = registerUserRecord(entry.users);
-    members.push(user);
+    const user = usersById.get(entry.user_id) || null;
+    if (user) members.push(user);
     participantsByChat.set(entry.chat_id, members);
   }
 
@@ -1077,17 +1165,7 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .in('phone_e164', normalizedMembers.map(member => member.phone)),
   ]);
 
-  const existingByPhone = new Map();
-  for (const user of (existingMatches.data || [])) {
-    const registeredUser = registerUserRecord(user);
-    if (!registeredUser?.phoneE164) continue;
-    const current = existingByPhone.get(registeredUser.phoneE164);
-    const currentScore = current ? ((current.profileCompleted ? 4 : 0) + (current.authUserId ? 2 : 0) + (current.avatarUrl ? 1 : 0)) : -1;
-    const nextScore = (registeredUser.profileCompleted ? 4 : 0) + (registeredUser.authUserId ? 2 : 0) + (registeredUser.avatarUrl ? 1 : 0);
-    if (!current || nextScore >= currentScore) {
-      existingByPhone.set(registeredUser.phoneE164, registeredUser);
-    }
-  }
+  const existingByPhone = mapBestUsersByPhone(existingMatches.data || []);
 
   const unmatchedMembers = [];
 
@@ -1155,10 +1233,9 @@ async function createGroupChat({ ownerUserId, name, members }) {
 
   let smsWarning = null;
   try {
-    const recipients = participantRows
-      .filter(entry => entry.user_id && entry.user_id !== ownerUserId)
-      .map(entry => getUserById(entry.user_id))
-      .filter(member => member?.id && member?.phoneE164)
+    const recipients = normalizedMembers
+      .map(member => existingByPhone.get(member.phone))
+      .filter(member => member?.id && member?.phoneE164 && member.id !== ownerUserId)
       .map(member => ({
         id: member.id,
         name: member.name || '',
@@ -1843,7 +1920,7 @@ async function hydrateChatFromSupabase(chatId) {
       .in('id', authorIds);
 
     for (const authorRecord of authors || []) {
-      const author = registerUserRecord(authorRecord);
+      const author = await resolveCanonicalAppUser(authorRecord);
       if (author) authorsById.set(author.id, author);
     }
   }

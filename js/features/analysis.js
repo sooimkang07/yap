@@ -6,7 +6,6 @@
 const ANALYSIS_COPY = {
   idleLabel: 'Analyzing',
   idleTitle: 'Breaking your memo into topics',
-  idleBody: 'Listening for replies, new ideas, and moments that should stay together.',
   idleStatus: 'Pulling apart the voice memo…',
 };
 
@@ -30,7 +29,6 @@ const AnalysisModal = {
     DOM.analysisOverlay.dataset.phase = 'loading';
     DOM.analysisLabel.textContent = ANALYSIS_COPY.idleLabel;
     DOM.analysisTitle.textContent = ANALYSIS_COPY.idleTitle;
-    DOM.analysisBody.textContent = ANALYSIS_COPY.idleBody;
     DOM.analysisStatusCopy.textContent = ANALYSIS_COPY.idleStatus;
     let stepIndex = 0;
     this._statusInterval = setInterval(() => {
@@ -54,7 +52,6 @@ const AnalysisModal = {
     DOM.analysisOverlay.dataset.phase = 'segments';
     DOM.analysisLabel.textContent = 'Topics Ready';
     DOM.analysisTitle.textContent = 'Here’s how yAp is shaping the thread';
-    DOM.analysisBody.textContent = 'Replies stay nested. New ideas branch into their own topics.';
     DOM.analysisStatusCopy.textContent = `${segments.length || 0} topic${segments.length === 1 ? '' : 's'} detected`;
 
     const barEls = segments.map((seg, index) => {
@@ -110,8 +107,7 @@ const AnalysisModal = {
     DOM.analysisOverlay.dataset.phase = 'error';
     DOM.analysisLabel.textContent = 'Couldn’t Finish';
     DOM.analysisTitle.textContent = 'The memo hit a snag';
-    DOM.analysisBody.textContent = clipAnalysisError(message);
-    DOM.analysisStatusCopy.textContent = 'Try recording that one more time.';
+    DOM.analysisStatusCopy.textContent = clipAnalysisError(message) || 'Try recording that one more time.';
     DOM.analysisBars.innerHTML = '';
     this._timeouts.push(setTimeout(() => this.close(), 2200));
   },

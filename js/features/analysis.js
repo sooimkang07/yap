@@ -13,7 +13,7 @@ const ANALYSIS_STATUS_STEPS = [
   'Listening for topic boundaries…',
   'Sorting replies from new ideas…',
   'Grouping moments that belong together…',
-  'Building the first thread map…',
+  'Pulling it all together…',
 ];
 
 const AnalysisModal = {

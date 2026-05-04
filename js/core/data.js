@@ -5,6 +5,8 @@
 
 // ── Supabase client ────────────────────────────────────
 let supabaseClient = null;
+const APP_CHATS_CACHE_PREFIX = 'yap.cache.chats';
+const APP_THREADS_CACHE_PREFIX = 'yap.cache.threads';
 
 function initSupabase() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -54,6 +56,142 @@ function makeUuid() {
 
 function generateAppRecordId(prefix) {
   return `${prefix}-${makeUuid()}`;
+}
+
+function getChatsCacheKey(userId = getCurrentUserId()) {
+  return userId ? `${APP_CHATS_CACHE_PREFIX}.${userId}` : '';
+}
+
+function getThreadsCacheKey(chatId, userId = getCurrentUserId()) {
+  return userId && chatId ? `${APP_THREADS_CACHE_PREFIX}.${userId}.${chatId}` : '';
+}
+
+function readCachedJson(key, fallback = null) {
+  if (!key) return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeCachedJson(key, value) {
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+function removeCachedJson(key) {
+  if (!key) return;
+  try {
+    localStorage.removeItem(key);
+  } catch {}
+}
+
+function sanitizeChatForCache(chat) {
+  if (!chat?.id) return null;
+  return {
+    id: chat.id,
+    name: chat.name || '',
+    emoji: chat.emoji || null,
+    members: Array.isArray(chat.members) ? chat.members.map(member => ({
+      id: member?.id || '',
+      name: member?.name || '',
+      initials: member?.initials || '',
+      color: member?.color || '',
+      avatarUrl: member?.avatarUrl || null,
+      phoneE164: member?.phoneE164 || null,
+      pending: !!member?.pending,
+    })) : [],
+    unread: Number(chat.unread || 0),
+    active: chat.active !== false,
+    visual: chat.visual || 'default',
+    avatarUrl: chat.avatarUrl || null,
+    createdBy: chat.createdBy || null,
+    currentUserRole: chat.currentUserRole || 'member',
+    lastMessageAt: Number(chat.lastMessageAt || 0),
+    localCreatedAt: Number(chat.localCreatedAt || 0),
+    preview: chat.preview || '',
+    previewAuthorId: chat.previewAuthorId || null,
+    persistLocally: chat.persistLocally !== false,
+  };
+}
+
+function readCachedChatsForUser(userId = getCurrentUserId()) {
+  const cached = readCachedJson(getChatsCacheKey(userId), []);
+  return Array.isArray(cached) ? cached.map(sanitizeChatForCache).filter(Boolean) : [];
+}
+
+function writeCachedChatsForUser(chats = [], userId = getCurrentUserId()) {
+  const sanitized = (Array.isArray(chats) ? chats : []).map(sanitizeChatForCache).filter(Boolean);
+  writeCachedJson(getChatsCacheKey(userId), sanitized);
+}
+
+function sanitizeMessageForCache(message) {
+  if (!message?.id) return null;
+  return {
+    id: message.id,
+    voiceMessageId: message.voiceMessageId || message.id,
+    threadId: message.threadId || '',
+    authorId: message.authorId || '',
+    author: message.author ? {
+      id: message.author.id || '',
+      name: message.author.name || '',
+      initials: message.author.initials || '',
+      color: message.author.color || '',
+      avatarUrl: message.author.avatarUrl || null,
+      phoneE164: message.author.phoneE164 || null,
+      pending: !!message.author.pending,
+    } : null,
+    audioPath: message.audioPath || null,
+    audioUrl: message.audioUrl || null,
+    durationMs: Number(message.durationMs || 0),
+    label: message.label || '',
+    transcript: message.transcript || '',
+    excerpt: message.excerpt || '',
+    startMs: Number(message.startMs || 0),
+    endMs: Number(message.endMs || 0),
+    sentAt: Number(message.sentAt || 0),
+    parentMemoId: message.parentMemoId || null,
+    heardByCurrentUser: !!message.heardByCurrentUser,
+    playedMs: Number(message.playedMs || 0),
+    heardAt: Number(message.heardAt || 0) || null,
+  };
+}
+
+function sanitizeThreadForCache(thread) {
+  if (!thread?.id) return null;
+  return {
+    id: thread.id,
+    chatId: thread.chatId || '',
+    label: thread.label || '',
+    excerpt: thread.excerpt || '',
+    transcript: thread.transcript || '',
+    rangeLabel: thread.rangeLabel || '',
+    parentMemoId: thread.parentMemoId || null,
+    parentMemoMessage: thread.parentMemoMessage ? sanitizeMessageForCache(thread.parentMemoMessage) : null,
+    createdAt: Number(thread.createdAt || 0),
+    lastActivityAt: Number(thread.lastActivityAt || 0),
+    lastHeardAt: Number(thread.lastHeardAt || 0) || null,
+    unheardCount: Number(thread.unheardCount || 0),
+    messages: Array.isArray(thread.messages) ? thread.messages.map(sanitizeMessageForCache).filter(Boolean) : [],
+  };
+}
+
+function readCachedThreadsForChat(chatId, userId = getCurrentUserId()) {
+  const cached = readCachedJson(getThreadsCacheKey(chatId, userId), []);
+  return Array.isArray(cached) ? cached.map(sanitizeThreadForCache).filter(Boolean) : [];
+}
+
+function writeCachedThreadsForChat(chatId, threads = [], userId = getCurrentUserId()) {
+  const sanitized = (Array.isArray(threads) ? threads : []).map(sanitizeThreadForCache).filter(Boolean);
+  writeCachedJson(getThreadsCacheKey(chatId, userId), sanitized);
+}
+
+function removeCachedThreadsForChat(chatId, userId = getCurrentUserId()) {
+  removeCachedJson(getThreadsCacheKey(chatId, userId));
 }
 
 function normalizePhoneNumber(value) {
@@ -316,8 +454,8 @@ async function getAppUserByAuthUserId(authUserId) {
 
   const rows = Array.isArray(data) ? data : (data ? [data] : []);
   const chosen = rows.sort((a, b) => {
-    const aScore = (a?.profile_completed ? 4 : 0) + (a?.phone_e164 ? 2 : 0) + (a?.auth_user_id ? 1 : 0);
-    const bScore = (b?.profile_completed ? 4 : 0) + (b?.phone_e164 ? 2 : 0) + (b?.auth_user_id ? 1 : 0);
+    const aScore = (a?.profile_completed ? 4 : 0) + (a?.phone_e164 ? 2 : 0) + (a?.avatar_url ? 1 : 0) + (a?.auth_user_id ? 1 : 0);
+    const bScore = (b?.profile_completed ? 4 : 0) + (b?.phone_e164 ? 2 : 0) + (b?.avatar_url ? 1 : 0) + (b?.auth_user_id ? 1 : 0);
     if (bScore !== aScore) return bScore - aScore;
     return new Date(b?.updated_at || b?.created_at || 0).getTime() - new Date(a?.updated_at || a?.created_at || 0).getTime();
   })[0];
@@ -366,6 +504,70 @@ async function resolveCanonicalAppUser(user) {
   ]);
 
   return byAuth || byPhone || normalized;
+}
+
+function isDataUrl(value = '') {
+  return /^data:/i.test(String(value || '').trim());
+}
+
+function parseDataUrl(value = '') {
+  const match = String(value || '').match(/^data:([^;,]+)?(;base64)?,(.*)$/i);
+  if (!match) return null;
+
+  const mimeType = match[1] || 'application/octet-stream';
+  const payload = match[3] || '';
+  const isBase64Payload = !!match[2];
+  const raw = isBase64Payload ? payload : decodeURIComponent(payload);
+  return {
+    mimeType,
+    payload: raw,
+    isBase64Payload,
+  };
+}
+
+function inferImageExtension(mimeType = '') {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('png')) return 'png';
+  if (normalized.includes('webp')) return 'webp';
+  if (normalized.includes('gif')) return 'gif';
+  return 'jpg';
+}
+
+function dataUrlToBlob(dataUrl) {
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) throw new Error('We could not prepare that profile photo.');
+
+  if (parsed.isBase64Payload) {
+    return blobFromBase64(parsed.payload, parsed.mimeType);
+  }
+
+  return new Blob([parsed.payload], { type: parsed.mimeType });
+}
+
+async function uploadProfileAvatar(userId, avatarValue) {
+  const normalizedValue = String(avatarValue || '').trim();
+  if (!normalizedValue || !supabaseClient) return normalizedValue || null;
+  if (!isDataUrl(normalizedValue)) return normalizedValue;
+
+  const avatarBlob = dataUrlToBlob(normalizedValue);
+  const parsed = parseDataUrl(normalizedValue);
+  const extension = inferImageExtension(parsed?.mimeType || avatarBlob.type);
+  const storagePath = `${userId}/profile.${extension}`;
+
+  const { error: uploadError } = await supabaseClient.storage
+    .from('avatars')
+    .upload(storagePath, avatarBlob, {
+      contentType: avatarBlob.type || parsed?.mimeType || 'image/jpeg',
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.warn('[yAp] avatar upload failed, keeping inline avatar data:', uploadError);
+    return normalizedValue;
+  }
+
+  const { data } = supabaseClient.storage.from('avatars').getPublicUrl(storagePath);
+  return data?.publicUrl || normalizedValue;
 }
 
 async function ensureAppUserFromAuthSession(session) {
@@ -456,10 +658,11 @@ async function saveUserProfile({ userId, authUserId, name, avatarUrl, phone }) {
   const existingByPhone = normalizedPhone ? await getAppUserByPhone(normalizedPhone) : null;
   const canonicalUser = existingByAuth || existingByPhone || null;
   const targetUserId = canonicalUser?.id || userId;
+  const persistedAvatarUrl = await uploadProfileAvatar(targetUserId, avatarUrl);
 
   // Try the full payload first (requires migrate.sql to have been run).
   // On any schema-cache miss, fall back to the 4 columns guaranteed in the original table.
-  const base = { id: targetUserId, name: name.trim(), color_hex: pickUserColor(name), avatar_url: avatarUrl || null };
+  const base = { id: targetUserId, name: name.trim(), color_hex: pickUserColor(name), avatar_url: persistedAvatarUrl || null };
   const full = {
     ...base,
     phone_e164: normalizedPhone,
@@ -971,7 +1174,7 @@ async function getChatsForUser(userId) {
 
   if (membershipError) {
     console.error('[yAp] getChatsForUser memberships failed:', membershipError);
-    return [];
+    return null;
   }
 
   const uniqueMemberships = [];
@@ -994,7 +1197,7 @@ async function getChatsForUser(userId) {
 
   if (participantError) {
     console.error('[yAp] getChatsForUser participants failed:', participantError);
-    return [];
+    return null;
   }
 
   const participantUserIds = [...new Set(
@@ -1010,7 +1213,7 @@ async function getChatsForUser(userId) {
 
     if (participantUsersError) {
       console.error('[yAp] getChatsForUser participant users failed:', participantUsersError);
-      return [];
+      return null;
     }
 
     for (const user of participantUsers || []) {
@@ -1036,6 +1239,7 @@ async function getChatsForUser(userId) {
       id,
       chat_id,
       author_id,
+      status,
       sent_at,
       playback_progress(user_id, heard),
       transcripts(full_text),
@@ -1124,7 +1328,10 @@ function buildChatPreview(message) {
     ? message.transcripts.find(entry => entry?.full_text)?.full_text
     : '';
 
-  const text = segment?.transcript || segment?.label || transcript || 'Voice memo';
+  const text = segment?.transcript
+    || segment?.label
+    || transcript
+    || (message?.status === 'processing' ? 'Transcribing voice memo...' : 'Voice memo');
   return clipWords(text, 12);
 }
 
@@ -1724,6 +1931,7 @@ const Store = {
   clear(chatId = null) {
     if (chatId) {
       this.chatThreads.delete(chatId);
+      removeCachedThreadsForChat(chatId);
       if (this.activeChatId === chatId) this.threads = [];
       return;
     }
@@ -1739,12 +1947,23 @@ const Store = {
   },
 
   getCachedThreads(chatId) {
+    const inMemoryThreads = this.chatThreads.get(chatId) || [];
+    if (inMemoryThreads.length) {
+      return this._cloneThreads(inMemoryThreads);
+    }
+
+    const persistedThreads = readCachedThreadsForChat(chatId);
+    if (persistedThreads.length) {
+      this.chatThreads.set(chatId, this._cloneThreads(persistedThreads));
+    }
+
     return this._cloneThreads(this.chatThreads.get(chatId) || []);
   },
 
   replaceThreads(chatId, threads = []) {
     const normalizedThreads = this._cloneThreads(threads);
     this.chatThreads.set(chatId, normalizedThreads);
+    writeCachedThreadsForChat(chatId, normalizedThreads);
     if (this.activeChatId === chatId) {
       this.threads = this._cloneThreads(normalizedThreads);
     }
@@ -1834,7 +2053,9 @@ const Store = {
   },
   _syncActiveChatCache() {
     if (!this.activeChatId) return;
-    this.chatThreads.set(this.activeChatId, this._cloneThreads(this.threads));
+    const clonedThreads = this._cloneThreads(this.threads);
+    this.chatThreads.set(this.activeChatId, clonedThreads);
+    writeCachedThreadsForChat(this.activeChatId, clonedThreads);
   },
   _normalizeMessage(message) {
     const isCurrentUser = message.authorId === getCurrentUserId();
@@ -1889,7 +2110,8 @@ async function getTopicThreads(chatId) {
 }
 
 async function hydrateChatFromSupabase(chatId) {
-  if (!supabaseClient || !chatId) return [];
+  if (!chatId) return [];
+  if (!supabaseClient) return Store.getCachedThreads(chatId);
 
   const cachedThreads = Store.getCachedThreads(chatId);
 
@@ -1955,10 +2177,13 @@ async function hydrateChatFromSupabase(chatId) {
     const segments = Array.isArray(voiceMessage.topic_segments)
       ? [...voiceMessage.topic_segments].sort((a, b) => a.start_ms - b.start_ms)
       : [];
+    const transcript = Array.isArray(voiceMessage.transcripts)
+      ? normalizeWhitespace(voiceMessage.transcripts.find(entry => entry?.full_text)?.full_text || '')
+      : '';
+    const threadedSegments = segments.filter(segment => segment?.topic_thread_id);
 
-    for (let index = 0; index < segments.length; index++) {
-      const segment = segments[index];
-      if (!segment.topic_thread_id) continue;
+    for (let index = 0; index < threadedSegments.length; index++) {
+      const segment = threadedSegments[index];
 
       const thread = threadMap.get(segment.topic_thread_id) || {
         id: segment.topic_thread_id,
@@ -2033,6 +2258,65 @@ async function hydrateChatFromSupabase(chatId) {
 
       threadMap.set(thread.id, thread);
     }
+
+    if (threadedSegments.length) continue;
+
+    const sentAt = new Date(voiceMessage.sent_at).getTime();
+    const durationMs = Math.max(0, Number(voiceMessage.duration_ms) || 0);
+    const fallbackThreadId = `memo-${voiceMessage.id}`;
+    const fallbackLabel = transcript
+      ? clipWords(transcript, 5)
+      : (voiceMessage.status === 'processing' ? 'Processing voice memo' : 'Voice memo');
+    const fallbackExcerpt = transcript
+      ? clipWords(transcript, 12)
+      : (voiceMessage.status === 'processing'
+          ? 'Transcribing voice memo...'
+          : (voiceMessage.status === 'failed' ? 'Voice memo ready to play.' : 'New voice memo'));
+    const fallbackTranscript = transcript || fallbackExcerpt;
+    const fallbackThread = {
+      id: fallbackThreadId,
+      chatId,
+      label: fallbackLabel,
+      excerpt: fallbackExcerpt,
+      transcript: fallbackTranscript,
+      rangeLabel: durationMs ? `${formatDurationClock(0)}-${formatDurationClock(durationMs)}` : '',
+      parentMemoId: voiceMessage.id,
+      parentMemoMessage: null,
+      createdAt: sentAt,
+      lastActivityAt: sentAt,
+      lastHeardAt: progress?.last_heard_at ? new Date(progress.last_heard_at).getTime() : null,
+      unheardCount: 0,
+      messages: [],
+    };
+    const fallbackMessage = {
+      id: `${voiceMessage.id}-memo`,
+      voiceMessageId: voiceMessage.id,
+      threadId: fallbackThreadId,
+      authorId: voiceMessage.author_id,
+      author,
+      audioPath: looksLikeStoragePath(voiceMessage.audio_url) ? voiceMessage.audio_url : null,
+      audioUrl: looksLikeStoragePath(voiceMessage.audio_url) ? null : (voiceMessage.audio_url || null),
+      durationMs,
+      label: fallbackLabel,
+      transcript: fallbackTranscript,
+      excerpt: fallbackExcerpt,
+      startMs: 0,
+      endMs: durationMs,
+      sentAt,
+      parentMemoId: voiceMessage.id,
+      heardByCurrentUser: voiceMessage.author_id === getCurrentUserId() ? true : !!progress?.heard,
+      playedMs: progress?.played_ms || 0,
+      heardAt: progress?.last_heard_at ? new Date(progress.last_heard_at).getTime() : null,
+    };
+
+    fallbackThread.messages.push(fallbackMessage);
+    fallbackThread.parentMemoMessage = {
+      ...fallbackMessage,
+      id: `memo-parent-${voiceMessage.id}`,
+      label: 'Full memo',
+      excerpt: '',
+    };
+    threadMap.set(fallbackThreadId, fallbackThread);
   }
 
   const hydratedThreads = [...threadMap.values()]

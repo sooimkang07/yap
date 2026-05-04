@@ -38,11 +38,13 @@ const PlaybackController = {
       });
       this._syncActiveClass(true);
       _syncImmersivePlaybackState();
+      _syncThreadPlaybackProgress();
     });
 
     this.audio.addEventListener('pause', () => {
       if (!this.audio.ended) this._syncActiveClass(false);
       _syncImmersivePlaybackState();
+      _syncThreadPlaybackProgress();
     });
 
     this.audio.addEventListener('ended', () => {
@@ -56,6 +58,7 @@ const PlaybackController = {
 
     this.audio.addEventListener('timeupdate', () => {
       _syncImmersivePlaybackState();
+      _syncThreadPlaybackProgress();
       if (!this.activeMeta?.endAt) return;
       if (this.audio.currentTime >= this.activeMeta.endAt) {
         this._handleFinished(true);
@@ -139,6 +142,7 @@ const PlaybackController = {
   },
 
   stop() {
+    _resetThreadPlaybackProgress(this.activeRowEl);
     if (this.activeRowEl) this.activeRowEl.classList.remove('is-playing');
     this._playToken += 1;
     try {
@@ -297,6 +301,7 @@ function renderTopics() {
   }
 
   _restorePlaybackStateClass();
+  _syncThreadPlaybackProgress();
 }
 
 function renderImmersiveThreads(threads) {
@@ -340,12 +345,7 @@ function renderImmersiveThreads(threads) {
 
     const displayPeople = people.slice(0, 3);
     const clusterPositions = positions[index % positions.length];
-    const replyCount = Math.max(0, orderedMessages.length - 1);
-    const heroPerson = latestMessage?.author || primaryMessage?.author || displayPeople[0] || {};
-    const heroAccent = heroPerson.color || accent;
-    const heroInitials = buildUserInitials(heroPerson.name || thread.label || 'Y');
-    const heroPhoto = heroPerson.avatarUrl || '';
-
+    const unreadCount = Math.max(0, Number(thread.unheardCount) || 0);
     return `
       <button class="immersive-cluster${playableSequence.length ? ' is-playable' : ''}"
               type="button"
@@ -356,22 +356,35 @@ function renderImmersiveThreads(threads) {
         <span class="immersive-cluster__halo"></span>
         <span class="immersive-cluster__ring"></span>
         <span class="immersive-cluster__core">
-          <span class="immersive-cluster__bubble ${heroPhoto ? '' : 'avatar-fallback'}"
-                style="${heroPhoto ? `background-image:url('${heroPhoto}')` : `--avatar-accent:${heroAccent};`}">
-            <span class="immersive-cluster__subject">${escapeHtml(thread.label || 'Topic')}</span>
-            ${heroPhoto ? '' : `<span class="immersive-cluster__bubble-initials">${escapeHtml(heroInitials)}</span>`}
+          <span class="immersive-cluster__bubble">
+            <span class="immersive-cluster__bubble-speaker"
+                  data-author-id="${escapeHtml(displayPeople[0]?.id || displayPeople[0]?.name || 'bubble-speaker')}"
+                  data-speaker-accent="${escapeHtml(displayPeople[0]?.color || accent)}"
+                  style="--speaker-accent:${displayPeople[0]?.color || accent};">
+              ${displayPeople[0] ? `
+                <span class="immersive-cluster__speaker-label">${escapeHtml(displayPeople[0].name || 'Friend')}</span>
+                <span class="immersive-cluster__speaker-photo ${displayPeople[0].avatarUrl ? '' : 'avatar-fallback'}"
+                      style="${displayPeople[0].avatarUrl ? `background-image:url('${displayPeople[0].avatarUrl}')` : `--avatar-accent:${displayPeople[0].color || accent};`}">
+                  ${displayPeople[0].avatarUrl ? '' : `<span>${escapeHtml(buildUserInitials(displayPeople[0].name || 'Y'))}</span>`}
+                </span>
+              ` : ''}
+            </span>
           </span>
           <span class="immersive-cluster__meta">
-            <span>${replyCount ? `${replyCount} repl${replyCount === 1 ? 'y' : 'ies'}` : 'New thread'}</span>
+            <span class="immersive-cluster__meta-main">
+              ${unreadCount > 0 ? `<span class="immersive-cluster__badge">${unreadCount}</span>` : ''}
+              <span class="immersive-cluster__meta-title">${escapeHtml(thread.label || 'Topic')}</span>
+            </span>
             <span>${totalDurationMs ? formatDurationClock(totalDurationMs) : ''}</span>
           </span>
         </span>
-        ${displayPeople.map((person, personIndex) => {
+        ${displayPeople.slice(1).map((person, personIndex) => {
           const personAccent = person.color || accent;
           const initials = buildUserInitials(person.name || 'Y');
           return `
-            <span class="immersive-cluster__speaker immersive-cluster__speaker--${clusterPositions[personIndex] || 'bottom-right'}"
+            <span class="immersive-cluster__speaker immersive-cluster__speaker--${clusterPositions[personIndex + 1] || 'bottom-right'}"
                   data-author-id="${escapeHtml(person.id || person.name || `speaker-${personIndex}`)}"
+                  data-speaker-accent="${escapeHtml(personAccent)}"
                   style="--speaker-accent:${personAccent};">
               <span class="immersive-cluster__speaker-label">${escapeHtml(person.name || 'Friend')}</span>
               <span class="immersive-cluster__speaker-photo ${person.avatarUrl ? '' : 'avatar-fallback'}"
@@ -424,9 +437,10 @@ function _topicRowHTML(thread, message, replies) {
       speaker: reply.author?.name?.toLowerCase() || 'reply',
     })),
   ].filter(segment => segment.duration > 0);
+  const totalMs = segments.reduce((sum, segment) => sum + Math.max(0, Number(segment.duration) || 0), 0) || 0;
 
   return `
-    <div class="topic-row">
+    <div class="topic-row" data-total-ms="${totalMs}">
       <div class="topic-row__header">
         <button class="topic-row__play is-playable" type="button"
                 data-playable-id="${message.id}"
@@ -453,8 +467,10 @@ function _replyRowHTML(message) {
   const playable = _isPlayable(message) ? ' is-playable' : '';
   const speakerName = message.authorId === getCurrentUserId() ? 'You' : (message.author?.name || 'Friend');
   const replyTitle = message.label || 'Voice reply';
+  const totalMs = Number(message.durationMs) || 0;
   return `
     <button class="reply-row${playable}" type="button"
+            data-total-ms="${totalMs}"
             data-playable-id="${message.id}"
             data-voice-message-id="${message.voiceMessageId || message.id}">
       <div class="reply-row__header">
@@ -477,13 +493,14 @@ function _renderSegmentTrack(segments) {
 
   return `
     <div class="topic-row__trackline">
-      <span class="topic-row__tick">0:00</span>
+      <span class="topic-row__tick" data-track-elapsed>0:00</span>
       <span class="topic-row__track">
+        <span class="topic-row__progress-fill" style="transform:scaleX(0)"></span>
         ${safeSegments.map(segment => `
           <span class="topic-row__segment topic-row__segment--${segment.speaker}" style="width:${(Math.max(0, Number(segment.duration) || 0) / totalMs) * 100}%"></span>
         `).join('')}
       </span>
-      <span class="topic-row__tick">-${formatDurationClock(totalMs)}</span>
+      <span class="topic-row__tick" data-track-remaining>-${formatDurationClock(totalMs)}</span>
     </div>
   `;
 }
@@ -567,6 +584,8 @@ function _restorePlaybackStateClass() {
     row.classList.add('is-playing');
     PlaybackController.activeRowEl = row;
   }
+
+  _syncThreadPlaybackProgress();
 }
 
 function _threadPlaybackSequence(thread) {
@@ -665,16 +684,27 @@ function _syncImmersivePlaybackState() {
 
     node.classList.toggle('is-playing', isActive);
     node.querySelectorAll('.immersive-cluster__speaker').forEach(speaker => speaker.classList.remove('is-active-speaker'));
+    node.querySelectorAll('.immersive-cluster__bubble-speaker').forEach(speaker => speaker.classList.remove('is-active-speaker'));
 
     if (!isActive || !PlaybackController.activeMeta) {
       node.style.setProperty('--ring-progress', '0');
+      node.style.setProperty('--ring-accent', 'var(--immersive-accent)');
       return;
     }
 
     const activeAuthorId = found?.item?.authorId || null;
     if (activeAuthorId) {
-      const activeSpeaker = node.querySelector(`[data-author-id="${CSS.escape(String(activeAuthorId))}"]`);
-      if (activeSpeaker) activeSpeaker.classList.add('is-active-speaker');
+      const activeSpeaker = node.querySelector(`.immersive-cluster__speaker[data-author-id="${CSS.escape(String(activeAuthorId))}"], .immersive-cluster__bubble-speaker[data-author-id="${CSS.escape(String(activeAuthorId))}"]`);
+      if (activeSpeaker) {
+        activeSpeaker.classList.add('is-active-speaker');
+        const speakerAccent = activeSpeaker.getAttribute('data-speaker-accent') || found?.item?.author?.color || '';
+        node.style.setProperty(
+          '--ring-accent',
+          speakerAccent ? `color-mix(in srgb, ${speakerAccent} 44%, white 56%)` : 'var(--immersive-accent)'
+        );
+      } else if (found?.item?.author?.color) {
+        node.style.setProperty('--ring-accent', `color-mix(in srgb, ${found.item.author.color} 44%, white 56%)`);
+      }
     }
 
     const startAt = Number(PlaybackController.activeMeta.startAt || 0);
@@ -683,6 +713,69 @@ function _syncImmersivePlaybackState() {
     const progress = Math.max(0, Math.min(1, elapsed / durationSeconds));
     node.style.setProperty('--ring-progress', String(progress));
   });
+}
+
+function _formatRemainingClock(ms) {
+  return `-${formatDurationClock(Math.max(0, Number(ms) || 0))}`;
+}
+
+function _resetThreadPlaybackProgress(rowEl) {
+  const container = rowEl?.closest?.('.topic-row, .reply-row');
+  if (!container) return;
+
+  const totalMs = Number(container.dataset.totalMs || 0);
+  const fill = container.querySelector('.topic-row__progress-fill');
+  const elapsedLabel = container.querySelector('[data-track-elapsed]');
+  const remainingLabel = container.querySelector('[data-track-remaining]');
+
+  if (fill) fill.style.transform = 'scaleX(0)';
+  if (elapsedLabel) elapsedLabel.textContent = '0:00';
+  if (remainingLabel) remainingLabel.textContent = _formatRemainingClock(totalMs);
+}
+
+function _syncThreadPlaybackProgress() {
+  DOM.chatTopics?.querySelectorAll('.topic-row, .reply-row').forEach(container => {
+    const fill = container.querySelector('.topic-row__progress-fill');
+    const elapsedLabel = container.querySelector('[data-track-elapsed]');
+    const remainingLabel = container.querySelector('[data-track-remaining]');
+    const totalMs = Number(container.dataset.totalMs || 0);
+
+    if (fill) fill.style.transform = 'scaleX(0)';
+    if (elapsedLabel) elapsedLabel.textContent = '0:00';
+    if (remainingLabel) remainingLabel.textContent = _formatRemainingClock(totalMs);
+  });
+
+  if (!PlaybackController.activeRowEl || !PlaybackController.activeMeta) return;
+
+  const container = PlaybackController.activeRowEl.closest?.('.topic-row, .reply-row');
+  if (!container) return;
+
+  const fill = container.querySelector('.topic-row__progress-fill');
+  const elapsedLabel = container.querySelector('[data-track-elapsed]');
+  const remainingLabel = container.querySelector('[data-track-remaining]');
+  const meta = PlaybackController.activeMeta;
+
+  let totalMs = Number(container.dataset.totalMs || 0);
+  let elapsedMs = 0;
+
+  if (meta.mode === 'thread' && Array.isArray(meta.sequence)) {
+    totalMs = meta.sequence.reduce((sum, item) => sum + Math.max(0, Number(item.durationMs) || 0), 0) || totalMs;
+    const priorMs = meta.sequence
+      .slice(0, Math.max(0, Number(meta.sequenceIndex) || 0))
+      .reduce((sum, item) => sum + Math.max(0, Number(item.durationMs) || 0), 0);
+    const segmentElapsedMs = Math.max(0, (PlaybackController.audio.currentTime - Number(meta.startAt || 0)) * 1000);
+    elapsedMs = priorMs + segmentElapsedMs;
+  } else {
+    totalMs = Math.max(totalMs, Math.round((Number(meta.durationSeconds) || 0) * 1000));
+    elapsedMs = Math.max(0, (PlaybackController.audio.currentTime - Number(meta.startAt || 0)) * 1000);
+  }
+
+  const clampedElapsedMs = Math.max(0, Math.min(totalMs, elapsedMs));
+  const progress = totalMs > 0 ? clampedElapsedMs / totalMs : 0;
+
+  if (fill) fill.style.transform = `scaleX(${progress})`;
+  if (elapsedLabel) elapsedLabel.textContent = formatDurationClock(clampedElapsedMs);
+  if (remainingLabel) remainingLabel.textContent = _formatRemainingClock(totalMs - clampedElapsedMs);
 }
 
 async function _markMessageHeard(messageId, voiceMessageId, durationSeconds) {

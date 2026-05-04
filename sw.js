@@ -96,3 +96,31 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+
+self.addEventListener('notificationclick', event => {
+  const targetUrl = String(event.notification?.data?.url || self.location.origin || '/');
+  event.notification?.close?.();
+
+  event.waitUntil((async () => {
+    const clientList = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    });
+
+    for (const client of clientList) {
+      if ('focus' in client) {
+        try {
+          if ('navigate' in client) {
+            await client.navigate(targetUrl);
+          }
+        } catch {}
+        await client.focus();
+        return;
+      }
+    }
+
+    if (self.clients.openWindow) {
+      await self.clients.openWindow(targetUrl);
+    }
+  })());
+});

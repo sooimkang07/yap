@@ -15,6 +15,7 @@ const AppState = {
   supabaseOk: false,
   conversationHydrating: null,
   conversationHydratedAt: 0,
+  conversationHydratedChatId: '',
   auth: {
     session: null,
     pendingPhone: '',
@@ -26,6 +27,7 @@ const AppState = {
     pendingMembers: [],
     contactsTarget: 'create-group',
     createGroupSearchQuery: '',
+    createGroupSubmitting: false,
   },
   replyTargetThreadId: null,
   recording: {
@@ -56,6 +58,12 @@ const AppState = {
     inFlight: false,
     handlersBound: false,
     chatSnapshot: null,
+    realtimeChannel: null,
+    realtimeTimer: 0,
+    conversationPrimeTimer: 0,
+    conversationPrimePromise: null,
+    conversationCacheVersions: new Map(),
+    remotePresence: new Map(),
   },
   navTimer: null,
   viewportSyncRaf: 0,
@@ -75,6 +83,68 @@ const PLAY_BUTTON_ICONS = {
     <rect x="17" y="4" width="5" height="22" rx="2" fill="currentColor"/>
   </svg>`,
 };
+const APP_NOTIFICATION_PERMISSION_KEY = 'yap.notifications.permission.requested';
+
+function resetConversationHydrationState() {
+  AppState.conversationHydrating = null;
+  AppState.conversationHydratedAt = 0;
+  AppState.conversationHydratedChatId = '';
+}
+
+function getStoredNotificationPermissionRequested() {
+  try {
+    return localStorage.getItem(APP_NOTIFICATION_PERMISSION_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setStoredNotificationPermissionRequested(requested) {
+  try {
+    if (requested) {
+      localStorage.setItem(APP_NOTIFICATION_PERMISSION_KEY, 'true');
+    } else {
+      localStorage.removeItem(APP_NOTIFICATION_PERMISSION_KEY);
+    }
+  } catch {}
+}
+
+async function ensureNotificationPermission() {
+  if (!('Notification' in window) || typeof Notification.requestPermission !== 'function') {
+    return 'unsupported';
+  }
+
+  if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+    return Notification.permission;
+  }
+
+  if (getStoredNotificationPermissionRequested()) {
+    return Notification.permission;
+  }
+
+  setStoredNotificationPermissionRequested(true);
+  try {
+    return await Notification.requestPermission();
+  } catch {
+    return Notification.permission || 'default';
+  }
+}
+
+function resetAppStateForUser(userId = '') {
+  const nextUserId = String(userId || '');
+  resetConversationHydrationState();
+  stopRemoteSync();
+  AppState.activeChat = null;
+  AppState.chats = [];
+  AppState.pendingChats = [];
+  AppState.chatsRefreshPromise = null;
+  AppState.sync.chatSnapshot = null;
+  Store.clear();
+  setCurrentUserId(nextUserId || null);
+  if (nextUserId) {
+    startRemoteSync();
+  }
+}
 
 function cacheDOM() {
   // Screens
@@ -141,6 +211,7 @@ function cacheDOM() {
   DOM.btnCreateGroupShare = document.getElementById('btn-create-group-share');
   DOM.btnCreateGroupHelp = document.getElementById('btn-create-group-help');
   DOM.btnAddGroupMember = document.getElementById('btn-add-group-member');
+  DOM.btnCreateGroupSubmit = document.getElementById('btn-create-group-submit');
   DOM.btnBrowseContacts = document.getElementById('btn-browse-contacts');
   DOM.btnImportVCard = document.getElementById('btn-import-vcard');
   DOM.inputContactFile = document.getElementById('input-contact-file');
@@ -471,6 +542,8 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
     resetScreenTransitionState(to);
     AppState.navTimer = null;
   }, screenTransitionMs);
+
+  syncLocalPresence();
 }
 
 function goBack(fallback = 'welcome') {
@@ -491,9 +564,74 @@ function scheduleChatsListRender() {
   });
 }
 
+function buildConversationCacheVersion(chat) {
+  return [
+    chat?.id || '',
+    Number(chat?.lastMessageAt || 0),
+    Number(chat?.unread || 0),
+    chat?.previewAuthorId || '',
+  ].join(':');
+}
+
+async function primeConversationCaches() {
+  if (!AppState.supabaseOk || !getCurrentUserId()) return [];
+  if (AppState.sync.conversationPrimePromise) return AppState.sync.conversationPrimePromise;
+
+  const chatsToPrime = (AppState.chats || []).filter(chat => chat?.id);
+  if (!chatsToPrime.length) return [];
+
+  AppState.sync.conversationPrimePromise = (async () => {
+    const pendingChats = chatsToPrime.filter(chat => {
+      const cachedThreads = Store.getCachedThreads(chat.id);
+      const nextVersion = buildConversationCacheVersion(chat);
+      const cachedVersion = AppState.sync.conversationCacheVersions.get(chat.id);
+      return !cachedThreads.length || cachedVersion !== nextVersion;
+    });
+
+    if (!pendingChats.length) return [];
+
+    const queue = [...pendingChats];
+    const concurrency = Math.min(3, queue.length);
+
+    const worker = async () => {
+      while (queue.length) {
+        const chat = queue.shift();
+        if (!chat?.id) continue;
+
+        try {
+          await hydrateChatFromSupabase(chat.id);
+          AppState.sync.conversationCacheVersions.set(chat.id, buildConversationCacheVersion(chat));
+        } catch (error) {
+          console.warn('[yAp] conversation cache prime failed:', chat.id, error);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    return pendingChats.map(chat => chat.id);
+  })().finally(() => {
+    AppState.sync.conversationPrimePromise = null;
+  });
+
+  return AppState.sync.conversationPrimePromise;
+}
+
+function scheduleConversationCachePrime(delayMs = 180) {
+  if (!AppState.supabaseOk || !getCurrentUserId()) return;
+  if (AppState.sync.conversationPrimeTimer) {
+    window.clearTimeout(AppState.sync.conversationPrimeTimer);
+  }
+
+  AppState.sync.conversationPrimeTimer = window.setTimeout(() => {
+    AppState.sync.conversationPrimeTimer = 0;
+    primeConversationCaches();
+  }, Math.max(0, delayMs || 0));
+}
+
 async function refreshChatsAndRender() {
   await refreshChats();
   scheduleChatsListRender();
+  scheduleConversationCachePrime();
   return AppState.chats;
 }
 
@@ -561,6 +699,7 @@ function pinChatInLocalLists(chat) {
     pinnedChat,
     ...(AppState.chats || []).filter(entry => entry.id !== pinnedChat.id),
   ].sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
+  writeCachedChatsForUser(AppState.chats, getCurrentUserId());
 }
 
 function buildChatActivitySnapshot(chats = AppState.chats) {
@@ -574,8 +713,30 @@ function buildChatActivitySnapshot(chats = AppState.chats) {
   ]));
 }
 
-async function showLocalChatNotification(title, body, tag) {
+function queueRealtimeSync(delayMs = 250) {
+  if (AppState.sync.realtimeTimer) {
+    window.clearTimeout(AppState.sync.realtimeTimer);
+  }
+
+  AppState.sync.realtimeTimer = window.setTimeout(() => {
+    AppState.sync.realtimeTimer = 0;
+    syncRemoteState({ forceConversation: true });
+  }, Math.max(0, delayMs || 0));
+}
+
+function buildChatDeepLink(chatId) {
+  const url = new URL(window.location.href);
+  if (chatId) {
+    url.searchParams.set('chat', chatId);
+  } else {
+    url.searchParams.delete('chat');
+  }
+  return url.toString();
+}
+
+async function showLocalChatNotification(title, body, tag, chatId = '') {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const targetUrl = buildChatDeepLink(chatId);
 
   try {
     const registration = await navigator.serviceWorker?.getRegistration?.();
@@ -584,6 +745,10 @@ async function showLocalChatNotification(title, body, tag) {
         body,
         tag,
         renotify: false,
+        data: {
+          url: targetUrl,
+          chatId: chatId || '',
+        },
       });
       return;
     }
@@ -592,7 +757,21 @@ async function showLocalChatNotification(title, body, tag) {
   }
 
   try {
-    new Notification(title, { body, tag });
+    const notification = new Notification(title, {
+      body,
+      tag,
+      data: {
+        url: targetUrl,
+        chatId: chatId || '',
+      },
+    });
+    notification.onclick = () => {
+      try {
+        window.focus();
+      } catch {}
+      window.location.href = targetUrl;
+      notification.close();
+    };
   } catch (error) {
     console.warn('[yAp] local notification failed:', error);
   }
@@ -608,7 +787,7 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
   for (const chat of Array.isArray(chats) ? chats : []) {
     const previous = previousSnapshot.get(chat.id);
     if (!previous) {
-      showLocalChatNotification(chat.name || 'New chat', 'You were added to a chat.', `chat-${chat.id}`);
+      showLocalChatNotification(chat.name || 'New chat', 'You were added to a chat.', `chat-${chat.id}`, chat.id);
       continue;
     }
 
@@ -624,7 +803,8 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
     showLocalChatNotification(
       chat.name || 'New message',
       chat.preview || 'New voice memo',
-      `chat-${chat.id}-message`
+      `chat-${chat.id}-message`,
+      chat.id
     );
   }
 }
@@ -644,6 +824,7 @@ async function syncRemoteState({ forceConversation = false } = {}) {
     }
 
     scheduleChatsListRender();
+    scheduleConversationCachePrime();
 
     if (AppState.screen === 'chat' && AppState.activeChat?.id) {
       renderActiveChatShell(AppState.activeChat);
@@ -684,12 +865,16 @@ async function syncRemoteState({ forceConversation = false } = {}) {
 }
 
 function startRemoteSync() {
-  if (AppState.sync.intervalId) return;
+  if (AppState.sync.intervalId) {
+    ensureRealtimeSyncChannel();
+    return;
+  }
 
   AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
   AppState.sync.intervalId = window.setInterval(() => {
     syncRemoteState({ forceConversation: AppState.screen === 'chat' });
   }, 8000);
+  ensureRealtimeSyncChannel();
 
   if (AppState.sync.handlersBound) return;
 
@@ -714,6 +899,84 @@ function stopRemoteSync() {
   AppState.sync.intervalId = 0;
   AppState.sync.inFlight = false;
   AppState.sync.chatSnapshot = null;
+  if (AppState.sync.realtimeTimer) {
+    window.clearTimeout(AppState.sync.realtimeTimer);
+  }
+  AppState.sync.realtimeTimer = 0;
+  if (AppState.sync.conversationPrimeTimer) {
+    window.clearTimeout(AppState.sync.conversationPrimeTimer);
+  }
+  AppState.sync.conversationPrimeTimer = 0;
+  AppState.sync.conversationPrimePromise = null;
+  AppState.sync.conversationCacheVersions = new Map();
+  AppState.sync.remotePresence = new Map();
+  if (AppState.sync.realtimeChannel) {
+    try {
+      supabaseClient?.removeChannel?.(AppState.sync.realtimeChannel);
+    } catch (error) {
+      console.warn('[yAp] realtime channel cleanup failed:', error);
+    }
+  }
+  AppState.sync.realtimeChannel = null;
+}
+
+function ensureRealtimeSyncChannel() {
+  if (!AppState.supabaseOk || !supabaseClient?.channel || !getCurrentUserId()) return;
+  if (AppState.sync.realtimeChannel) return;
+
+  const channel = supabaseClient.channel(`yap-sync-${getCurrentUserId()}`, {
+    config: {
+      presence: {
+        key: getCurrentUserId(),
+      },
+    },
+  });
+  const tables = [
+    'chats',
+    'chat_participants',
+    'voice_messages',
+    'topic_threads',
+    'topic_segments',
+    'transcripts',
+    'playback_progress',
+  ];
+
+  tables.forEach(table => {
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table },
+      () => queueRealtimeSync(120)
+    );
+  });
+
+  channel.on('presence', { event: 'sync' }, () => {
+    refreshRemotePresenceState();
+    renderChatPresence(AppState.activeChat);
+  });
+
+  channel.on('presence', { event: 'join' }, () => {
+    refreshRemotePresenceState();
+    renderChatPresence(AppState.activeChat);
+  });
+
+  channel.on('presence', { event: 'leave' }, () => {
+    refreshRemotePresenceState();
+    renderChatPresence(AppState.activeChat);
+  });
+
+  channel.subscribe(async status => {
+    if (status === 'SUBSCRIBED') {
+      await syncLocalPresence();
+      refreshRemotePresenceState();
+      renderChatPresence(AppState.activeChat);
+      return;
+    }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      AppState.sync.realtimeChannel = null;
+    }
+  });
+
+  AppState.sync.realtimeChannel = channel;
 }
 
 function clearPendingChatLink() {
@@ -824,26 +1087,31 @@ async function handleProfileAvatarPicked(file, target = 'setup') {
     return;
   }
 
-  const tooLarge = file.size > (4 * 1024 * 1024);
+  const tooLarge = file.size > (25 * 1024 * 1024);
   if (tooLarge) {
-    setFeedback(feedbackEl, 'Choose an image under 4 MB.', 'error');
+    setFeedback(feedbackEl, 'Choose an image under 25 MB.', 'error');
     return;
   }
 
   try {
-    const dataUrl = await readFileAsDataUrl(file);
-    hiddenInput.value = dataUrl;
+    setFeedback(feedbackEl, 'Optimizing photo...', 'success');
+    const optimized = await optimizeImageFileForAvatar(file, {
+      maxDimension: 640,
+      maxBytes: 180 * 1024,
+      outputType: 'image/jpeg',
+    });
+    hiddenInput.value = optimized.dataUrl;
     setFeedback(feedbackEl, '');
 
     if (target === 'manage') {
       const currentUser = getCurrentUser();
       setAvatarPickerPreview({
         element: DOM.profileSettingsAvatar,
-        imageUrl: dataUrl,
+        imageUrl: optimized.dataUrl,
         fallbackText: buildUserInitials(currentUser.name || 'You'),
         accent: pickUserColor(currentUser.name || 'You'),
       });
-      currentUser.avatarUrl = dataUrl;
+      currentUser.avatarUrl = optimized.dataUrl;
       syncProfileManageAvatarLabel(currentUser);
     } else {
       syncProfileSetupAvatarPreview();
@@ -968,6 +1236,96 @@ function buildMemberAvatarMarkup(member, extraClass = '') {
   `;
 }
 
+function getLocalPresencePayload() {
+  const isInActiveChat = AppState.screen === 'chat' && !!AppState.activeChat?.id;
+  return {
+    userId: getCurrentUserId() || '',
+    chatId: isInActiveChat ? AppState.activeChat.id : '',
+    state: AppState.recording.phase === 'sending'
+      ? 'sending'
+      : AppState.recording.phase === 'recording'
+      ? 'recording'
+      : (isInActiveChat ? 'active' : 'idle'),
+    ts: Date.now(),
+  };
+}
+
+function foldPresenceEntries(entries = []) {
+  const priority = { sending: 3, recording: 2, active: 1, idle: 0 };
+  return (Array.isArray(entries) ? entries : []).reduce((best, entry) => {
+    if (!entry?.userId) return best;
+    if (!best) return entry;
+
+    const nextPriority = priority[entry.state] ?? -1;
+    const bestPriority = priority[best.state] ?? -1;
+    if (nextPriority !== bestPriority) {
+      return nextPriority > bestPriority ? entry : best;
+    }
+
+    return Number(entry.ts || 0) >= Number(best.ts || 0) ? entry : best;
+  }, null);
+}
+
+function refreshRemotePresenceState() {
+  const channel = AppState.sync.realtimeChannel;
+  const nextPresence = new Map();
+  const rawState = channel?.presenceState?.() || {};
+
+  Object.values(rawState).forEach(entries => {
+    const normalizedEntries = (Array.isArray(entries) ? entries : [])
+      .map(entry => entry?.presence_ref ? entry : (entry?.payload || entry))
+      .filter(Boolean);
+    const folded = foldPresenceEntries(normalizedEntries);
+    if (folded?.userId) nextPresence.set(folded.userId, folded);
+  });
+
+  AppState.sync.remotePresence = nextPresence;
+}
+
+function getLiveChatPresenceMembers(chat = AppState.activeChat) {
+  if (!chat?.id) return [];
+
+  return getChatOtherMembers(chat)
+    .map(member => {
+      const resolvedMember = resolveAvatarMember(member);
+      const presence = AppState.sync.remotePresence.get(resolvedMember?.id || member?.id || '');
+      if (!presence || presence.chatId !== chat.id || presence.state === 'idle') return null;
+      return {
+        ...resolvedMember,
+        presenceState: presence.state,
+      };
+    })
+    .filter(Boolean);
+}
+
+function renderChatPresence(chat = AppState.activeChat) {
+  if (!DOM.chatPresence) return;
+
+  const liveMembers = getLiveChatPresenceMembers(chat);
+  DOM.chatPresence.innerHTML = liveMembers
+    .map(member => `
+      <div class="${buildAvatarClass(`chat-presence__avatar is-live is-${member.presenceState}`, member)}"
+           style="${buildAvatarStyle(member)};--presence-accent:${member.color || pickUserColor(member.name || member.phoneE164 || member.id || '')};">
+        ${buildAvatarContent(member)}
+        <span class="chat-presence__status" aria-hidden="true"></span>
+      </div>
+    `)
+    .join('');
+
+  setDisplay(DOM.chatPresence, liveMembers.length > 0, 'flex');
+}
+
+async function syncLocalPresence() {
+  const channel = AppState.sync.realtimeChannel;
+  if (!channel?.track || !getCurrentUserId()) return;
+
+  try {
+    await channel.track(getLocalPresencePayload());
+  } catch (error) {
+    console.warn('[yAp] local presence track failed:', error);
+  }
+}
+
 function renderAvatarElement(element, member, fallbackSeed = 'Y') {
   if (!element) return;
   element.classList.toggle('avatar-fallback', !member?.avatarUrl);
@@ -996,6 +1354,18 @@ function renderFloatingProfile(wrapper, label, photo, member, fallbackSeed) {
 
 function _chatArtHTML(chat) {
   if (chat.visual === 'besties') {
+    const bestiesMembers = getChatOtherMembers(chat).slice(0, 2);
+    if (bestiesMembers.length) {
+      return `
+        <div class="chat-art-besties">
+          ${bestiesMembers.map((member, index) => buildMemberAvatarMarkup(
+            member,
+            `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
+          )).join('')}
+        </div>
+      `;
+    }
+
     return `
       <div class="chat-art-besties">
         <div class="chat-art-besties__avatar chat-art-besties__avatar--main" style="background-image:url('${USERS.chloe.avatarUrl}')"></div>
@@ -1052,13 +1422,7 @@ function renderActiveChatShell(chat) {
     .join('');
 
   const otherMembers = getChatOtherMembers(chat);
-  DOM.chatPresence.innerHTML = otherMembers
-    .map(member => `
-      <div class="${buildAvatarClass('chat-presence__avatar', member)}" style="${buildAvatarStyle(member)}">
-        ${buildAvatarContent(member)}
-      </div>
-    `)
-    .join('');
+  renderChatPresence(chat);
 
   const featuredMembers = otherMembers.slice(0, 2);
   const firstMember = featuredMembers[0];
@@ -1077,11 +1441,11 @@ async function openChat(chat) {
   if (DOM.chatViewTabs) DOM.chatViewTabs.hidden = true;
 
   renderActiveChatShell(chat);
+  await syncLocalPresence();
 
   setDisplay(DOM.chatEmpty, false);
   setDisplay(DOM.chatTopics, false);
   setDisplay(DOM.chatProcessing, true, 'flex');
-  setDisplay(DOM.chatPresence, false);
   navigate('chat', 'forward');
 
   const cachedThreads = Store.getThreads();
@@ -1089,7 +1453,6 @@ async function openChat(chat) {
     setDisplay(DOM.chatProcessing, false);
     DOM.chatMemberPips.style.visibility = 'visible';
     setDisplay(DOM.chatEmpty, false);
-    setDisplay(DOM.chatPresence, true, 'flex');
     renderTopics();
   }
 
@@ -1106,22 +1469,22 @@ async function openChat(chat) {
     DOM.chatMemberPips.style.visibility = 'hidden';
     setDisplay(DOM.chatEmpty, true);
     setDisplay(DOM.chatTopics, false);
-    setDisplay(DOM.chatPresence, false);
   }
-
-  if (existingThreads.length > 0) {
-    setDisplay(DOM.chatPresence, true, 'flex');
-  }
+  renderChatPresence(AppState.activeChat);
 }
 
 async function hydrateActiveConversation(force = false) {
   if (!AppState.supabaseOk || !AppState.activeChat?.id) return Store.getThreads();
   if (!force && AppState.conversationHydrating) return AppState.conversationHydrating;
 
-  const shouldReuse = !force && AppState.conversationHydratedAt && (Date.now() - AppState.conversationHydratedAt) < 5000;
+  const activeChatId = AppState.activeChat.id;
+  const shouldReuse = !force
+    && AppState.conversationHydratedChatId === activeChatId
+    && AppState.conversationHydratedAt
+    && (Date.now() - AppState.conversationHydratedAt) < 5000;
   if (shouldReuse) return Store.getThreads();
 
-  AppState.conversationHydrating = hydrateChatFromSupabase(AppState.activeChat.id)
+  AppState.conversationHydrating = hydrateChatFromSupabase(activeChatId)
     .catch(error => {
       console.warn('[yAp] Conversation hydration failed:', error);
       return Store.getThreads();
@@ -1129,6 +1492,7 @@ async function hydrateActiveConversation(force = false) {
     .finally(() => {
       AppState.conversationHydrating = null;
       AppState.conversationHydratedAt = Date.now();
+      AppState.conversationHydratedChatId = activeChatId;
     });
 
   return AppState.conversationHydrating;
@@ -1166,6 +1530,7 @@ function _setRecordingIdleState() {
   window.__yapVoiceVisualizerBridge?.reset?.();
   window.__yapVoiceVisualizerBridge?.setRecording?.(false);
   DOM.btnMic.classList.remove('recording');
+  syncLocalPresence();
 }
 
 function clearReplyTarget() {
@@ -1197,6 +1562,7 @@ function buildBackendReadinessMessage(readiness) {
 
   const warnings = [];
   if (!readiness.checks.openai?.ok) warnings.push('audio processing');
+  if (!readiness.checks.twilioMessaging?.ok) warnings.push('SMS notifications');
 
   if (!warnings.length) return '';
   return `${warnings.join(' and ')} ${warnings.length === 1 ? 'is' : 'are'} not configured yet, so those flows will fail until env vars are added.`;
@@ -1486,6 +1852,7 @@ async function startRecording() {
     AppState.recording.phase = 'recording';
     window.__yapVoiceVisualizerBridge?.setRecording?.(true);
     DOM.btnMic.classList.add('recording');
+    syncLocalPresence();
   } catch (err) {
     const message = err?.message || 'We could not start recording on this device.';
     console.warn('[yAp] startRecording failed:', err);
@@ -1505,6 +1872,7 @@ async function stopRecording() {
   AppState.recording.phase = 'stopped';
   window.__yapVoiceVisualizerBridge?.setRecording?.(false);
   _showRecRow('stopped');
+  syncLocalPresence();
 
   // Update timer to show final duration
   DOM.recTimer.textContent = mgr.formatDuration(result.durationMs);
@@ -1526,6 +1894,7 @@ async function sendRecording() {
 
   AppState.recording.phase = 'sending';
   _showRecRow('sending');
+  syncLocalPresence();
 
   // Capture before manager is discarded
   const blob       = mgr.blob;
@@ -1626,6 +1995,8 @@ function setButtonBusy(button, isBusy, busyLabel) {
   }
   button.disabled = isBusy;
   button.textContent = isBusy ? busyLabel : button.dataset.idleLabel;
+  button.classList.toggle('is-busy', !!isBusy);
+  button.setAttribute('aria-busy', isBusy ? 'true' : 'false');
 }
 
 function buildInviteLink(inviteToken) {
@@ -1747,6 +2118,7 @@ function validateFormWithIOSAlert(form) {
 function resetCreateGroupComposer() {
   AppState.onboarding.pendingMembers = [];
   AppState.onboarding.createGroupSearchQuery = '';
+  AppState.onboarding.createGroupSubmitting = false;
   if (DOM.formCreateGroup) DOM.formCreateGroup.reset();
   if (DOM.inputCreateGroupSearch) DOM.inputCreateGroupSearch.value = '';
   setFeedback(DOM.createGroupFeedback, '');
@@ -2103,6 +2475,8 @@ async function refreshChats() {
   }
 
   const remoteChats = await getChatsForUser(getCurrentUserId());
+  const cachedChats = readCachedChatsForUser(getCurrentUserId());
+  const resolvedRemoteChats = Array.isArray(remoteChats) ? remoteChats : cachedChats;
   const pendingChatFreshnessMs = 2 * 60 * 1000;
   const now = Date.now();
 
@@ -2112,9 +2486,9 @@ async function refreshChats() {
     return !!chat?.id && (now - createdAt) < pendingChatFreshnessMs;
   });
 
-  const remoteIds = new Set(remoteChats.map(chat => chat.id));
+  const remoteIds = new Set(resolvedRemoteChats.map(chat => chat.id));
   const mergedChats = [
-    ...remoteChats,
+    ...resolvedRemoteChats,
     ...AppState.pendingChats.filter(chat => !remoteIds.has(chat.id)),
   ];
 
@@ -2126,6 +2500,7 @@ async function refreshChats() {
   }).sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
 
   AppState.chats = dedupedChats;
+  writeCachedChatsForUser(AppState.chats, getCurrentUserId());
   AppState.pendingChats = AppState.pendingChats.filter(chat => !remoteIds.has(chat.id));
   if (AppState.activeChat?.id) {
     AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
@@ -2449,7 +2824,7 @@ async function routeAuthenticatedUser() {
   const authSession = AppState.auth.session;
   const cameFromVerifyStep = AppState.screen === 'auth-verify';
   if (!authSession) {
-    stopRemoteSync();
+    resetAppStateForUser('');
     clearScreenHistory();
     if (AppState.auth.pendingInviteToken || AppState.auth.pendingChatId) {
       updateAuthEntryCopy();
@@ -2469,7 +2844,6 @@ async function routeAuthenticatedUser() {
     return;
   }
 
-  startRemoteSync();
   const appUser = await ensureAppUserFromAuthSession(authSession);
   if (!appUser?.id) {
     // DB lookup/insert failed, but the user IS verified (Twilio OTP succeeded).
@@ -2478,7 +2852,9 @@ async function routeAuthenticatedUser() {
     const hasVerifiedPhone = !!(authSession?.user?.phone || authSession?.provider === 'twilio-verify');
     if (hasVerifiedPhone) {
       const pendingId = generateAppRecordId('user');
-      setCurrentUserId(pendingId);
+      if (getCurrentUserId() !== pendingId) {
+        resetAppStateForUser(pendingId);
+      }
       navigate('profile-setup', cameFromVerifyStep ? 'forward' : 'fade');
       return;
     }
@@ -2486,7 +2862,11 @@ async function routeAuthenticatedUser() {
     return;
   }
 
-  setCurrentUserId(appUser.id);
+  if (getCurrentUserId() !== appUser.id) {
+    resetAppStateForUser(appUser.id);
+  } else {
+    startRemoteSync();
+  }
   prefillProfileForm(appUser);
 
   if (!appUser.profileCompleted) {
@@ -2520,6 +2900,9 @@ async function routeAuthenticatedUser() {
   }
 
   await refreshChatsAndRender();
+  ensureNotificationPermission().catch(error => {
+    console.warn('[yAp] notification permission request failed:', error);
+  });
 
   if (AppState.auth.pendingChatId) {
     const linkedChat = await waitForChatAvailability(AppState.auth.pendingChatId, { attempts: 6, delayMs: 850 });
@@ -2920,12 +3303,17 @@ function wireEvents() {
 
   DOM.formCreateGroup?.addEventListener('submit', async event => {
     event.preventDefault();
+    if (AppState.onboarding.createGroupSubmitting) {
+      return;
+    }
     if (!AppState.onboarding.pendingMembers.length) {
       setFeedback(DOM.createGroupFeedback, 'Add at least one person to start a chat.', 'error');
       DOM.inputCreateGroupSearch?.focus();
       return;
     }
+    AppState.onboarding.createGroupSubmitting = true;
     setFeedback(DOM.createGroupFeedback, '');
+    setButtonBusy(DOM.btnCreateGroupSubmit, true, 'Creating');
 
     try {
       const createdChat = await createGroupChat({
@@ -2954,6 +3342,9 @@ function wireEvents() {
       refreshChatsAndRender();
     } catch (error) {
       setFeedback(DOM.createGroupFeedback, error.message || 'We could not create your group yet.', 'error');
+    } finally {
+      AppState.onboarding.createGroupSubmitting = false;
+      setButtonBusy(DOM.btnCreateGroupSubmit, false);
     }
   });
 
@@ -3022,15 +3413,11 @@ function wireEvents() {
     setButtonBusy(DOM.btnSignOut, true, 'Signing out...');
     try {
       await signOutAuthSession();
-      setCurrentUserId(null);
+      resetAppStateForUser('');
       AppState.auth.session = null;
       AppState.auth.pendingPhone = '';
       AppState.auth.pendingInviteToken = '';
       AppState.auth.pendingChatId = '';
-      AppState.activeChat = null;
-      AppState.chats = [];
-      stopRemoteSync();
-      Store.clear();
       clearScreenHistory();
       navigate('welcome', 'fade');
     } catch (error) {
@@ -3171,6 +3558,7 @@ function wireEvents() {
       AppState.chats = AppState.chats.filter(chat => chat.id !== leavingChatId);
       AppState.pendingChats = (AppState.pendingChats || []).filter(chat => chat.id !== leavingChatId);
       Store.clear(leavingChatId);
+      writeCachedChatsForUser(AppState.chats, getCurrentUserId());
       AppState.activeChat = null;
       clearScreenHistory();
       navigate('chats', 'back');

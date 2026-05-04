@@ -136,6 +136,78 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('We could not process that image.'));
+    image.src = dataUrl;
+  });
+}
+
+function canvasToBlob(canvas, type = 'image/jpeg', quality = 0.86) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) {
+        reject(new Error('We could not prepare that photo yet.'));
+        return;
+      }
+      resolve(blob);
+    }, type, quality);
+  });
+}
+
+async function optimizeImageFileForAvatar(file, options = {}) {
+  if (!file) throw new Error('Choose an image first.');
+
+  const maxDimension = Number(options.maxDimension || 640);
+  const maxBytes = Number(options.maxBytes || 180 * 1024);
+  const outputType = String(options.outputType || 'image/jpeg');
+  const sourceDataUrl = await readFileAsDataUrl(file);
+  const image = await loadImageFromDataUrl(sourceDataUrl);
+
+  const width = Number(image.naturalWidth || image.width || 0);
+  const height = Number(image.naturalHeight || image.height || 0);
+  if (!width || !height) {
+    throw new Error('We could not read that photo.');
+  }
+
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) {
+    throw new Error('Your browser could not prepare that photo.');
+  }
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, targetWidth, targetHeight);
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+  const qualitySteps = [0.88, 0.8, 0.72, 0.64, 0.56, 0.48, 0.4];
+  let bestBlob = await canvasToBlob(canvas, outputType, qualitySteps[0]);
+
+  for (const quality of qualitySteps) {
+    const candidate = await canvasToBlob(canvas, outputType, quality);
+    bestBlob = candidate;
+    if (candidate.size <= maxBytes) break;
+  }
+
+  const optimizedDataUrl = await readFileAsDataUrl(bestBlob);
+  return {
+    dataUrl: optimizedDataUrl,
+    width: targetWidth,
+    height: targetHeight,
+    bytes: bestBlob.size,
+    mimeType: bestBlob.type || outputType,
+  };
+}
+
 function measureAudioDurationFromUrl(url) {
   return new Promise(resolve => {
     if (!url) {

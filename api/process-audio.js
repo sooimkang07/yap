@@ -4,6 +4,7 @@ ensureLocalEnv();
 
 const DEFAULT_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
 const DEFAULT_SEGMENT_MODEL = process.env.OPENAI_SEGMENT_MODEL || 'gpt-4o';
+const TIMESTAMP_TRANSCRIBE_MODEL = process.env.OPENAI_TIMESTAMP_TRANSCRIBE_MODEL || 'whisper-1';
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -36,9 +37,10 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    const transcript = await transcribeAudio(body, contentType);
+    const transcription = await transcribeAudio(body, contentType);
+    const transcript = transcription.text || '';
     const segments = transcript
-      ? await segmentTranscript(transcript, durationMs, threadContext)
+      ? await segmentTranscript(transcript, durationMs, threadContext, transcription.words || [])
       : [];
 
     const topics = segments.map((segment, index) => ({
@@ -53,7 +55,7 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({
       transcript,
-      words: null,
+      words: transcription.words || null,
       segments,
       topics,
     });
@@ -132,6 +134,21 @@ function readThreadContext(encoded) {
 }
 
 async function transcribeAudio(buffer, contentType) {
+  const [textResult, timestampResult] = await Promise.all([
+    transcribeText(buffer, contentType),
+    transcribeWordTimestamps(buffer, contentType).catch(error => {
+      console.warn('[yAp] timestamp transcription fallback failed:', error);
+      return { words: [] };
+    }),
+  ]);
+
+  return {
+    text: normalizeWhitespace(textResult?.text || ''),
+    words: Array.isArray(timestampResult?.words) ? timestampResult.words : [],
+  };
+}
+
+async function transcribeText(buffer, contentType) {
   const form = new FormData();
   const extension = contentType.includes('mp4') ? 'mp4' : 'webm';
   const blob = new Blob([buffer], { type: contentType });
@@ -152,10 +169,38 @@ async function transcribeAudio(buffer, contentType) {
   }
 
   const json = await response.json();
-  return (json.text || '').trim();
+  return { text: (json.text || '').trim() };
 }
 
-async function segmentTranscript(transcript, durationMs, threadContext) {
+async function transcribeWordTimestamps(buffer, contentType) {
+  const form = new FormData();
+  const extension = contentType.includes('mp4') ? 'mp4' : 'webm';
+  const blob = new Blob([buffer], { type: contentType });
+
+  form.append('file', blob, `recording.${extension}`);
+  form.append('model', TIMESTAMP_TRANSCRIBE_MODEL);
+  form.append('response_format', 'verbose_json');
+  form.append('timestamp_granularities[]', 'word');
+
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Timestamp transcription failed (${response.status}): ${await response.text()}`);
+  }
+
+  const json = await response.json();
+  return {
+    words: normalizeWordTimestamps(json.words),
+  };
+}
+
+async function segmentTranscript(transcript, durationMs, threadContext, wordTimestamps = []) {
   const normalizedTranscript = normalizeWhitespace(transcript);
   const threadContextBlock = threadContext.length
     ? `Existing topic threads:
@@ -232,13 +277,13 @@ ${threadContextBlock}`,
   try {
     const parsed = JSON.parse(content);
     const segments = Array.isArray(parsed?.segments) ? parsed.segments : [];
-    return normalizeSegments(segments, normalizedTranscript, durationMs, threadContext);
+    return normalizeSegments(segments, normalizedTranscript, durationMs, threadContext, wordTimestamps);
   } catch {
-    return normalizeSegments([], normalizedTranscript, durationMs, threadContext);
+    return normalizeSegments([], normalizedTranscript, durationMs, threadContext, wordTimestamps);
   }
 }
 
-function normalizeSegments(segments, transcript, durationMs, threadContext) {
+function normalizeSegments(segments, transcript, durationMs, threadContext, wordTimestamps = []) {
   const validThreadIds = new Set(threadContext.map(thread => thread.id));
   const normalizedTranscript = normalizeWhitespace(transcript);
   const trimmedSegments = Array.isArray(segments) ? segments.slice(0, 4) : [];
@@ -257,10 +302,11 @@ function normalizeSegments(segments, transcript, durationMs, threadContext) {
   }
 
   const reconstructedTranscripts = rebuildSegmentTranscripts(trimmedSegments, normalizedTranscript);
-  const durationBoundaries = computeSegmentBoundaries(
-    reconstructedTranscripts || trimmedSegments.map(segment => normalizeWhitespace(segment?.transcript || '')),
-    durationMs
-  );
+  const segmentTexts = reconstructedTranscripts || trimmedSegments.map(segment => normalizeWhitespace(segment?.transcript || ''));
+  const alignedBoundaries = alignSegmentBoundariesFromWords(segmentTexts, wordTimestamps, durationMs);
+  const durationBoundaries = alignedBoundaries.length
+    ? alignedBoundaries
+    : computeSegmentBoundaries(segmentTexts, durationMs);
 
   return trimmedSegments.map((segment, index) => {
     const assignedThreadId = typeof segment.assigned_thread_id === 'string' && validThreadIds.has(segment.assigned_thread_id)
@@ -380,4 +426,91 @@ function computeSegmentBoundaries(transcripts, durationMs) {
       end_ms: Math.max(startMs, endMs),
     };
   });
+}
+
+function normalizeWordTimestamps(words = []) {
+  return (Array.isArray(words) ? words : [])
+    .map(word => {
+      const text = normalizeWhitespace(word?.word || word?.text || '');
+      const start = Number(word?.start);
+      const end = Number(word?.end);
+      if (!text || !Number.isFinite(start) || !Number.isFinite(end)) return null;
+      return {
+        word: text,
+        normalizedWord: normalizeComparableWord(text),
+        start_ms: Math.max(0, Math.round(start * 1000)),
+        end_ms: Math.max(0, Math.round(end * 1000)),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeComparableWord(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}']+/gu, '')
+    .trim();
+}
+
+function tokenizeComparableWords(text) {
+  return normalizeWhitespace(text)
+    .split(/\s+/)
+    .map(normalizeComparableWord)
+    .filter(Boolean);
+}
+
+function alignSegmentBoundariesFromWords(segmentTexts, wordTimestamps, durationMs) {
+  const normalizedWords = (Array.isArray(wordTimestamps) ? wordTimestamps : []).filter(entry => entry?.normalizedWord);
+  if (!normalizedWords.length || !Array.isArray(segmentTexts) || !segmentTexts.length) return [];
+
+  const boundaries = [];
+  let cursor = 0;
+
+  for (const segmentText of segmentTexts) {
+    const targetWords = tokenizeComparableWords(segmentText);
+    if (!targetWords.length) return [];
+
+    const match = findSequentialWordMatch(normalizedWords, targetWords, cursor);
+    if (!match) return [];
+
+    boundaries.push({
+      start_ms: normalizedWords[match.startIndex]?.start_ms ?? 0,
+      end_ms: normalizedWords[match.endIndex]?.end_ms ?? durationMs ?? 0,
+    });
+    cursor = match.endIndex + 1;
+  }
+
+  return boundaries.map((boundary, index) => ({
+    start_ms: Math.max(0, Number(boundary.start_ms) || 0),
+    end_ms: Math.max(
+      Math.max(0, Number(boundary.start_ms) || 0),
+      index === boundaries.length - 1
+        ? Math.max(Number(boundary.end_ms) || 0, durationMs || 0)
+        : Number(boundary.end_ms) || 0
+    ),
+  }));
+}
+
+function findSequentialWordMatch(sourceWords, targetWords, fromIndex = 0) {
+  if (!Array.isArray(sourceWords) || !Array.isArray(targetWords) || !targetWords.length) return null;
+
+  let sourceIndex = Math.max(0, fromIndex);
+  let targetIndex = 0;
+  let startIndex = -1;
+  let endIndex = -1;
+
+  while (sourceIndex < sourceWords.length && targetIndex < targetWords.length) {
+    if (sourceWords[sourceIndex].normalizedWord === targetWords[targetIndex]) {
+      if (startIndex < 0) startIndex = sourceIndex;
+      endIndex = sourceIndex;
+      targetIndex += 1;
+    }
+    sourceIndex += 1;
+  }
+
+  if (targetIndex !== targetWords.length || startIndex < 0 || endIndex < startIndex) {
+    return null;
+  }
+
+  return { startIndex, endIndex };
 }

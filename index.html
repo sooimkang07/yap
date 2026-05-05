@@ -156,9 +156,7 @@
               </div>
             </div>
             <button class="create-chat-picker__recipient-add" id="btn-add-group-member" type="button" aria-label="Add person or create chat">
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-                <path d="M11 4.25V17.75M4.25 11H17.75" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
-              </svg>
+              <img class="create-chat-picker__recipient-add-icon" src="assets/add-chat-button.svg" alt="" aria-hidden="true">
             </button>
           </div>
 
@@ -298,6 +296,13 @@
         <section class="group-details-panel is-active" id="group-settings-panel-info" data-group-settings-panel="info">
           <div class="group-details-people-strip" id="group-settings-people-strip"></div>
 
+          <div class="group-details-card group-details-card--list" id="group-settings-contact-card" hidden>
+            <div class="ios-settings-row">
+              <span class="ios-settings-row__title">Mobile</span>
+              <span class="group-details-contact-value" id="group-settings-contact-phone"></span>
+            </div>
+          </div>
+
           <div class="group-details-card group-details-card--list group-details-edit-block" id="group-settings-invite-card">
             <label class="ios-settings-row ios-settings-row--input" for="input-group-member-phone">
               <span class="ios-settings-row__title">Phone</span>
@@ -367,12 +372,11 @@
     <div class="chats-grid" id="chats-grid">
       <!-- populated by data.js + app.js -->
     </div>
-    <div class="chats-empty-state" id="chats-empty-state">
-      <button class="chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
-        <span class="chats-empty-state__plus" aria-hidden="true"></span>
-        <span class="chats-empty-state__label">New chat</span>
-      </button>
-    </div>
+    <div class="chats-empty-state" id="chats-empty-state"></div>
+    <button class="chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
+      <img class="chats-empty-state__icon" src="assets/add-chat-button.svg" alt="" aria-hidden="true">
+      <span class="chats-empty-state__label">New chat</span>
+    </button>
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
@@ -390,14 +394,6 @@
       <div class="chat-header__center">
         <div class="chat-member-pips" id="chat-member-pips"></div>
         <h2 class="chat-title" id="chat-title">besties 👋</h2>
-        <div class="chat-view-tabs" id="chat-view-tabs" role="tablist" aria-label="Chat view" hidden>
-          <button class="chat-view-tabs__tab" id="btn-chat-view-bubbles" type="button" role="tab" aria-selected="true">
-            Bubbles
-          </button>
-          <button class="chat-view-tabs__tab" id="btn-chat-view-threads" type="button" role="tab" aria-selected="false">
-            Threads
-          </button>
-        </div>
       </div>
       <div class="chat-header__right">
         <button class="icon-btn icon-btn--header" id="btn-chat-more" aria-label="More options">
@@ -443,10 +439,64 @@
     <!-- Footer: mic button -->
     <div class="chat-footer">
       <div class="chat-presence" id="chat-presence"></div>
+      <button class="now-playing-btn" id="btn-now-playing" aria-label="Play all topics">
+        <img class="now-playing-btn__icon" src="assets/play-button.svg" alt="" aria-hidden="true">
+      </button>
       <button class="mic-btn" id="btn-mic" aria-label="Record voice memo">
         <img class="mic-btn__icon" src="assets/record-button.svg" alt="" aria-hidden="true">
       </button>
     </div>
+
+    <!-- ─────────────────────────────────────────── -->
+    <!-- NOW PLAYING OVERLAY                         -->
+    <!-- ─────────────────────────────────────────── -->
+    <div class="now-playing-overlay" id="now-playing-overlay" aria-hidden="true">
+      <div class="now-playing-sheet" id="now-playing-sheet">
+        <div class="now-playing-sheet__handle"></div>
+
+        <!-- Top bar -->
+        <div class="now-playing-topbar">
+          <button class="now-playing-topbar__close" id="btn-np-close" aria-label="Close now playing">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M4 7L10 13L16 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <span class="now-playing-topbar__label">Now Playing</span>
+          <span class="now-playing-topbar__spacer"></span>
+        </div>
+
+        <!-- Topic title -->
+        <div class="now-playing-topic-title" id="np-topic-title">Topic</div>
+
+        <!-- Avatar stage -->
+        <div class="now-playing-stage" id="np-stage">
+          <div class="now-playing-avatars" id="np-avatars"></div>
+        </div>
+
+        <!-- Progress dots -->
+        <div class="now-playing-dots" id="np-dots"></div>
+
+        <!-- Controls -->
+        <div class="now-playing-controls">
+          <button class="np-control-btn np-control-btn--skip" id="btn-np-prev" aria-label="Previous topic">
+            <img src="assets/skip-backward-button.svg" width="28" height="28" alt="" aria-hidden="true">
+          </button>
+          <button class="np-control-btn np-control-btn--play" id="btn-np-playpause" aria-label="Play or pause">
+            <svg class="np-icon-play" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+              <path d="M7 5L23 14L7 23V5Z" fill="currentColor"/>
+            </svg>
+            <svg class="np-icon-pause" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true" style="display:none">
+              <rect x="6" y="4" width="5" height="20" rx="2" fill="currentColor"/>
+              <rect x="17" y="4" width="5" height="20" rx="2" fill="currentColor"/>
+            </svg>
+          </button>
+          <button class="np-control-btn np-control-btn--skip" id="btn-np-next" aria-label="Next topic">
+            <img src="assets/skip-forward-button.svg" width="28" height="28" alt="" aria-hidden="true">
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- /now-playing-overlay -->
 
     <!-- ─────────────────────────────────────────── -->
     <!-- RECORDING OVERLAY                           -->
@@ -460,7 +510,7 @@
       <div class="recording-sheet" id="recording-sheet">
         <div class="rec-row rec-row--top">
           <button class="rec-icon-btn" id="btn-rec-cancel" aria-label="Cancel">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
               <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </button>
@@ -476,29 +526,24 @@
 
         <div class="rec-row rec-row--actions" id="rec-actions-recording">
           <button class="rec-action-btn rec-action-btn--exit" id="btn-rec-exit" aria-label="Exit recording">
-            <img class="rec-action-btn__asset" src="assets/exit-button.png" alt="" aria-hidden="true">
+            <img class="rec-action-btn__asset" src="assets/exit-button.svg" alt="" aria-hidden="true">
           </button>
           <button class="stop-btn" id="btn-stop" aria-label="Stop recording">
-            <div class="stop-icon"></div>
+            <img class="rec-control-icon rec-control-icon--stop" src="assets/stop-button.svg" alt="" aria-hidden="true">
           </button>
         </div>
 
         <div class="rec-row rec-row--actions hidden" id="rec-actions-stopped">
           <button class="rec-action-btn rec-action-btn--discard" id="btn-discard" aria-label="Discard">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
               <path d="M2 2L16 16M16 2L2 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
           </button>
           <button class="rec-action-btn rec-action-btn--play" id="btn-play" aria-label="Play preview">
-            <svg width="28" height="30" viewBox="0 0 28 30" fill="none">
-              <path d="M5 3.5L23 15L5 26.5V3.5Z" fill="currentColor"/>
-            </svg>
+            <img class="rec-control-icon rec-control-icon--play" src="assets/play-button.svg" alt="" aria-hidden="true">
           </button>
           <button class="rec-action-btn rec-action-btn--send" id="btn-send" aria-label="Send memo">
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-              <path d="M13 20V6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-              <path d="M7 12L13 6L19 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <img class="rec-control-icon rec-control-icon--send" src="assets/send-button.svg" alt="" aria-hidden="true">
           </button>
         </div>
 
@@ -528,7 +573,7 @@
 
         <div class="rec-row rec-row--top">
           <button class="rec-icon-btn" id="btn-analysis-cancel" aria-label="Cancel analysis">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
               <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </button>

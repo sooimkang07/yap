@@ -6,15 +6,8 @@
 let _expandedThreadId = null;
 
 function _syncChatViewToggle(threads = []) {
-  if (!DOM.chatViewTabs) return;
   const hasThreads = Array.isArray(threads) && threads.length > 0;
-  DOM.chatViewTabs.hidden = !hasThreads;
-  DOM.btnChatViewBubbles?.classList.toggle('is-active', AppState.chatViewMode === 'immersive');
-  DOM.btnChatViewThreads?.classList.toggle('is-active', AppState.chatViewMode === 'threads');
-  DOM.btnChatViewBubbles?.setAttribute('aria-selected', AppState.chatViewMode === 'immersive' ? 'true' : 'false');
-  DOM.btnChatViewThreads?.setAttribute('aria-selected', AppState.chatViewMode === 'threads' ? 'true' : 'false');
-  DOM.btnChatViewBubbles?.setAttribute('tabindex', AppState.chatViewMode === 'immersive' ? '0' : '-1');
-  DOM.btnChatViewThreads?.setAttribute('tabindex', AppState.chatViewMode === 'threads' ? '0' : '-1');
+  if (DOM.btnNowPlaying) DOM.btnNowPlaying.style.visibility = hasThreads ? 'visible' : 'hidden';
 }
 
 const PlaybackController = {
@@ -209,6 +202,7 @@ const PlaybackController = {
     }
 
     renderTopics();
+    window.onThreadPlaybackComplete?.();
   },
 
   _syncActiveClass(isPlaying) {
@@ -275,19 +269,11 @@ function renderTopics() {
   const threads = Store.getThreads();
   _syncChatViewToggle(threads);
 
-  const useImmersive = AppState.chatViewMode === 'immersive' && !!threads.length;
-
   setDisplay(DOM.chatEmpty, !threads.length);
-  setDisplay(DOM.chatImmersive, useImmersive, 'grid');
-  setDisplay(DOM.chatTopics, !!threads.length && !useImmersive, 'flex');
+  setDisplay(DOM.chatImmersive, false);
+  setDisplay(DOM.chatTopics, !!threads.length, 'flex');
 
   if (!threads.length) return;
-
-  if (useImmersive) {
-    renderImmersiveThreads(threads);
-    _syncImmersivePlaybackState();
-    return;
-  }
 
   DOM.chatTopics.innerHTML = threads.map(thread => `
     <section class="topic-card${_expandedThreadId === thread.id ? ' expanded' : ''}" data-thread-id="${thread.id}">

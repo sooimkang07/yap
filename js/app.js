@@ -43,7 +43,12 @@ const AppState = {
     lastHeardLabel: '',
     lastHeardTranscript: '',
   },
-  chatViewMode: 'immersive',
+  chatViewMode: 'threads',
+  nowPlaying: {
+    active: false,
+    topicIndex: 0,
+    isPlaying: false,
+  },
   groupSettingsTab: 'info',
   groupSettingsEditing: false,
   groupSettingsInvites: [],
@@ -75,13 +80,8 @@ const AppState = {
 // ── DOM refs ──────────────────────────────────────────
 const DOM = {};
 const PLAY_BUTTON_ICONS = {
-  play: `<svg width="28" height="30" viewBox="0 0 28 30" fill="none">
-    <path d="M5 3.5L23 15L5 26.5V3.5Z" fill="currentColor"/>
-  </svg>`,
-  pause: `<svg width="28" height="30" viewBox="0 0 28 30" fill="none">
-    <rect x="6" y="4" width="5" height="22" rx="2" fill="currentColor"/>
-    <rect x="17" y="4" width="5" height="22" rx="2" fill="currentColor"/>
-  </svg>`,
+  play: '<img class="rec-control-icon rec-control-icon--play" src="assets/play-button.svg" alt="" aria-hidden="true">',
+  pause: '<img class="rec-control-icon rec-control-icon--pause" src="assets/pause-button.svg" alt="" aria-hidden="true">',
 };
 const APP_NOTIFICATION_PERMISSION_KEY = 'yap.notifications.permission.requested';
 
@@ -252,6 +252,8 @@ function cacheDOM() {
   DOM.btnLeaveGroup = document.getElementById('btn-leave-group');
   DOM.groupSettingsFeedback = document.getElementById('group-settings-feedback');
   DOM.groupSettingsHeroAvatars = document.getElementById('group-settings-hero-avatars');
+  DOM.groupSettingsContactCard = document.getElementById('group-settings-contact-card');
+  DOM.groupSettingsContactPhone = document.getElementById('group-settings-contact-phone');
   DOM.groupSettingsSummaryPeople = document.getElementById('group-settings-summary-people');
   DOM.groupSettingsSummaryTopics = document.getElementById('group-settings-summary-topics');
   DOM.groupSettingsSummaryLinks = document.getElementById('group-settings-summary-links');
@@ -285,9 +287,17 @@ function cacheDOM() {
   DOM.chatPresence   = document.getElementById('chat-presence');
   DOM.btnBack        = document.getElementById('btn-back');
   DOM.btnMic         = document.getElementById('btn-mic');
-  DOM.chatViewTabs = document.getElementById('chat-view-tabs');
-  DOM.btnChatViewBubbles = document.getElementById('btn-chat-view-bubbles');
-  DOM.btnChatViewThreads = document.getElementById('btn-chat-view-threads');
+  DOM.btnNowPlaying  = document.getElementById('btn-now-playing');
+  DOM.nowPlayingOverlay = document.getElementById('now-playing-overlay');
+  DOM.nowPlayingSheet   = document.getElementById('now-playing-sheet');
+  DOM.npTopicTitle  = document.getElementById('np-topic-title');
+  DOM.npStage       = document.getElementById('np-stage');
+  DOM.npAvatars     = document.getElementById('np-avatars');
+  DOM.npDots        = document.getElementById('np-dots');
+  DOM.btnNpClose    = document.getElementById('btn-np-close');
+  DOM.btnNpPrev     = document.getElementById('btn-np-prev');
+  DOM.btnNpPlaypause = document.getElementById('btn-np-playpause');
+  DOM.btnNpNext     = document.getElementById('btn-np-next');
   DOM.btnChatMore    = document.getElementById('btn-chat-more');
   DOM.floatingChloe = document.getElementById('floating-chloe');
   DOM.floatingMaria = document.getElementById('floating-maria');
@@ -645,6 +655,7 @@ function renderChatsList() {
 
   setDisplay(DOM.chatsGrid, !showEmptyState, 'grid');
   setDisplay(DOM.chatsEmptyState, showEmptyState, 'flex');
+  DOM.screens?.chats?.classList.toggle('has-chats', !showEmptyState);
   if (DOM.chatsSearch) {
     DOM.chatsSearch.hidden = false;
     DOM.chatsSearch.classList.toggle('is-open', showSearch);
@@ -1021,15 +1032,6 @@ async function waitForChatAvailability(chatId, { attempts = 5, delayMs = 700 } =
   return AppState.chats.find(chat => chat.id === chatId) || null;
 }
 
-function setChatViewMode(mode) {
-  if (mode !== 'immersive' && mode !== 'threads') return;
-  if (AppState.chatViewMode === mode) {
-    renderTopics();
-    return;
-  }
-  AppState.chatViewMode = mode;
-  renderTopics();
-}
 
 function profilePlaceholderIconHTML(className = 'avatar-fallback__icon') {
   return `<img class="${className}" src="assets/contact-placeholder.svg" alt="" aria-hidden="true">`;
@@ -1438,7 +1440,7 @@ function renderActiveChatShell(chat) {
 async function openChat(chat) {
   AppState.activeChat = chat;
   Store.setActiveChat(chat.id);
-  if (DOM.chatViewTabs) DOM.chatViewTabs.hidden = true;
+  if (DOM.btnNowPlaying) DOM.btnNowPlaying.style.visibility = 'hidden';
 
   renderActiveChatShell(chat);
   await syncLocalPresence();
@@ -1515,6 +1517,185 @@ function openRecordingOverlay() {
 function closeRecordingOverlay() {
   DOM.overlay.classList.remove('visible');
   DOM.overlay.setAttribute('aria-hidden', 'true');
+}
+
+// ── Now Playing ───────────────────────────────────────
+
+function openNowPlaying() {
+  const threads = Store.getThreads();
+  if (!threads.length) return;
+  AppState.nowPlaying.active = true;
+  AppState.nowPlaying.topicIndex = 0;
+  AppState.nowPlaying.isPlaying = true;
+  DOM.nowPlayingOverlay.classList.add('visible');
+  DOM.nowPlayingOverlay.setAttribute('aria-hidden', 'false');
+  _renderNowPlayingTopic(0, null);
+  _startNowPlayingPlayback();
+}
+
+function closeNowPlaying() {
+  AppState.nowPlaying.active = false;
+  AppState.nowPlaying.isPlaying = false;
+  PlaybackController.stop();
+  DOM.nowPlayingOverlay.classList.remove('visible');
+  DOM.nowPlayingOverlay.setAttribute('aria-hidden', 'true');
+  _syncNowPlayingPauseIcon(false);
+}
+
+function _startNowPlayingPlayback() {
+  const threads = Store.getThreads();
+  const thread = threads[AppState.nowPlaying.topicIndex];
+  if (!thread) return;
+  AppState.nowPlaying.isPlaying = true;
+  _syncNowPlayingPauseIcon(true);
+  PlaybackController.playThread(thread, null).catch(() => {});
+}
+
+function _toggleNowPlayingPause() {
+  if (!AppState.nowPlaying.active) return;
+  if (PlaybackController.audio.paused) {
+    AppState.nowPlaying.isPlaying = true;
+    _syncNowPlayingPauseIcon(true);
+    PlaybackController.audio.play().catch(() => {});
+  } else {
+    AppState.nowPlaying.isPlaying = false;
+    _syncNowPlayingPauseIcon(false);
+    PlaybackController.audio.pause();
+  }
+}
+
+function _syncNowPlayingPauseIcon(isPlaying) {
+  const playIcon = DOM.btnNpPlaypause?.querySelector('.np-icon-play');
+  const pauseIcon = DOM.btnNpPlaypause?.querySelector('.np-icon-pause');
+  if (playIcon) playIcon.style.display = isPlaying ? 'none' : '';
+  if (pauseIcon) pauseIcon.style.display = isPlaying ? '' : 'none';
+}
+
+function _nowPlayingGoToTopic(index, direction) {
+  const threads = Store.getThreads();
+  if (!threads.length) return;
+  const safeIndex = Math.max(0, Math.min(index, threads.length - 1));
+  if (safeIndex === AppState.nowPlaying.topicIndex && AppState.nowPlaying.active) return;
+  PlaybackController.stop();
+  AppState.nowPlaying.topicIndex = safeIndex;
+  _renderNowPlayingTopic(safeIndex, direction);
+  _startNowPlayingPlayback();
+}
+
+function _renderNowPlayingTopic(index, direction) {
+  const threads = Store.getThreads();
+  const thread = threads[index];
+  if (!thread) return;
+
+  // Topic title
+  if (DOM.npTopicTitle) DOM.npTopicTitle.textContent = thread.label || `Topic ${index + 1}`;
+
+  // Slide animation
+  if (direction && DOM.npAvatars) {
+    const outClass = direction === 'next' ? 'slide-out-left' : 'slide-out-right';
+    DOM.npAvatars.classList.add(outClass);
+    setTimeout(() => {
+      if (!DOM.npAvatars) return;
+      DOM.npAvatars.classList.remove(outClass);
+      _buildNowPlayingAvatars(thread);
+      const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
+      DOM.npAvatars.classList.add(inClass);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          DOM.npAvatars?.classList.add('entering');
+          setTimeout(() => DOM.npAvatars?.classList.remove(inClass, 'entering'), 400);
+        });
+      });
+    }, 220);
+  } else {
+    _buildNowPlayingAvatars(thread);
+  }
+
+  // Dots
+  _renderNowPlayingDots(threads.length, index);
+}
+
+function _buildNowPlayingAvatars(thread) {
+  if (!DOM.npAvatars) return;
+  const people = [];
+  const seen = new Set();
+  const durationByKey = new Map();
+  const messages = (thread.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+  messages.forEach(msg => {
+    const key = msg.authorId || msg.author?.name;
+    if (!key) return;
+    durationByKey.set(key, (durationByKey.get(key) || 0) + (Number(msg.durationMs) || 0));
+    if (seen.has(key)) return;
+    seen.add(key);
+    people.push({
+      id: msg.authorId || msg.author?.name || '',
+      name: msg.author?.name || 'Friend',
+      color: msg.author?.color || pickUserColor(msg.author?.name || ''),
+      avatarUrl: msg.author?.avatarUrl || '',
+    });
+  });
+
+  const displayPeople = people.slice(0, 3);
+  DOM.npAvatars.setAttribute('data-count', displayPeople.length);
+  const positions = ['np-avatar--a', 'np-avatar--b', 'np-avatar--c'];
+  DOM.npAvatars.innerHTML = displayPeople.map((person, i) => {
+    const accent = person.color;
+    const initials = buildUserInitials(person.name);
+    const photoStyle = person.avatarUrl
+      ? `background-image:url('${person.avatarUrl}')`
+      : `--avatar-accent:${accent};`;
+    const photoClass = person.avatarUrl ? '' : 'avatar-fallback';
+    const totalMs = durationByKey.get(person.id) || 0;
+    const secs = Math.round(totalMs / 1000);
+    const timestamp = totalMs > 0
+      ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+      : '';
+    return `
+      <div class="np-avatar ${positions[i]}" data-author-id="${escapeHtml(person.id)}" style="--np-accent:${accent}">
+        <div class="np-avatar__ring-wrap">
+          <div class="np-avatar__photo ${photoClass}" style="${photoStyle}">
+            ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
+          </div>
+          <div class="np-avatar__label-wrap">
+            <div class="np-avatar__ring np-avatar__ring--outer"></div>
+            <div class="np-avatar__ring np-avatar__ring--inner"></div>
+            <div class="np-avatar__label">${escapeHtml(person.name)}</div>
+          </div>
+        </div>
+        ${timestamp ? `<div class="np-avatar__duration">${timestamp}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function _renderNowPlayingDots(total, activeIndex) {
+  if (!DOM.npDots) return;
+  if (total <= 1) { DOM.npDots.innerHTML = ''; return; }
+  DOM.npDots.innerHTML = Array.from({ length: total }, (_, i) =>
+    `<div class="np-dot${i === activeIndex ? ' is-active' : ''}"></div>`
+  ).join('');
+}
+
+function _syncNowPlayingSpeaker() {
+  if (!AppState.nowPlaying.active || !DOM.npAvatars) return;
+  const activeItemId = PlaybackController.activeItemId;
+  if (!activeItemId) {
+    DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => el.classList.remove('is-speaking'));
+    return;
+  }
+  const threads = Store.getThreads();
+  const thread = threads[AppState.nowPlaying.topicIndex];
+  if (!thread) return;
+  let speakingId = null;
+  for (const msg of (thread.messages || [])) {
+    if (msg.id === activeItemId || msg.voiceMessageId === activeItemId) {
+      speakingId = msg.authorId || msg.author?.name || null;
+      break;
+    }
+  }
+  DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => {
+    el.classList.toggle('is-speaking', !!speakingId && el.dataset.authorId === speakingId);
+  });
 }
 
 function _showRecRow(which) {
@@ -2177,6 +2358,33 @@ function buildCreateGroupContactIndex(contacts = []) {
   });
 }
 
+function scoreCreateGroupContactMatch(contact, query) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  if (!normalizedQuery) return Number.POSITIVE_INFINITY;
+
+  const profileName = String(contact.matchedUser?.name || '').trim().toLowerCase();
+  const importedName = String(contact.display_name || '').trim().toLowerCase();
+  const phone = String(contact.phone_e164 || '').trim().toLowerCase();
+  const nameCandidates = [profileName, importedName].filter(Boolean);
+
+  for (const name of nameCandidates) {
+    if (name === normalizedQuery) return 0;
+  }
+  for (const name of nameCandidates) {
+    if (name.startsWith(normalizedQuery)) return 1;
+  }
+  for (const name of nameCandidates) {
+    if (name.split(/\s+/).some(part => part.startsWith(normalizedQuery))) return 2;
+  }
+  for (const name of nameCandidates) {
+    if (name.includes(normalizedQuery)) return 3;
+  }
+  if (phone.startsWith(normalizedQuery)) return 4;
+  if (phone.includes(normalizedQuery)) return 5;
+
+  return Number.POSITIVE_INFINITY;
+}
+
 function renderCreateGroupContactRow(contact, { compact = false } = {}) {
   const phone = contact.phone_e164 || '';
   const matchedUser = contact.matched_user_id
@@ -2220,18 +2428,22 @@ function renderCreateGroupContactRow(contact, { compact = false } = {}) {
 async function renderCreateGroupPicker() {
   if (!DOM.createChatContacts) return;
 
-  const query = String(AppState.onboarding.createGroupSearchQuery || '').trim().toLowerCase();
+  const query = String(AppState.onboarding.createGroupSearchQuery || '').trim();
   const allContacts = buildCreateGroupContactIndex(await getCreateGroupContacts());
   const filteredContacts = !query
     ? []
-    : allContacts.filter(contact => {
-      const haystack = [
-        contact.display_name,
-        contact.phone_e164,
-        contact.matchedUser?.name,
-      ].filter(Boolean).join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
+    : allContacts
+      .map(contact => ({
+        contact,
+        score: scoreCreateGroupContactMatch(contact, query),
+        displayName: (contact.matchedUser?.name || contact.display_name || contact.phone_e164 || '').toLowerCase(),
+      }))
+      .filter(entry => Number.isFinite(entry.score))
+      .sort((a, b) => {
+        if (a.score !== b.score) return a.score - b.score;
+        return a.displayName.localeCompare(b.displayName);
+      })
+      .map(entry => entry.contact);
 
   const exactPhone = normalizePhoneNumber(query);
   const manualMatchedUser = exactPhone ? await getRegisteredUserByPhone(exactPhone) : null;
@@ -2700,6 +2912,9 @@ function renderGroupSettings(invites = []) {
   const canManage = canManageActiveChat();
   const editing = canManage && AppState.groupSettingsEditing;
   const members = chat.members || [];
+  const otherMembers = getChatOtherMembers(chat);
+  const isDirectChat = otherMembers.length === 1;
+  const directMember = isDirectChat ? resolveAvatarMember(otherMembers[0]) : null;
   AppState.groupSettingsInvites = invites;
 
   if (DOM.inputGroupSettingsName) {
@@ -2729,13 +2944,13 @@ function renderGroupSettings(invites = []) {
   if (DOM.groupSettingsPeopleStrip) {
     const invitePhoneSet = new Set(invites.map(invite => invite.phone_e164).filter(Boolean));
     const peopleStripEntries = [
-      ...members.map(member => ({
+      ...otherMembers.map(member => ({
         member,
-        status: member.id === getCurrentUserId() ? 'You' : (member.pending || invitePhoneSet.has(member.phoneE164) ? 'Pending Invite' : ''),
+        status: member.pending || invitePhoneSet.has(member.phoneE164) ? 'Pending Invite' : '',
         key: member.id || member.phoneE164 || member.name || '',
       })),
       ...invites
-        .filter(invite => invite.phone_e164 && !members.some(member => member.phoneE164 === invite.phone_e164))
+        .filter(invite => invite.phone_e164 && !otherMembers.some(member => member.phoneE164 === invite.phone_e164))
         .map(invite => ({
           member: {
             id: `invite-${invite.id}`,
@@ -2766,6 +2981,11 @@ function renderGroupSettings(invites = []) {
       `).join('')}
       ${addNode}
     `;
+  }
+
+  if (DOM.groupSettingsContactCard && DOM.groupSettingsContactPhone) {
+    DOM.groupSettingsContactCard.hidden = !(isDirectChat && directMember?.phoneE164);
+    DOM.groupSettingsContactPhone.textContent = directMember?.phoneE164 || '';
   }
 
   DOM.groupSettings?.setAttribute('data-group-background', AppState.groupSettingsBackground);
@@ -3465,8 +3685,6 @@ function wireEvents() {
       navigate('chats', 'back', { replace: true });
     }
   });
-  DOM.btnChatViewBubbles?.addEventListener('click', () => setChatViewMode('immersive'));
-  DOM.btnChatViewThreads?.addEventListener('click', () => setChatViewMode('threads'));
   DOM.btnChatMore?.addEventListener('click', openGroupSettingsScreen);
   DOM.btnGroupSettingsBack?.addEventListener('click', () => {
     AppState.groupSettingsEditing = false;
@@ -3529,7 +3747,7 @@ function wireEvents() {
       setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
       return;
     }
-    triggerDirectContactsEntry('group-settings');
+    openCreateGroupComposer();
   });
   DOM.groupSettingsBackgroundOptions?.addEventListener('click', event => {
     const option = event.target.closest('[data-group-background]');
@@ -3569,6 +3787,43 @@ function wireEvents() {
       setButtonBusy(DOM.btnLeaveGroup, false);
     }
   });
+
+  DOM.btnNowPlaying?.addEventListener('click', () => {
+    openNowPlaying();
+  });
+  DOM.btnNpClose?.addEventListener('click', closeNowPlaying);
+  DOM.btnNpPlaypause?.addEventListener('click', _toggleNowPlayingPause);
+  DOM.btnNpPrev?.addEventListener('click', () => {
+    _nowPlayingGoToTopic(AppState.nowPlaying.topicIndex - 1, 'prev');
+  });
+  DOM.btnNpNext?.addEventListener('click', () => {
+    _nowPlayingGoToTopic(AppState.nowPlaying.topicIndex + 1, 'next');
+  });
+
+  // Hook into PlaybackController audio events for now-playing sync
+  PlaybackController.init();
+  PlaybackController.audio.addEventListener('play', () => _syncNowPlayingSpeaker());
+  PlaybackController.audio.addEventListener('timeupdate', () => _syncNowPlayingSpeaker());
+  PlaybackController.audio.addEventListener('pause', () => {
+    if (!AppState.nowPlaying.active) return;
+    if (!PlaybackController.audio.ended) {
+      _syncNowPlayingPauseIcon(false);
+      AppState.nowPlaying.isPlaying = false;
+    }
+  });
+
+  // When a full thread finishes playing, auto-advance to next topic
+  window.onThreadPlaybackComplete = () => {
+    if (!AppState.nowPlaying.active) return;
+    const threads = Store.getThreads();
+    const nextIndex = AppState.nowPlaying.topicIndex + 1;
+    if (nextIndex < threads.length) {
+      setTimeout(() => _nowPlayingGoToTopic(nextIndex, 'next'), 400);
+    } else {
+      _syncNowPlayingPauseIcon(false);
+      AppState.nowPlaying.isPlaying = false;
+    }
+  };
 
   DOM.btnMic.addEventListener('click', () => {
     clearReplyTarget();

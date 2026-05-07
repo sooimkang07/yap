@@ -210,7 +210,7 @@ function buildUserInitials(name) {
 }
 
 function pickUserColor(name = '') {
-  const palette = ['#B8D8FF', '#DEC0F8', '#FFDEB8', '#CBECCF', '#FFD6E7', '#FFE7B8'];
+  const palette = ['#B8D8FF', '#DEC0F8', '#FFDEB8', '#DFFFB8'];
   const chars = Array.from(String(name));
   const score = chars.reduce((sum, char) => sum + char.charCodeAt(0), 0);
   return palette[score % palette.length];

@@ -46,6 +46,12 @@ Use the web CSS tokens as the styling source of truth:
 --color-sooim: #B8D8FF;
 --color-chloe: #DEC0F8;
 --color-maria: #FFDEB8;
+--color-lime: #DFFFB8;
+
+--user-glow-1: #B8D8FF;
+--user-glow-2: #DEC0F8;
+--user-glow-3: #FFDEB8;
+--user-glow-4: #DFFFB8;
 
 --color-wave-active: #F97878;
 --color-wave-stopped: #8A8A8E;
@@ -68,6 +74,10 @@ radial-gradient(circle at top, rgba(255, 233, 205, 0.56), transparent 35%),
 radial-gradient(circle at bottom left, rgba(191, 221, 255, 0.44), transparent 36%),
 linear-gradient(148deg, #fdfbff 0%, #fff9f5 40%, #f6f8ff 80%, #fdfbff 100%)
 ```
+
+This exact background fill is universal. All app screens should use the same
+gradient field unless the user explicitly requests a different mode. Do not
+introduce one-off solid screen backgrounds for new screens.
 
 ## Surface Rules
 
@@ -96,9 +106,11 @@ linear-gradient(148deg, #fdfbff 0%, #fff9f5 40%, #f6f8ff 80%, #fdfbff 100%)
 - Keep the base UI light, warm, and softly pastel.
 - Use black/near-black for primary text and important primary buttons.
 - Use yAp participant colors consistently:
-  - Sooim: `#B8D8FF`
-  - Chloe: `#DEC0F8`
-  - Maria: `#FFDEB8`
+  - `#B8D8FF`
+  - `#DEC0F8`
+  - `#FFDEB8`
+  - `#DFFFB8`
+- User glows must come from that four-color palette only.
 - Use coral/red `#F97878` for active recording/waveform emphasis.
 - Use iOS blue `#007AFF` only where the web UI already uses link/action blue.
 - Avoid introducing a new dominant color family without updating the whole
@@ -108,6 +120,10 @@ linear-gradient(148deg, #fdfbff 0%, #fff9f5 40%, #f6f8ff 80%, #fdfbff 100%)
 
 - Voice recording and playback controls are core brand moments. Match the web
   app's rounded, glassy, tactile controls.
+- All navigation and playback buttons must use the glass effect.
+- The glass effect should be created with CSS/SwiftUI styling: translucent fills,
+  radial highlights, blur/saturation, soft borders, inset highlights, and subtle
+  shadows. Do not rely on `glass-bg.png` as a button background.
 - Prefer icon/image controls for record, play, pause, stop, close, send, add, and
   back actions when the web app uses them.
 - Use existing assets in `assets/` before drawing new icons.
@@ -166,10 +182,13 @@ document the compromise.
 
 - Reuse:
   - `assets/y.png`
-  - `assets/yap-logo.png`
-  - `assets/glass-bg.png`
   - record/play/pause/stop/send/close/add SVG assets
   - avatar/contact placeholders
+- `assets/y.png` is the logo. Use it wherever the yAp logo appears.
+- Do not use `yap-logo.png` or another logo asset as a replacement unless the
+  user explicitly changes the brand direction.
+- Do not use `glass-bg.png` as the background for navigation or playback
+  buttons. Style the glass effect directly in CSS or SwiftUI.
 - Do not replace the brand or main control assets without explicit user approval.
 - New assets should match the existing soft, glassy, mobile visual language.
 
@@ -184,4 +203,3 @@ Before finishing any UI task, check:
 - Does it fit on mobile without clipping or overlap?
 - Did I avoid generic Swift/iOS defaults where yAp has a custom web pattern?
 - Did I preserve the no-fake-flow rule?
-

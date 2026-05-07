@@ -11,6 +11,11 @@
   --color-sooim:  #B8D8FF;
   --color-chloe:  #DEC0F8;
   --color-maria:  #FFDEB8;
+  --color-lime:   #DFFFB8;
+  --user-glow-1:  #B8D8FF;
+  --user-glow-2:  #DEC0F8;
+  --user-glow-3:  #FFDEB8;
+  --user-glow-4:  #DFFFB8;
 
   /* Waveform */
   --color-wave-active:  #F97878;
@@ -47,8 +52,8 @@
     inset 0 1px 0 rgba(255,255,255,0.96),
     inset 0 -10px 22px rgba(255,255,255,0.22),
     0 10px 28px rgba(220, 221, 230, 0.24);
-  --glass-btn-image: url('assets/glass-bg.png');
   --glass-btn-bg:
+    radial-gradient(circle at 28% 18%, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.34) 34%, rgba(255,255,255,0) 62%),
     linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(247,247,247,0.62) 100%);
 
   /* Transitions */
@@ -1107,11 +1112,7 @@ button {
   width: 42px;
   height: 42px;
   border-radius: var(--r-full);
-  background-color: transparent;
-  background-image: var(--glass-btn-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background: var(--glass-btn-bg);
   color: #1a3a5c;
   font-size: 14px;
   font-weight: 600;
@@ -2222,7 +2223,7 @@ button {
 }
 
 html, body {
-  background: #ece7e2;
+  background: var(--screen-background);
 }
 
 #app {
@@ -4378,11 +4379,7 @@ select,
 .icon-btn,
 .icon-btn--header,
 .rec-icon-btn {
-  background-color: var(--surface-glass-soft);
-  background-image: var(--glass-btn-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background: var(--control-glass-bg);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
   border: var(--border-glass-soft);
@@ -4558,11 +4555,7 @@ select,
 
 #recording-overlay .rec-action-btn {
   border-radius: var(--radius-pill);
-  background-color: var(--surface-glass-soft);
-  background-image: var(--glass-btn-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background: var(--control-glass-bg);
   border: var(--border-glass-strong);
   box-shadow: var(--control-glass-shadow);
   backdrop-filter: blur(24px) saturate(150%);

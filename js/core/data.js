@@ -898,11 +898,11 @@ async function removeMemberFromChat(chatId, userId) {
 
 async function getNotificationRecipients(chatId, excludeUserId) {
   const fallbackRecipients = (AppState?.activeChat?.members || [])
-    .filter(member => member?.id !== excludeUserId && member?.phoneE164)
+    .filter(member => member?.id !== excludeUserId && (member?.id || member?.phoneE164))
     .map(member => ({
       id: member.id,
       name: member.name || '',
-      phone_e164: normalizePhoneNumber(member.phoneE164),
+      phone_e164: normalizePhoneNumber(member.phoneE164 || ''),
     }));
 
   if (!supabaseClient || !chatId) return dedupeNotificationRecipients(fallbackRecipients);
@@ -939,11 +939,11 @@ async function getNotificationRecipients(chatId, excludeUserId) {
   }
 
   const joinedRecipients = (joinedUsers || [])
-    .filter(user => user?.id !== excludeUserId && user?.phone_e164)
+    .filter(user => user?.id !== excludeUserId)
     .map(user => ({
       id: user.id,
       name: user.name || '',
-      phone_e164: normalizePhoneNumber(user.phone_e164),
+      phone_e164: normalizePhoneNumber(user.phone_e164 || ''),
     }));
 
   return dedupeNotificationRecipients([...joinedRecipients, ...fallbackRecipients]);
@@ -952,9 +952,9 @@ async function getNotificationRecipients(chatId, excludeUserId) {
 function dedupeNotificationRecipients(recipients = []) {
   const seen = new Set();
   return recipients.filter(recipient => {
-    const phone = recipient?.phone_e164 || '';
-    if (!phone || seen.has(phone)) return false;
-    seen.add(phone);
+    const key = recipient?.id || recipient?.phone_e164 || '';
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

@@ -5,6 +5,7 @@ enum AppConfig {
 
     // Update this once the iOS app is running against your local or hosted backend.
     static let apiBaseURL = URL(string: "http://localhost:3000")!
+    static let oneSignalAppID = "0b61ec11-ed64-4f05-b024-127c875b42ac"
 
     static let endpoints = Endpoints()
 
@@ -16,4 +17,3 @@ enum AppConfig {
         let notifications = "/api/send-message-notifications"
     }
 }
-

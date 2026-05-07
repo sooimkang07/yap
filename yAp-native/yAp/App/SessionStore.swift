@@ -17,6 +17,7 @@ final class SessionStore: ObservableObject {
 
     private let authService = AuthService()
     private let contactsService = ContactsService()
+    private let pushNotifications = PushNotificationService.shared
 
     func beginPhoneAuth() {
         phase = .phoneAuth
@@ -30,6 +31,8 @@ final class SessionStore: ObservableObject {
 
     func verifyCode(_ code: String) async throws {
         try await authService.verifyCode(phone: currentUser.phoneE164, code: code)
+        pushNotifications.identify(userID: currentUser.id)
+        pushNotifications.requestPermissionIfConfigured()
         phase = .profileSetup
     }
 
@@ -49,8 +52,10 @@ final class SessionStore: ObservableObject {
 
     func completeProfile(name: String) {
         currentUser.displayName = name
-        currentUser.initials = String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+        currentUser.initials = String(name.split(separator: " ").prefix(2).compactMap { $0.first }).uppercased()
         currentUser.isProfileComplete = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        pushNotifications.identify(userID: currentUser.id)
+        pushNotifications.requestPermissionIfConfigured()
         phase = .chats
     }
 }

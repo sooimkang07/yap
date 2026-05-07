@@ -23,27 +23,8 @@ struct ContactsService {
     }
 
     func fetchMeProfile() throws -> ImportedPhoneProfile? {
-        let keys: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-            CNContactImageDataKey as CNKeyDescriptor,
-            CNContactThumbnailImageDataKey as CNKeyDescriptor
-        ]
-
-        let contact = try store.unifiedMeContact(withKeysToFetch: keys)
-        let name = [contact.givenName, contact.familyName]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !name.isEmpty else { return nil }
-
-        let initials = String(name.split(separator: " ").prefix(2).compactMap(\.first))
-        return ImportedPhoneProfile(
-            displayName: name,
-            initials: initials.uppercased(),
-            avatarData: contact.imageData ?? contact.thumbnailImageData
-        )
+        // iOS does not expose the user's Me card to third-party apps.
+        nil
     }
 
     func fetchContacts() throws -> [GroupRecipient] {
@@ -77,4 +58,3 @@ struct ContactsService {
         return recipients.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 }
-

@@ -1,5 +1,6 @@
 const { ensureLocalEnv } = require('./_env');
 const { sendSms } = require('./_twilio');
+const { isOneSignalConfigured, sendPushNotification } = require('./_onesignal');
 
 ensureLocalEnv();
 
@@ -19,13 +20,51 @@ module.exports = async function handler(req, res) {
     const recipients = Array.isArray(body?.recipients) ? body.recipients : [];
     const isReply = !!body?.isReply;
     const kind = String(body?.kind || 'message').trim() || 'message';
+    const deliveryMode = String(process.env.YAP_NOTIFICATION_DELIVERY_MODE || 'push').toLowerCase();
 
     const results = [];
+    const openUrl = buildChatUrl(baseUrl, body?.chatId);
+    const heading = kind === 'chat_invite' ? chatName : `${senderName} in ${chatName}`;
+    const pushMessage = kind === 'chat_invite'
+      ? `${senderName} added you to "${chatName}" on yAp.`
+      : buildPushNotificationBody({ senderName, threadLabel, transcript, isReply });
+    const pushRecipientIds = recipients
+      .map(recipient => recipient?.id)
+      .filter(id => id && !String(id).startsWith('pending-'));
+
+    if (isOneSignalConfigured() && deliveryMode !== 'sms') {
+      try {
+        const pushResults = await sendPushNotification({
+          recipientIds: pushRecipientIds,
+          heading,
+          message: pushMessage,
+          url: openUrl,
+          data: {
+            chat_id: body?.chatId || '',
+            kind,
+            thread_label: threadLabel,
+          },
+        });
+        results.push(...pushResults.map(result => ({ ...result, channel: 'push' })));
+      } catch (error) {
+        results.push({
+          channel: 'push',
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown push delivery error',
+        });
+        if (deliveryMode !== 'both') {
+          return res.status(error.statusCode || 500).json({ results });
+        }
+      }
+    }
+
+    if (deliveryMode === 'push' && isOneSignalConfigured()) {
+      return res.status(200).json({ results });
+    }
 
     for (const recipient of recipients) {
       if (!recipient?.id || !recipient?.phone_e164) continue;
 
-      const openUrl = buildChatUrl(baseUrl, body?.chatId);
       const greeting = recipient.name ? `Hi ${recipient.name}, ` : '';
       const message = kind === 'chat_invite'
         ? `${greeting}${senderName} added you to "${chatName}" on yAp. Open the chat: ${openUrl}`
@@ -41,10 +80,11 @@ module.exports = async function handler(req, res) {
 
       try {
         await sendSms(recipient.phone_e164, message);
-        results.push({ id: recipient.id, status: 'sent' });
+        results.push({ id: recipient.id, channel: 'sms', status: 'sent' });
       } catch (error) {
         results.push({
           id: recipient.id,
+          channel: 'sms',
           status: 'failed',
           error: error instanceof Error ? error.message : 'Unknown SMS delivery error',
         });
@@ -90,4 +130,10 @@ function buildMessageNotification({ greeting, senderName, chatName, threadLabel,
   const opener = isReply ? 'sent a voice reply' : 'sent a new yAp';
   const preview = transcript ? ` "${clipText(transcript, 18)}"` : '';
   return `${greeting}${senderName} ${opener} in "${chatName}" about ${threadLabel}.${preview} Open: ${openUrl}`;
+}
+
+function buildPushNotificationBody({ senderName, threadLabel, transcript, isReply }) {
+  const opener = isReply ? 'sent a voice reply' : 'sent a new yAp';
+  const preview = transcript ? `: "${clipText(transcript, 14)}"` : '.';
+  return `${senderName} ${opener} about ${threadLabel}${preview}`;
 }

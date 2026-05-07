@@ -30,6 +30,26 @@ The demo should show:
 6. Send invite or message notification by SMS.
 7. Recipient taps the SMS link and returns to the web app.
 
+## UI North Star
+
+The web app is the canonical UI for yAp. It is not merely a fallback surface.
+When presenting, designing, or porting to Swift, use the web app as the visual
+and interaction reference.
+
+The Swift app should replicate:
+
+- screen order and navigation rhythm
+- chat layout
+- recording controls
+- playback controls
+- glass/image-led visual language
+- yAp branding and assets
+- spacing and mobile proportions
+- wording and empty/error states
+
+Do not let SwiftUI defaults redefine the product. Native implementation should
+serve the web design, not replace it.
+
 ## Notification Behavior
 
 Production should use:
@@ -51,7 +71,7 @@ Sooim sent a new yAp in "Besties". Open: https://yap-murex.vercel.app/...
 
 The Swift app remains useful as:
 
-- a native UX prototype
+- a native implementation attempt of the web UI
 - a local iPhone build for personal demos
 - a future implementation path if Apple Developer setup becomes available
 - a way to explore native recording, contacts, playback, and push code
@@ -68,4 +88,3 @@ explicitly says Apple Developer/TestFlight/App Store is now available.
 - Do not tell users they can install the Swift app on their phones unless there
   is a clear distribution mechanism.
 - Do not rely on OneSignal push for demo users without Apple Developer/APNs.
-

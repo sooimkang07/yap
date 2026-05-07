@@ -27,6 +27,9 @@ end or be hidden until they do.
 - Keep the public demo usable through the web/PWA app plus SMS notifications.
 - Continue native iPhone exploration in Swift, but do not assume Apple Developer,
   TestFlight, App Store distribution, or native push will be available.
+- Treat the web app as the UI north star. The Swift app should replicate the
+  web app's screens, visual language, interaction model, pacing, and product
+  feel as closely as SwiftUI allows.
 - Keep the implementation clean, efficient, testable, and understandable enough
   that future LLMs can safely continue the work.
 
@@ -63,6 +66,8 @@ end or be hidden until they do.
   - `assets/`
 - The web app is the primary shareable demo surface because it can be opened by
   other people without App Store/TestFlight distribution.
+- The web app is also the canonical UI/design reference. Do not redesign the
+  product in Swift just because iOS has different default components.
 
 ### Native iOS Client
 
@@ -152,9 +157,13 @@ The Swift app in `yAp-native/` remains important as:
 - personal-device prototype
 - future iOS implementation reference
 - Swift architecture exploration
+- eventual native mirror of the web app UI
 
 When a feature must be demoed to other people, make sure the web/SMS path works.
 When a feature is explicitly native-only or exploratory, work in `yAp-native/`.
+When a feature exists in both clients, the Swift version should visually and
+behaviorally follow the web version unless the user explicitly approves a native
+departure.
 
 ## Architecture Principles
 
@@ -249,6 +258,13 @@ The project has already hit Supabase free-plan egress limits. Be careful.
 ## Web App Rules
 
 - Keep the web app mobile-first and messaging-focused.
+- Treat the web app as the source of truth for yAp's UI direction.
+- Preserve the web app's visual identity when making changes:
+  - glassy image-led surfaces
+  - compact mobile messaging flow
+  - voice-first controls
+  - playful but functional yAp branding
+  - the existing asset language in `assets/`
 - Do not add marketing/landing-page structure unless explicitly requested.
 - Existing visual assets should be reused before adding new ones.
 - Avoid decorative UI that makes the app feel less like a messaging tool.
@@ -261,6 +277,15 @@ The project has already hit Supabase free-plan egress limits. Be careful.
 ## Native iOS Rules
 
 - Work in `yAp-native/`, not `yap-ios/`, unless explicitly instructed.
+- The Swift app must replicate the web app UI as the north-star design. Before
+  changing Swift screens, inspect the corresponding web HTML/CSS/JS and assets.
+- Do not replace the web design with generic iOS defaults, system-list styling,
+  or unrelated native design patterns unless a platform constraint makes it
+  necessary.
+- Reuse or recreate the web app's assets, spacing, colors, typography feel,
+  recording controls, chat layout, and screen flow.
+- If exact parity is difficult, document the mismatch and choose the closest
+  faithful SwiftUI implementation.
 - Keep SwiftUI views focused on presentation and interaction.
 - Put reusable service logic in `Core/Services/`.
 - Put reusable models in `Core/Models/`.

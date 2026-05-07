@@ -4,7 +4,7 @@
 Ship a real iPhone-native build of yAp that runs on your personal device within 7 days, without waiting for App Store review or broad distribution.
 
 This plan assumes:
-- the current web repo remains the backend/reference product
+- the current web app remains the UI north star and product reference
 - the iOS client is the only new client we actively build this week
 - the app only needs to run on your iPhone via Xcode + your personal Apple ID team
 
@@ -25,14 +25,19 @@ Keep using:
 - Twilio for OTP and SMS invite/notification flows
 - existing server APIs for transcript, segmentation, reply generation, and synthesis
 
-## What Stops Being Primary
-The browser UI is no longer the primary shipping client for the one-week deadline.
+## UI Parity Rule
+The browser UI is the canonical design. The Swift app must copy it as closely as
+SwiftUI allows.
 
-The current web app becomes:
+The current web app is:
+- UI source of truth
 - product prototype
 - backend integration reference
 - schema and logic reference
-- fallback internal test surface
+- shareable demo surface
+
+Do not redesign yAp as a generic iOS app. The migration succeeds only if the
+native version feels like the web app brought to Swift, not a different product.
 
 ## What the Native App Must Do This Week
 The iOS build only needs the core loop:

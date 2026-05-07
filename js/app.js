@@ -69,6 +69,7 @@ const AppState = {
     conversationPrimePromise: null,
     conversationCacheVersions: new Map(),
     remotePresence: new Map(),
+    lastChatsRefreshAt: 0,
   },
   navTimer: null,
   viewportSyncRaf: 0,
@@ -139,9 +140,10 @@ function resetAppStateForUser(userId = '') {
   AppState.pendingChats = [];
   AppState.chatsRefreshPromise = null;
   AppState.sync.chatSnapshot = null;
+  AppState.sync.lastChatsRefreshAt = 0;
   Store.clear();
   setCurrentUserId(nextUserId || null);
-  if (nextUserId) {
+  if (nextUserId && YAP_SUPABASE_REMOTE_SYNC_ENABLED) {
     startRemoteSync();
   }
 }
@@ -584,7 +586,7 @@ function buildConversationCacheVersion(chat) {
 }
 
 async function primeConversationCaches() {
-  if (!AppState.supabaseOk || !getCurrentUserId()) return [];
+  if (!YAP_SUPABASE_PRELOAD_CONVERSATIONS || !AppState.supabaseOk || !getCurrentUserId()) return [];
   if (AppState.sync.conversationPrimePromise) return AppState.sync.conversationPrimePromise;
 
   const chatsToPrime = (AppState.chats || []).filter(chat => chat?.id);
@@ -627,7 +629,7 @@ async function primeConversationCaches() {
 }
 
 function scheduleConversationCachePrime(delayMs = 180) {
-  if (!AppState.supabaseOk || !getCurrentUserId()) return;
+  if (!YAP_SUPABASE_PRELOAD_CONVERSATIONS || !AppState.supabaseOk || !getCurrentUserId()) return;
   if (AppState.sync.conversationPrimeTimer) {
     window.clearTimeout(AppState.sync.conversationPrimeTimer);
   }
@@ -725,6 +727,7 @@ function buildChatActivitySnapshot(chats = AppState.chats) {
 }
 
 function queueRealtimeSync(delayMs = 250) {
+  if (!YAP_SUPABASE_REMOTE_SYNC_ENABLED) return;
   if (AppState.sync.realtimeTimer) {
     window.clearTimeout(AppState.sync.realtimeTimer);
   }
@@ -876,6 +879,11 @@ async function syncRemoteState({ forceConversation = false } = {}) {
 }
 
 function startRemoteSync() {
+  if (!YAP_SUPABASE_REMOTE_SYNC_ENABLED) {
+    stopRemoteSync();
+    return;
+  }
+
   if (AppState.sync.intervalId) {
     ensureRealtimeSyncChannel();
     return;
@@ -884,7 +892,7 @@ function startRemoteSync() {
   AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
   AppState.sync.intervalId = window.setInterval(() => {
     syncRemoteState({ forceConversation: AppState.screen === 'chat' });
-  }, 8000);
+  }, YAP_SUPABASE_SYNC_INTERVAL_MS);
   ensureRealtimeSyncChannel();
 
   if (AppState.sync.handlersBound) return;
@@ -910,6 +918,7 @@ function stopRemoteSync() {
   AppState.sync.intervalId = 0;
   AppState.sync.inFlight = false;
   AppState.sync.chatSnapshot = null;
+  AppState.sync.lastChatsRefreshAt = 0;
   if (AppState.sync.realtimeTimer) {
     window.clearTimeout(AppState.sync.realtimeTimer);
   }
@@ -1483,7 +1492,7 @@ async function hydrateActiveConversation(force = false) {
   const shouldReuse = !force
     && AppState.conversationHydratedChatId === activeChatId
     && AppState.conversationHydratedAt
-    && (Date.now() - AppState.conversationHydratedAt) < 5000;
+    && (Date.now() - AppState.conversationHydratedAt) < YAP_SUPABASE_CONVERSATION_CACHE_TTL_MS;
   if (shouldReuse) return Store.getThreads();
 
   AppState.conversationHydrating = hydrateChatFromSupabase(activeChatId)
@@ -2686,8 +2695,15 @@ async function refreshChats() {
     return AppState.chats;
   }
 
-  const remoteChats = await getChatsForUser(getCurrentUserId());
+  const lastRefreshAt = Number(AppState.sync.lastChatsRefreshAt || 0);
   const cachedChats = readCachedChatsForUser(getCurrentUserId());
+  if (cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
+    AppState.chats = cachedChats;
+    return AppState.chats;
+  }
+
+  const remoteChats = await getChatsForUser(getCurrentUserId());
+  AppState.sync.lastChatsRefreshAt = Date.now();
   const resolvedRemoteChats = Array.isArray(remoteChats) ? remoteChats : cachedChats;
   const pendingChatFreshnessMs = 2 * 60 * 1000;
   const now = Date.now();
@@ -3085,7 +3101,7 @@ async function routeAuthenticatedUser() {
   if (getCurrentUserId() !== appUser.id) {
     resetAppStateForUser(appUser.id);
   } else {
-    startRemoteSync();
+    if (YAP_SUPABASE_REMOTE_SYNC_ENABLED) startRemoteSync();
   }
   prefillProfileForm(appUser);
 
@@ -3920,7 +3936,7 @@ async function boot() {
   setDisplay(DOM.btnChatMore, true);
 
   AppState.supabaseOk = initSupabase();
-  startRemoteSync();
+  if (YAP_SUPABASE_REMOTE_SYNC_ENABLED) startRemoteSync();
   if (AppState.supabaseOk && supabaseClient?.auth) {
     supabaseClient.auth.onAuthStateChange((_event, session) => {
       AppState.auth.session = session || getStoredAuthSession() || null;

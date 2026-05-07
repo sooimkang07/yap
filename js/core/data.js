@@ -7,6 +7,7 @@
 let supabaseClient = null;
 const APP_CHATS_CACHE_PREFIX = 'yap.cache.chats';
 const APP_THREADS_CACHE_PREFIX = 'yap.cache.threads';
+const APP_USER_SELECT_FIELDS = 'id, name, color_hex, avatar_url, auth_user_id, phone_e164, email, initials, profile_completed, created_at, updated_at';
 
 function initSupabase() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -442,7 +443,7 @@ async function getAppUserByAuthUserId(authUserId) {
 
   const { data, error } = await supabaseClient
     .from('users')
-    .select('*')
+    .select(APP_USER_SELECT_FIELDS)
     .eq('auth_user_id', authUserId)
     .order('updated_at', { ascending: false, nullsFirst: false })
     .limit(5);
@@ -470,7 +471,7 @@ async function getAppUserByPhone(phone) {
 
   const { data, error } = await supabaseClient
     .from('users')
-    .select('*')
+    .select(APP_USER_SELECT_FIELDS)
     .eq('phone_e164', normalizedPhone)
     .order('updated_at', { ascending: false, nullsFirst: false })
     .limit(5);
@@ -595,7 +596,7 @@ async function ensureAppUserFromAuthSession(session) {
       .from('users')
       .update(updatePayload)
       .eq('id', appUser.id)
-      .select()
+      .select(APP_USER_SELECT_FIELDS)
       .single();
 
     if (error) {
@@ -632,10 +633,10 @@ async function ensureAppUserFromAuthSession(session) {
   };
   if (authUserId) fullInsert.auth_user_id = authUserId;
 
-  let { data, error } = await supabaseClient.from('users').insert(fullInsert).select().single();
+  let { data, error } = await supabaseClient.from('users').insert(fullInsert).select(APP_USER_SELECT_FIELDS).single();
 
   if (error?.message?.includes('schema cache')) {
-    ({ data, error } = await supabaseClient.from('users').insert(baseInsert).select().single());
+    ({ data, error } = await supabaseClient.from('users').insert(baseInsert).select(APP_USER_SELECT_FIELDS).single());
   }
 
   if (error) {
@@ -672,10 +673,10 @@ async function saveUserProfile({ userId, authUserId, name, avatarUrl, phone }) {
   };
   if (authUserId) full.auth_user_id = authUserId;
 
-  let { data, error } = await supabaseClient.from('users').upsert(full, { onConflict: 'id' }).select().single();
+  let { data, error } = await supabaseClient.from('users').upsert(full, { onConflict: 'id' }).select(APP_USER_SELECT_FIELDS).single();
 
   if (error?.message?.includes('schema cache')) {
-    ({ data, error } = await supabaseClient.from('users').upsert(base, { onConflict: 'id' }).select().single());
+    ({ data, error } = await supabaseClient.from('users').upsert(base, { onConflict: 'id' }).select(APP_USER_SELECT_FIELDS).single());
   }
 
   if (error) throw error;
@@ -702,7 +703,7 @@ async function renameChat(chatId, name) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', chatId)
-    .select()
+    .select('id, name, created_at, created_by, avatar_url, updated_at')
     .single();
 
   if (error) throw error;
@@ -714,7 +715,7 @@ async function getInvitationsForChat(chatId) {
 
   const { data, error } = await supabaseClient
     .from('invitations')
-    .select('*')
+    .select('id, chat_id, inviter_id, invitee_name, phone_e164, email, invite_token, status, accepted_by, accepted_at, created_at, updated_at')
     .eq('chat_id', chatId)
     .in('status', ['pending', 'sent'])
     .order('created_at', { ascending: false });
@@ -743,7 +744,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
 
   const { data: existingMatches, error: existingError } = await supabaseClient
     .from('users')
-    .select('*')
+    .select(APP_USER_SELECT_FIELDS)
     .in('phone_e164', normalizedMembers.map(member => member.phone));
 
   if (existingError) throw existingError;
@@ -1041,7 +1042,7 @@ async function acceptInviteToken(inviteToken, acceptedByUserId, acceptedByPhone 
 
   const { data: invite, error: inviteError } = await supabaseClient
     .from('invitations')
-    .select('*')
+    .select('id, chat_id, inviter_id, invitee_name, phone_e164, email, invite_token, status, accepted_by, accepted_at, created_at, updated_at')
     .eq('invite_token', inviteToken)
     .maybeSingle();
 
@@ -1103,7 +1104,7 @@ async function saveImportedContacts(ownerUserId, contacts, source = 'icloud_vcar
   const { data, error } = await supabaseClient
     .from('imported_contacts')
     .insert(rows)
-    .select();
+    .select('id, owner_user_id, source, display_name, phone_e164, email, matched_user_id, invited_chat_id, created_at, updated_at');
 
   if (error) {
     console.warn('[yAp] saveImportedContacts failed:', error);
@@ -1118,9 +1119,10 @@ async function getImportedContactsForUser(ownerUserId) {
 
   const { data: contacts, error } = await supabaseClient
     .from('imported_contacts')
-    .select('*')
+    .select('id, owner_user_id, source, display_name, phone_e164, email, avatar_url, matched_user_id, invited_chat_id, created_at, updated_at')
     .eq('owner_user_id', ownerUserId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(YAP_SUPABASE_MAX_IMPORTED_CONTACTS);
 
   if (error) {
     console.warn('[yAp] getImportedContactsForUser failed:', error);
@@ -1131,7 +1133,7 @@ async function getImportedContactsForUser(ownerUserId) {
   const { data: users, error: usersError } = phoneNumbers.length
     ? await supabaseClient
         .from('users')
-        .select('*')
+        .select(APP_USER_SELECT_FIELDS)
         .in('phone_e164', phoneNumbers)
     : { data: [], error: null };
 
@@ -1208,7 +1210,7 @@ async function getChatsForUser(userId) {
   if (participantUserIds.length) {
     const { data: participantUsers, error: participantUsersError } = await supabaseClient
       .from('users')
-      .select('*')
+      .select(APP_USER_SELECT_FIELDS)
       .in('id', participantUserIds);
 
     if (participantUsersError) {
@@ -1235,17 +1237,10 @@ async function getChatsForUser(userId) {
 
   const { data: voiceMessages, error: messagesError } = await supabaseClient
     .from('voice_messages')
-    .select(`
-      id,
-      chat_id,
-      author_id,
-      status,
-      sent_at,
-      playback_progress(user_id, heard),
-      transcripts(full_text),
-      topic_segments(label, transcript)
-    `)
-    .in('chat_id', chatIds);
+    .select('id, chat_id, author_id, status, sent_at, playback_progress(user_id, heard)')
+    .in('chat_id', chatIds)
+    .order('sent_at', { ascending: false })
+    .limit(YAP_SUPABASE_MAX_CHAT_PREVIEW_MESSAGES);
 
   if (messagesError) {
     console.warn('[yAp] getChatsForUser unread query failed:', messagesError);
@@ -1368,7 +1363,7 @@ async function createGroupChat({ ownerUserId, name, members }) {
     getUserById(ownerUserId) || null,
     supabaseClient
       .from('users')
-      .select('*')
+      .select(APP_USER_SELECT_FIELDS)
       .in('phone_e164', normalizedMembers.map(member => member.phone)),
   ]);
 
@@ -1583,7 +1578,7 @@ async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
       duration_ms: durationMs,
       status:      'processing',
     })
-    .select()
+    .select('id, chat_id, author_id, audio_url, duration_ms, status, sent_at')
     .single();
 
   if (insertErr) {
@@ -1633,7 +1628,7 @@ async function saveTranscriptRecord(voiceMessageId, transcriptText, wordTimestam
       full_text: transcriptText,
       word_timestamps: wordTimestamps,
     })
-    .select()
+    .select('id, voice_message_id, full_text, created_at')
     .single();
 
   if (error) {
@@ -1679,7 +1674,7 @@ async function saveTopicSegmentRecord({ voiceMessageId, topicThreadId, label, tr
       start_ms: startMs || 0,
       end_ms: endMs || 0,
     })
-    .select()
+    .select('id, voice_message_id, topic_thread_id, label, transcript, start_ms, end_ms, created_at')
     .single();
 
   if (error) {
@@ -1847,13 +1842,20 @@ async function getVoiceMessages(chatId) {
   const { data, error } = await supabaseClient
     .from('voice_messages')
     .select(`
-      *,
-      transcripts(*),
-      topic_segments(*),
-      playback_progress(*)
+      id,
+      chat_id,
+      author_id,
+      audio_url,
+      duration_ms,
+      status,
+      sent_at,
+      transcripts(id, full_text),
+      topic_segments(id, topic_thread_id, label, transcript, start_ms, end_ms),
+      playback_progress(user_id, heard, played_ms, last_heard_at)
     `)
     .eq('chat_id', chatId)
-    .order('sent_at', { ascending: true });
+    .order('sent_at', { ascending: true })
+    .limit(YAP_SUPABASE_MAX_CONVERSATION_MESSAGES);
 
   if (error) {
     console.error('[yAp] getVoiceMessages:', error);
@@ -2097,7 +2099,7 @@ async function getTopicThreads(chatId) {
   if (!supabaseClient) return [];
   const { data, error } = await supabaseClient
     .from('topic_threads')
-    .select('*')
+    .select('id, chat_id, label, created_at, last_activity_at')
     .eq('chat_id', chatId)
     .order('created_at', { ascending: true });
 
@@ -2138,7 +2140,7 @@ async function hydrateChatFromSupabase(chatId) {
   if (authorIds.length) {
     const { data: authors } = await supabaseClient
       .from('users')
-      .select('*')
+      .select(APP_USER_SELECT_FIELDS)
       .in('id', authorIds);
 
     for (const authorRecord of authors || []) {

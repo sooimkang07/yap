@@ -380,3 +380,8 @@ production to be updated.
 4. Make the smallest complete change that moves the real product forward.
 5. Verify the changed surface.
 6. Document any important remaining caveat in the final response.
+
+## Required Style Reference
+
+Before any UI edit, read `STYLE_GUIDE.md`. Its rules apply to web and Swift UI
+work unless the user explicitly asks for a different visual direction.

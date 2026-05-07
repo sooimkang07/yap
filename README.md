@@ -11,6 +11,9 @@ Voice-first group chat prototype with a shareable web/PWA client, serverless API
 - `supabase/`: schema, migration, and seed SQL
 - `docs/`: product and migration notes
 - `yAp-native/`: native iOS Xcode project for local concept development
+- `AGENTS.md`: project rules for LLM/coding agents
+- `STYLE_GUIDE.md`: universal UI styling contract for web and Swift work
+- `SKILLS.md`: repeatable workflows for common agent tasks
 
 ### Web App Layout
 

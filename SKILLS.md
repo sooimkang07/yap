@@ -9,14 +9,15 @@ Use when starting a new session or after a large context reset.
 
 1. Read `AGENTS.md`.
 2. Skim `README.md`.
-3. If product behavior matters, read `APP_FLOW.md`.
-4. If demo/distribution behavior matters, read `docs/DEMO_STRATEGY.md`.
-5. If native iOS behavior matters, read `yAp-native/README.md`.
-6. If notifications matter, read `docs/PUSH_NOTIFICATIONS.md`.
-7. If UI parity matters, inspect the relevant web files in `index.html`,
+3. If UI behavior or styling matters, read `STYLE_GUIDE.md`.
+4. If product behavior matters, read `APP_FLOW.md`.
+5. If demo/distribution behavior matters, read `docs/DEMO_STRATEGY.md`.
+6. If native iOS behavior matters, read `yAp-native/README.md`.
+7. If notifications matter, read `docs/PUSH_NOTIFICATIONS.md`.
+8. If UI parity matters, inspect the relevant web files in `index.html`,
    `css/styles.css`, `js/`, and `assets/`.
-8. Run `git status --short` and avoid unrelated local changes.
-9. Identify whether the task belongs to:
+9. Run `git status --short` and avoid unrelated local changes.
+10. Identify whether the task belongs to:
    - web client
    - native iOS client
    - backend API
@@ -50,26 +51,27 @@ npx vercel --prod --yes
 Use for changes under `yAp-native/`.
 
 1. Work in `yAp-native/`, not `yap-ios/`.
-2. Treat the web app as the canonical UI. Before editing a Swift screen, inspect
+2. Read `STYLE_GUIDE.md`.
+3. Treat the web app as the canonical UI. Before editing a Swift screen, inspect
    the matching web screen, CSS, assets, and interaction behavior.
-3. Replicate the web UI as closely as SwiftUI allows. Avoid generic native
+4. Replicate the web UI as closely as SwiftUI allows. Avoid generic native
    redesigns unless the user explicitly asks for them.
-4. Keep SwiftUI views focused on UI.
-5. Put reusable app logic in:
+5. Keep SwiftUI views focused on UI.
+6. Put reusable app logic in:
    - `Core/Services/`
    - `Core/Models/`
    - `Core/Utilities/`
    - `Core/DesignSystem/`
-6. Avoid secrets in Swift. App IDs are okay; REST/API secrets are not.
-7. For push, remember real delivery requires Apple Developer/APNs setup and a
+7. Avoid secrets in Swift. App IDs are okay; REST/API secrets are not.
+8. For push, remember real delivery requires Apple Developer/APNs setup and a
    physical iPhone. Without that setup, demo through the web/SMS path.
-8. Build-check with:
+9. Build-check with:
 
 ```bash
 xcodebuild -project yAp-native/yAp.xcodeproj -scheme yAp -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath /private/tmp/yap-derived build
 ```
 
-9. Do not commit Xcode `xcuserdata/` changes.
+10. Do not commit Xcode `xcuserdata/` changes.
 
 ## Skill: Work On The Web Client
 
@@ -77,14 +79,15 @@ Use for changes under `index.html`, `css/`, `js/`, `assets/`, or `components/`.
 
 1. Keep the app mobile-first and messaging-first.
 2. Preserve the web app as the UI north star for the whole project.
-3. Do not add fake controls.
-4. Respect the current module split:
+3. Read `STYLE_GUIDE.md` before changing visual styles.
+4. Do not add fake controls.
+5. Respect the current module split:
    - `js/app.js` for orchestration and screen wiring
    - `js/core/` for config/data/utilities
    - `js/features/` for recording, chat, analysis, and pipeline behavior
-5. Keep Supabase reads narrow and bounded.
-6. Reuse existing assets before adding new ones.
-7. Run `node --check` on changed JS files where applicable.
+6. Keep Supabase reads narrow and bounded.
+7. Reuse existing assets before adding new ones.
+8. Run `node --check` on changed JS files where applicable.
 
 ## Skill: Add Data Or Supabase Behavior
 
@@ -126,6 +129,7 @@ Ask:
 
 - Does every visible control work?
 - Did this introduce a hardcoded user, group, or sender assumption?
+- Did I follow `STYLE_GUIDE.md`?
 - If Swift UI changed, does it faithfully match the web app UI?
 - Are reads bounded and efficient?
 - Are secrets kept out of client code and git?

@@ -1,0 +1,187 @@
+# STYLE_GUIDE.md
+
+This is yAp's universal styling contract. Apply it to every UI edit unless the
+user explicitly asks for a different direction.
+
+## Design Source Of Truth
+
+The web app is the canonical UI. The primary reference files are:
+
+- `index.html`
+- `css/styles.css`
+- `assets/`
+- `components/voice-visualizer/`
+- interaction behavior in `js/app.js` and `js/features/`
+
+SwiftUI screens must replicate the web app's visual language, not replace it
+with generic iOS defaults.
+
+## Visual Personality
+
+yAp should feel:
+
+- voice-first
+- soft but not childish
+- social and intimate
+- polished and mobile-native
+- glassy, tactile, and image-led
+- playful in details, serious in interaction quality
+
+Avoid:
+
+- generic SaaS dashboards
+- plain iOS settings/list screens as the main product language
+- heavy dark UI unless explicitly requested
+- harsh borders or dense enterprise layouts
+- marketing-page hero sections inside the app
+- fake decorative complexity that harms the messaging flow
+
+## Core Tokens
+
+Use the web CSS tokens as the styling source of truth:
+
+```css
+--font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+
+--color-sooim: #B8D8FF;
+--color-chloe: #DEC0F8;
+--color-maria: #FFDEB8;
+
+--color-wave-active: #F97878;
+--color-wave-stopped: #8A8A8E;
+
+--text-primary: #111111;
+--text-secondary: #6b6b6b;
+--text-tertiary: #aaaaaa;
+
+--r-sm: 10px;
+--r-md: 18px;
+--r-lg: 24px;
+--r-xl: 32px;
+--r-full: 9999px;
+```
+
+The default screen background is a soft off-white/pastel field:
+
+```css
+radial-gradient(circle at top, rgba(255, 233, 205, 0.56), transparent 35%),
+radial-gradient(circle at bottom left, rgba(191, 221, 255, 0.44), transparent 36%),
+linear-gradient(148deg, #fdfbff 0%, #fff9f5 40%, #f6f8ff 80%, #fdfbff 100%)
+```
+
+## Surface Rules
+
+- Prefer translucent white/glass surfaces over opaque gray cards.
+- Use soft shadows and inset highlights to make controls feel tactile.
+- Use rounded sheets and pills intentionally:
+  - small controls: full pill radius
+  - input surfaces: around 18px
+  - cards/sheets: around 24-32px
+- Avoid stacking cards inside cards.
+- Avoid large generic white panels unless the web UI already uses that pattern.
+- Preserve safe-area-aware mobile layouts.
+
+## Typography Rules
+
+- Use Apple system typography.
+- Keep text compact and app-like.
+- Use large type only for entry/welcome/empty states.
+- Use 17-19px for primary mobile row/action text.
+- Use 13-15px for metadata, captions, and secondary labels.
+- Do not use negative letter spacing as a new style.
+- Do not let text overflow buttons, bubbles, or compact rows.
+
+## Color Rules
+
+- Keep the base UI light, warm, and softly pastel.
+- Use black/near-black for primary text and important primary buttons.
+- Use yAp participant colors consistently:
+  - Sooim: `#B8D8FF`
+  - Chloe: `#DEC0F8`
+  - Maria: `#FFDEB8`
+- Use coral/red `#F97878` for active recording/waveform emphasis.
+- Use iOS blue `#007AFF` only where the web UI already uses link/action blue.
+- Avoid introducing a new dominant color family without updating the whole
+  system intentionally.
+
+## Control Rules
+
+- Voice recording and playback controls are core brand moments. Match the web
+  app's rounded, glassy, tactile controls.
+- Prefer icon/image controls for record, play, pause, stop, close, send, add, and
+  back actions when the web app uses them.
+- Use existing assets in `assets/` before drawing new icons.
+- Buttons should have clear pressed/disabled/loading states.
+- Controls must be large enough for touch and must not shift layout when state
+  changes.
+
+## Screen Rules
+
+- Preserve the current mobile app flow:
+  - splash
+  - welcome
+  - phone auth
+  - profile setup
+  - chats list
+  - create chat
+  - contacts
+  - chat view
+  - recording/analysis overlays
+  - profile/group settings
+- Keep first-screen experiences functional, not marketing-only.
+- Empty states should be useful and visually consistent with the rest of yAp.
+- Overlays and sheets should feel like the web app: rounded, soft, translucent,
+  and focused.
+
+## Native Swift Parity Rules
+
+Before editing Swift UI:
+
+1. Find the equivalent web screen in `index.html`.
+2. Find its styles in `css/styles.css`.
+3. Check the assets it uses in `assets/`.
+4. Check the interaction behavior in `js/app.js` or `js/features/`.
+5. Replicate the result in SwiftUI as closely as possible.
+
+Swift should not:
+
+- replace custom web visuals with default `List`/`Form` styling
+- use generic navigation bars when the web screen has custom headers
+- ignore yAp assets
+- alter the product personality to look like a stock iOS sample app
+
+If SwiftUI cannot match the web exactly, choose the closest faithful version and
+document the compromise.
+
+## Web Edit Rules
+
+- Use CSS variables where possible.
+- Add new tokens only when they are likely to be reused.
+- Keep selectors scoped to the screen/component being edited.
+- Avoid broad CSS changes unless intentionally updating the design system.
+- Preserve mobile viewport and keyboard behavior.
+- Verify text does not overlap or overflow on narrow screens.
+
+## Asset Rules
+
+- Reuse:
+  - `assets/y.png`
+  - `assets/yap-logo.png`
+  - `assets/glass-bg.png`
+  - record/play/pause/stop/send/close/add SVG assets
+  - avatar/contact placeholders
+- Do not replace the brand or main control assets without explicit user approval.
+- New assets should match the existing soft, glassy, mobile visual language.
+
+## Final UI Review Checklist
+
+Before finishing any UI task, check:
+
+- Does this still look like yAp's web app?
+- Did I reuse existing tokens/assets?
+- Does it remain voice-first?
+- Are all visible controls functional?
+- Does it fit on mobile without clipping or overlap?
+- Did I avoid generic Swift/iOS defaults where yAp has a custom web pattern?
+- Did I preserve the no-fake-flow rule?
+

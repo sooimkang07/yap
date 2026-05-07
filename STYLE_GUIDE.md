@@ -148,6 +148,10 @@ introduce one-off solid screen backgrounds for new screens.
 - Empty states should be useful and visually consistent with the rest of yAp.
 - Overlays and sheets should feel like the web app: rounded, soft, translucent,
   and focused.
+- yAp must be fully responsive across mobile dimensions, including small
+  iPhones, large iPhones, browser mode, installed PWA mode, Safari browser
+  chrome, keyboard-open states, and safe-area insets. No UI element may overlap,
+  clip, become unreachable, or require horizontal scrolling.
 
 ## Native Swift Parity Rules
 
@@ -176,7 +180,8 @@ document the compromise.
 - Keep selectors scoped to the screen/component being edited.
 - Avoid broad CSS changes unless intentionally updating the design system.
 - Preserve mobile viewport and keyboard behavior.
-- Verify text does not overlap or overflow on narrow screens.
+- Verify text and controls do not overlap, clip, overflow, become unreachable,
+  or require horizontal scrolling on narrow screens.
 
 ## Asset Rules
 
@@ -201,5 +206,7 @@ Before finishing any UI task, check:
 - Does it remain voice-first?
 - Are all visible controls functional?
 - Does it fit on mobile without clipping or overlap?
+- Does it work across small/large mobile widths, safe areas, browser chrome,
+  PWA mode, and keyboard-open states?
 - Did I avoid generic Swift/iOS defaults where yAp has a custom web pattern?
 - Did I preserve the no-fake-flow rule?

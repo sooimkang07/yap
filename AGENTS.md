@@ -393,3 +393,6 @@ Universal yAp styling rules:
 - Use only `#B8D8FF`, `#DEC0F8`, `#FFDEB8`, and `#DFFFB8` for user glows.
 - Navigation and playback buttons must use CSS/SwiftUI-styled glass, not
   `glass-bg.png` image backgrounds.
+- UI must be fully responsive across mobile dimensions, browser/PWA states,
+  keyboard-open states, and safe-area insets with no overlap, clipping,
+  unreachable controls, or horizontal scrolling.

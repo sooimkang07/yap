@@ -1,12 +1,33 @@
-# yAp Push Notifications
+# yAp Push And SMS Notifications
 
-yAp uses OneSignal for the first native iPhone push notification pass.
+yAp has two notification paths:
+
+- Twilio SMS for the current shareable demo path.
+- OneSignal push for optional native iPhone builds when Apple Developer/APNs
+  setup is available.
+
+Without Apple Developer setup, use SMS. Native push is not a reliable demo path
+for other people's phones.
+
+## Current Demo Mode
+
+Production should use:
+
+```bash
+YAP_NOTIFICATION_DELIVERY_MODE=sms
+```
+
+In this mode, people receive normal text messages with links back to the web app.
+This is the practical way to showcase yAp without TestFlight or App Store
+distribution.
 
 ## Why OneSignal
 
 - Free mobile push sends for the current prototype scale.
 - Easier than wiring APNs directly.
 - Lets the backend target users by yAp user id through OneSignal external ids.
+
+OneSignal still requires Apple's APNs setup for real native iPhone pushes.
 
 ## OneSignal Setup
 
@@ -34,8 +55,8 @@ YAP_NOTIFICATION_DELIVERY_MODE=push
 
 `YAP_NOTIFICATION_DELIVERY_MODE` options:
 
+- `sms`: force SMS only. Use this for the current demo strategy.
 - `push`: send OneSignal push when configured; fall back to SMS only if OneSignal is not configured.
-- `sms`: force SMS only.
 - `both`: try push, then also send SMS.
 
 ## User Targeting

@@ -1,16 +1,16 @@
 # yAp
 
-Voice-first group chat prototype with a static web client, serverless API routes, Supabase persistence, and an in-progress native iOS client.
+Voice-first group chat prototype with a shareable web/PWA client, serverless API routes, Supabase persistence, and an in-progress native iOS concept build.
 
 ## Repo Structure
 
-- `index.html`, `css/`, `js/`: primary web app
+- `index.html`, `css/`, `js/`: primary shareable demo app
 - `api/`: Vercel/serverless endpoints for auth, invites, audio processing, and replies
 - `assets/`: app images and icons used by the web client
 - `components/voice-visualizer/`: isolated visualizer code
 - `supabase/`: schema, migration, and seed SQL
 - `docs/`: product and migration notes
-- `yAp-native/`: native iOS Xcode project
+- `yAp-native/`: native iOS Xcode project for local concept development
 
 ### Web App Layout
 
@@ -20,6 +20,7 @@ Voice-first group chat prototype with a static web client, serverless API routes
 
 ## Notes
 
-- The active iOS project lives in `yAp-native/`.
+- The public demo path is the web app plus SMS links/notifications.
+- The active iOS concept project lives in `yAp-native/`, but it is not the distribution path unless Apple Developer setup exists.
 - `yAp-native/` keeps the current capitalization because it matches the app/Xcode naming already in use.
 - Generated artifacts and local machine files are intentionally not part of the clean repo layout.

@@ -3122,7 +3122,7 @@ function renderGroupSettings(invites = []) {
     DOM.btnSaveGroupSettings.textContent = editing ? 'Done' : 'Edit';
     DOM.btnSaveGroupSettings.classList.toggle('is-disabled', !canManage);
   }
-  DOM.groupSettingsInviteCard?.classList.toggle('is-hidden', !editing);
+  DOM.groupSettingsInviteCard?.classList.toggle('is-hidden', !editing || isDirectChat);
   if (DOM.toggleGroupHideAlerts) DOM.toggleGroupHideAlerts.checked = !!AppState.groupSettingsPrefs.hideAlerts;
 
   if (DOM.groupSettingsHeroAvatars) {

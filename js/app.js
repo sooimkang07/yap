@@ -1780,8 +1780,8 @@ function _renderNowPlayingTopic(index, direction) {
 
   // Slide animation
   if (direction && DOM.npAvatars) {
-    const outClass = direction === 'next' ? 'slide-out-left' : 'slide-out-right';
-    const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
+    const outClass = direction === 'next' ? 'slide-out-right' : 'slide-out-left';
+    const inClass = direction === 'next' ? 'slide-in-left' : 'slide-in-right';
     DOM.npAvatars.classList.add(outClass);
     setTimeout(() => {
       if (!DOM.npAvatars) return;

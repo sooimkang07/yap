@@ -343,8 +343,8 @@ function cacheDOM() {
   DOM.iosAlertAction = document.getElementById('ios-alert-action');
 }
 
-const SCREEN_TRANSITION_MS = 360;
-const SHEET_TRANSITION_MS = 360;
+const SCREEN_TRANSITION_MS = 190;
+const SHEET_TRANSITION_MS = 220;
 
 function isSheetScreen(screenId) {
   return screenId === 'create-group';
@@ -390,19 +390,29 @@ function syncFocusedFieldIntoView() {
 
 function updateViewportMetrics() {
   const viewport = window.visualViewport;
+  const layoutViewportHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0);
   const viewportHeight = Math.round(viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0);
-  const keyboardInset = viewport
+  const rawViewportBottomInset = viewport
     ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
     : 0;
+  const textEntryFocused = isTextEntryElement(document.activeElement);
+  const keyboardInset = textEntryFocused ? rawViewportBottomInset : 0;
+  const viewportBottomInset = textEntryFocused ? 0 : rawViewportBottomInset;
+  const appHeight = textEntryFocused
+    ? Math.max(AppState.viewportBaseHeight || 0, layoutViewportHeight, viewportHeight)
+    : viewportBottomInset > 0
+    ? Math.max(layoutViewportHeight, viewportHeight)
+    : viewportHeight;
   const nextBaseHeight = keyboardInset > 0
     ? Math.max(AppState.viewportBaseHeight || 0, viewportHeight)
-    : viewportHeight;
+    : appHeight;
 
-  AppState.viewportBaseHeight = Math.max(nextBaseHeight || 0, viewportHeight || 0);
+  AppState.viewportBaseHeight = Math.max(nextBaseHeight || 0, appHeight || viewportHeight || 0);
 
-  document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
-  document.documentElement.style.setProperty('--layout-height', `${AppState.viewportBaseHeight || viewportHeight}px`);
+  document.documentElement.style.setProperty('--app-height', `${appHeight}px`);
+  document.documentElement.style.setProperty('--layout-height', `${AppState.viewportBaseHeight || appHeight || viewportHeight}px`);
   document.documentElement.style.setProperty('--keyboard-inset', `${keyboardInset}px`);
+  document.documentElement.style.setProperty('--visual-viewport-bottom-inset', `${viewportBottomInset}px`);
   document.body.classList.toggle('keyboard-open', keyboardInset > 0);
 
   if (keyboardInset > 0) {
@@ -491,7 +501,7 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
   const closingSheet = isSheetScreen(fromId) && direction === 'back';
   const onboardingFlowTransition = isOnboardingFlowScreen(toId) || isOnboardingFlowScreen(fromId);
   const opaquePushTransition = isOpaquePushScreen(toId) || isOpaquePushScreen(fromId);
-  const screenTransitionMs = onboardingFlowTransition ? 430 : SCREEN_TRANSITION_MS;
+  const screenTransitionMs = onboardingFlowTransition ? 220 : SCREEN_TRANSITION_MS;
 
   if (openingSheet) {
     to.classList.add('active');
@@ -656,7 +666,10 @@ function renderChatsList() {
   const showEmptyState = chats.length === 0;
   const query = AppState.chatsSearchQuery.trim().toLowerCase();
   const currentUser = getCurrentUser();
-  const visibleChats = chats.filter(chat => !query || chat.name.toLowerCase().includes(query));
+  const visibleChats = chats.filter(chat => {
+    const displayName = getChatDisplayName(chat);
+    return !query || displayName.toLowerCase().includes(query);
+  });
   const showSearch = AppState.chatsSearchOpen || !!query;
 
   setDisplay(DOM.chatsGrid, !showEmptyState, 'grid');
@@ -680,6 +693,7 @@ function renderChatsList() {
   }
 
   DOM.chatsGrid.innerHTML = visibleChats.map(chat => {
+    const displayName = getChatDisplayName(chat);
     const artHTML = _chatArtHTML(chat);
     const badgeHTML = chat.unread > 0
       ? `<div class="chat-badge">${chat.unread}</div>`
@@ -689,7 +703,7 @@ function renderChatsList() {
       <div class="chat-card chat-card--${chat.visual || 'default'}${chat.id === ACTIVE_CHAT_ID ? ' chat-card--besties' : ''}" data-chat-id="${chat.id}">
         <div class="chat-card__art">${artHTML}</div>
         <div class="chat-card__footer">
-          <div class="chat-card__name">${chat.name}</div>
+          <div class="chat-card__name">${escapeHtml(displayName)}</div>
           ${badgeHTML}
         </div>
       </div>
@@ -791,7 +805,7 @@ async function handleChatContextAction(action) {
         await refreshChatsAndRender();
         break;
       case 'delete':
-        if (confirm(`Leave "${chat.name}"?`)) {
+        if (confirm(`Leave "${getChatDisplayName(chat)}"?`)) {
           await leaveChat(chatId, getCurrentUserId());
           AppState.chats = AppState.chats.filter(c => c.id !== chatId);
           AppState.pendingChats = AppState.pendingChats.filter(c => c.id !== chatId);
@@ -891,7 +905,7 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
   for (const chat of Array.isArray(chats) ? chats : []) {
     const previous = previousSnapshot.get(chat.id);
     if (!previous) {
-      showLocalChatNotification(chat.name || 'New chat', 'You were added to a chat.', `chat-${chat.id}`, chat.id);
+      showLocalChatNotification(getChatDisplayName(chat, 'New chat'), 'You were added to a chat.', `chat-${chat.id}`, chat.id);
       continue;
     }
 
@@ -905,7 +919,7 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
     if (!hasNewRemoteMessage) continue;
 
     showLocalChatNotification(
-      chat.name || 'New message',
+      getChatDisplayName(chat, 'New message'),
       chat.preview || 'New voice memo',
       `chat-${chat.id}-message`,
       chat.id
@@ -1288,6 +1302,29 @@ function getChatOtherMembers(chat) {
   return (chat?.members || []).filter(member => member.id !== getCurrentUserId());
 }
 
+function getChatMemberDisplayName(member) {
+  const resolvedMember = resolveAvatarMember(member);
+  const name = String(resolvedMember?.name || '').trim();
+  if (name && name !== resolvedMember?.phoneE164) return name;
+  return String(resolvedMember?.phoneE164 || '').trim();
+}
+
+function getChatDisplayName(chat, fallback = 'yAp chat') {
+  const otherNames = getChatOtherMembers(chat)
+    .map(getChatMemberDisplayName)
+    .filter(Boolean);
+
+  if (otherNames.length) {
+    const visibleNames = otherNames.slice(0, 3);
+    const remainingCount = otherNames.length - visibleNames.length;
+    return remainingCount > 0
+      ? `${visibleNames.join(', ')} +${remainingCount}`
+      : visibleNames.join(', ');
+  }
+
+  return String(chat?.name || fallback).trim() || fallback;
+}
+
 function canManageActiveChat() {
   const role = AppState.activeChat?.currentUserRole;
   return role === 'owner' || role === 'admin' || role === 'member';
@@ -1299,10 +1336,12 @@ function resolveAvatarMember(member) {
   if (typeof USERS === 'undefined') return member;
 
   const phone = normalizePhoneNumber(member.phoneE164 || member.phone || '');
+  const displayName = normalizeAvatarLookupName(member.name || '');
   const candidates = Object.values(USERS).filter(candidate => {
     if (!candidate) return false;
     if (member.id && candidate.id === member.id) return true;
     if (phone && normalizePhoneNumber(candidate.phoneE164 || '') === phone) return true;
+    if (displayName && isLikelySameAvatarName(displayName, candidate.name || '')) return true;
     return false;
   });
 
@@ -1326,16 +1365,43 @@ function resolveAvatarMember(member) {
   };
 }
 
+function normalizeAvatarLookupName(name = '') {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isLikelySameAvatarName(normalizedName, candidateName = '') {
+  const normalizedCandidate = normalizeAvatarLookupName(candidateName);
+  if (!normalizedName || !normalizedCandidate) return false;
+  if (normalizedName === normalizedCandidate) return true;
+
+  const nameFirst = normalizedName.split(' ')[0] || '';
+  const candidateFirst = normalizedCandidate.split(' ')[0] || '';
+  return !!nameFirst
+    && !!candidateFirst
+    && nameFirst.length >= 3
+    && candidateFirst.length >= 3
+    && (nameFirst.startsWith(candidateFirst) || candidateFirst.startsWith(nameFirst));
+}
+
 function buildAvatarClass(baseClass, member) {
   const resolvedMember = resolveAvatarMember(member);
   return `${baseClass}${resolvedMember?.avatarUrl ? '' : ' avatar-fallback'}`;
+}
+
+function cssUrl(value = '') {
+  return `url('${escapeHtml(String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')`;
 }
 
 function buildAvatarStyle(member) {
   const resolvedMember = resolveAvatarMember(member);
   const accent = resolvedMember?.color || pickUserColor(resolvedMember?.name || resolvedMember?.phoneE164 || resolvedMember?.id || '');
   return resolvedMember?.avatarUrl
-    ? `background-image:url(${resolvedMember.avatarUrl});background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent`
+    ? `background-image:${cssUrl(resolvedMember.avatarUrl)};background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent`
     : `--avatar-accent:${accent}`;
 }
 
@@ -1474,12 +1540,20 @@ function renderFloatingProfile(wrapper, label, photo, member, fallbackSeed) {
 }
 
 function _chatArtHTML(chat) {
+  const otherMembers = getChatOtherMembers(chat);
+  if (otherMembers.length === 1) {
+    return `
+      <div class="chat-art-besties chat-art-besties--single">
+        ${buildMemberAvatarMarkup(otherMembers[0], 'chat-art-besties__avatar chat-art-besties__avatar--single')}
+      </div>
+    `;
+  }
+
   if (chat.avatarUrl) {
-    return `<div class="chat-art-circle" style="background-image:url('${escapeHtml(chat.avatarUrl)}');background-size:cover;background-position:center;background-repeat:no-repeat"></div>`;
+    return `<div class="chat-art-circle" style="background-image:${cssUrl(chat.avatarUrl)};background-size:cover;background-position:center;background-repeat:no-repeat"></div>`;
   }
 
   if (chat.visual === 'besties') {
-    const otherMembers = getChatOtherMembers(chat);
     const bestiesMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 2);
     if (bestiesMembers.length) {
       return `
@@ -1525,7 +1599,6 @@ function _chatArtHTML(chat) {
     return `<div class="chat-art-circle chat-art-circle--mushroom"></div>`;
   }
 
-  const otherMembers = getChatOtherMembers(chat);
   const artMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 2);
   if (artMembers.length) {
     return `
@@ -1543,7 +1616,7 @@ function _chatArtHTML(chat) {
 }
 
 function renderActiveChatShell(chat) {
-  DOM.chatTitle.textContent = chat.name;
+  DOM.chatTitle.textContent = getChatDisplayName(chat);
 
   const currentUserId = getCurrentUserId();
   DOM.chatMemberPips.innerHTML = (chat.members || [])
@@ -1620,48 +1693,60 @@ async function openChat(chat) {
   if (DOM.btnNowPlaying) DOM.btnNowPlaying.style.visibility = 'hidden';
 
   renderActiveChatShell(chat);
-  await syncLocalPresence();
+  syncLocalPresence();
 
-  setDisplay(DOM.chatEmpty, false);
-  setDisplay(DOM.chatTopics, false);
-  setDisplay(DOM.chatProcessing, true, 'flex');
-  navigate('chat', 'forward');
-
-  const cachedThreads = Store.getThreads();
+  const cachedThreads = Store.getCachedThreads(chat.id);
+  Store.setActiveChat(chat.id);
   if (cachedThreads.length > 0) {
     setDisplay(DOM.chatProcessing, false);
     DOM.chatMemberPips.style.visibility = 'visible';
     setDisplay(DOM.chatEmpty, false);
+    setDisplay(DOM.chatTopics, true, 'flex');
     renderTopics();
-    scrollChatToTop();
-  }
-
-  await hydrateActiveConversation(true);
-
-  const existingThreads = Store.getThreads();
-  setDisplay(DOM.chatProcessing, false);
-
-  if (existingThreads.length > 0) {
-    DOM.chatMemberPips.style.visibility = 'visible';
-    setDisplay(DOM.chatEmpty, false);
-    renderTopics();
-    scrollChatToTop();
+    scrollChatToLatest();
   } else {
     DOM.chatMemberPips.style.visibility = 'hidden';
-    setDisplay(DOM.chatEmpty, true);
+    setDisplay(DOM.chatEmpty, false);
     setDisplay(DOM.chatTopics, false);
+    setDisplay(DOM.chatProcessing, true, 'flex');
   }
+
+  navigate('chat', 'forward');
   renderChatPresence(AppState.activeChat);
 
-  // Mark all unheard messages as heard
-  await markChatMessagesAsHeard(chat.id);
+  hydrateActiveConversation(true)
+    .then(() => {
+      if (AppState.activeChat?.id !== chat.id) return;
+      const existingThreads = Store.getThreads();
+      setDisplay(DOM.chatProcessing, false);
+
+      if (existingThreads.length > 0) {
+        DOM.chatMemberPips.style.visibility = 'visible';
+        setDisplay(DOM.chatEmpty, false);
+        setDisplay(DOM.chatTopics, true, 'flex');
+        renderTopics();
+        scrollChatToLatest();
+      } else {
+        DOM.chatMemberPips.style.visibility = 'hidden';
+        setDisplay(DOM.chatEmpty, true);
+        setDisplay(DOM.chatTopics, false);
+      }
+      renderChatPresence(AppState.activeChat);
+    })
+    .catch(error => console.warn('[yAp] Chat open hydration failed:', error));
+
+  markChatMessagesAsHeard(chat.id).catch(error => console.warn('[yAp] mark read failed:', error));
 }
 
-function scrollChatToTop() {
-  setTimeout(() => {
+function scrollChatToLatest() {
+  const scroll = () => {
     if (DOM.chatTopics) DOM.chatTopics.scrollTop = DOM.chatTopics.scrollHeight;
     if (DOM.chatBody) DOM.chatBody.scrollTop = DOM.chatBody.scrollHeight;
-  }, 50);
+  };
+  requestAnimationFrame(() => {
+    scroll();
+    requestAnimationFrame(scroll);
+  });
 }
 
 async function hydrateActiveConversation(force = false) {
@@ -3362,7 +3447,7 @@ async function saveGroupSettingsNameFromEditor() {
     pinChatInLocalLists(updatedChat);
     await refreshChatsAndRender();
     AppState.activeChat = AppState.chats.find(chat => chat.id === updated.id) || updatedChat;
-    DOM.chatTitle.textContent = updated.name;
+    DOM.chatTitle.textContent = getChatDisplayName(AppState.activeChat);
     AppState.groupSettingsEditing = false;
     renderGroupSettings(AppState.supabaseOk ? await getInvitationsForChat(AppState.activeChat.id) : []);
     setFeedback(DOM.groupSettingsFeedback, 'Group updated.', 'success');
@@ -3460,7 +3545,7 @@ function renderGroupSettings(invites = []) {
   AppState.groupSettingsInvites = invites;
 
   if (DOM.inputGroupSettingsName) {
-    DOM.inputGroupSettingsName.value = chat.name || '';
+    DOM.inputGroupSettingsName.value = getChatDisplayName(chat);
     DOM.inputGroupSettingsName.disabled = !editing;
     DOM.inputGroupSettingsName.readOnly = !editing;
   }
@@ -4107,8 +4192,7 @@ function wireEvents() {
         name: DOM.inputGroupName?.value || '',
         members: AppState.onboarding.pendingMembers,
       });
-      const persistedChat = await waitForChatAvailability(createdChat.id, { attempts: 5, delayMs: 650 });
-      const nextChat = persistedChat || createdChat;
+      const nextChat = createdChat;
 
       resetCreateGroupComposer();
       // Pin the freshly-created chat immediately so it survives the trip back
@@ -4484,9 +4568,12 @@ function wireEvents() {
 function wirePipelineEvents() {
   // Segments arrive from API → animate in analysis modal, then render chat
   document.addEventListener('yap:pipeline:segments', e => {
+    renderTopics();
+    scrollChatToLatest();
     AnalysisModal.animateSegments(e.detail.segments, () => {
       // Animation complete → render topic cards
       renderTopics();
+      scrollChatToLatest();
     });
   });
 

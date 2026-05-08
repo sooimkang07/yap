@@ -6,14 +6,13 @@
 const ANALYSIS_COPY = {
   idleLabel: 'Analyzing',
   idleTitle: 'Breaking your memo into topics',
-  idleStatus: 'Pulling apart the voice memo…',
+  idleStatus: 'Unraveling the plot...',
 };
 
 const ANALYSIS_STATUS_STEPS = [
-  'Listening for topic boundaries…',
-  'Sorting replies from new ideas…',
-  'Grouping moments that belong together…',
-  'Pulling it all together…',
+  'Unraveling the plot...',
+  'Sorting the voice dump...',
+  'Recapping the rant...',
 ];
 
 const AnalysisModal = {
@@ -58,7 +57,6 @@ const AnalysisModal = {
       const durationMs = Math.max(0, Number(seg.end_ms || 0) - Number(seg.start_ms || 0));
       const durLabel = formatDurationClock(durationMs);
       const label = clipWords(seg.label || `Topic ${index + 1}`, 9);
-      const excerpt = clipWords(seg.transcript || seg.text || 'Voice memo segment', 18);
       const el = document.createElement('div');
       el.className = 'analysis-bar';
       el.innerHTML = `
@@ -69,7 +67,6 @@ const AnalysisModal = {
         <div class="analysis-bar__track">
           <div class="analysis-bar__fill"></div>
         </div>
-        <div class="analysis-bar__excerpt">${escapeHtml(excerpt)}</div>
       `;
       container.appendChild(el);
       return el;
@@ -85,7 +82,7 @@ const AnalysisModal = {
     }
 
     barEls.forEach((el, index) => {
-      const delay = 100 + (index * 180);
+      const delay = 40 + (index * 60);
       this._timeouts.push(setTimeout(() => {
         el.classList.add('reveal');
         this._timeouts.push(setTimeout(() => {
@@ -95,7 +92,7 @@ const AnalysisModal = {
       }, delay));
     });
 
-    const totalDelay = 100 + ((barEls.length - 1) * 180) + 400;
+    const totalDelay = Math.min(3600, 2100 + (barEls.length * 160));
     this._timeouts.push(setTimeout(() => {
       this.close();
       if (this._onComplete) this._onComplete();

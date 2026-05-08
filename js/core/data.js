@@ -2176,14 +2176,9 @@ async function hydrateChatFromSupabase(chatId) {
 
   const cachedThreads = Store.getCachedThreads(chatId);
 
-  const [topicThreads, voiceMessages, participantRows] = await Promise.all([
+  const [topicThreads, voiceMessages] = await Promise.all([
     getTopicThreads(chatId),
     getVoiceMessages(chatId),
-    supabaseClient
-      .from('chat_participants')
-      .select('user_id')
-      .eq('chat_id', chatId)
-      .eq('invite_status', 'joined'),
   ]);
 
   // Show all voice messages (participant filtering removed to fix visibility issue)
@@ -2394,20 +2389,6 @@ async function hydrateChatFromSupabase(chatId) {
     .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
 
   console.log(`[yAp] hydrateChatFromSupabase: Created ${hydratedThreads.length} visible threads from ${threadMap.size} total threads for chat ${chatId}`);
-
-  const audioHydrationJobs = [];
-  for (const thread of hydratedThreads) {
-    if (thread.parentMemoMessage?.audioPath) {
-      audioHydrationJobs.push(ensureMessageAudioUrl(thread.parentMemoMessage));
-    }
-    for (const message of thread.messages) {
-      if (message.audioPath) {
-        audioHydrationJobs.push(ensureMessageAudioUrl(message));
-      }
-    }
-  }
-
-  await Promise.all(audioHydrationJobs);
 
   if (!hydratedThreads.length && cachedThreads.length) {
     console.log('[yAp] No new threads fetched, returning cached threads for chat', chatId);

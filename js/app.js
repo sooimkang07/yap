@@ -1781,13 +1781,13 @@ function _renderNowPlayingTopic(index, direction) {
   // Slide animation
   if (direction && DOM.npAvatars) {
     const outClass = direction === 'next' ? 'slide-out-left' : 'slide-out-right';
+    const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
     DOM.npAvatars.classList.add(outClass);
     setTimeout(() => {
       if (!DOM.npAvatars) return;
       DOM.npAvatars.classList.remove(outClass);
-      _buildNowPlayingAvatars(thread);
-      const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
       DOM.npAvatars.classList.add(inClass);
+      _buildNowPlayingAvatars(thread);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           DOM.npAvatars?.classList.add('entering');

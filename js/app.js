@@ -1341,10 +1341,9 @@ function buildAvatarStyle(member) {
 function buildAvatarContent(member, fallbackSeed = 'Y') {
   const resolvedMember = resolveAvatarMember(member);
   if (resolvedMember?.avatarUrl) return '';
-  const name = resolvedMember?.name;
-  const isPhoneOnly = !name || name === resolvedMember?.phoneE164;
-  if (isPhoneOnly) return profilePlaceholderIconHTML();
-  const initials = escapeHtml(resolvedMember?.initials || buildUserInitials(name));
+  const name = resolvedMember?.name || resolvedMember?.phoneE164 || fallbackSeed;
+  const displayName = name && name !== resolvedMember?.phoneE164 ? name : (resolvedMember?.phoneE164 || fallbackSeed);
+  const initials = escapeHtml(resolvedMember?.initials || buildUserInitials(displayName));
   return `<span>${initials}</span>`;
 }
 

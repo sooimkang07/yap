@@ -1,9 +1,15 @@
 import SwiftUI
 import AVFoundation
+import Combine
 
 struct VoiceVisualizerView: View {
-    @StateObject private var audioMonitor = AudioLevelMonitor()
+    @StateObject private var audioMonitor: AudioLevelMonitor
     let isRecording: Bool
+
+    init(isRecording: Bool) {
+        self.isRecording = isRecording
+        _audioMonitor = StateObject(wrappedValue: AudioLevelMonitor())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,7 +58,7 @@ class AudioLevelMonitor: NSObject, ObservableObject {
     @Published var normalizedLevels: [Double] = Array(repeating: 0.0, count: 20)
 
     private var audioEngine: AVAudioEngine?
-    private var displayLink: CADisplayLink?
+    private let objectWillChange = PassthroughSubject<Void, Never>()
 
     func startMonitoring() {
         let audioEngine = AVAudioEngine()
@@ -82,7 +88,6 @@ class AudioLevelMonitor: NSObject, ObservableObject {
         } catch {
             print("Error stopping audio engine: \(error)")
         }
-        displayLink?.invalidate()
         DispatchQueue.main.async {
             self.normalizedLevels = Array(repeating: 0.0, count: 20)
         }
@@ -100,11 +105,8 @@ class AudioLevelMonitor: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.normalizedLevels.removeFirst()
             self.normalizedLevels.append(normalizedLevel)
+            self.objectWillChange.send()
         }
-    }
-
-    @objc private func update() {
-        objectWillChange.send()
     }
 }
 

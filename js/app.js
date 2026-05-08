@@ -1871,8 +1871,12 @@ function _renderNowPlayingDots(total, activeIndex) {
 function _syncNowPlayingSpeaker() {
   if (!AppState.nowPlaying.active || !DOM.npAvatars) return;
   const activeItemId = PlaybackController.activeItemId;
+  const progress = PlaybackController.audio ? (PlaybackController.audio.currentTime / (PlaybackController.audio.duration || 1)) * 100 : 0;
   if (!activeItemId) {
-    DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => el.classList.remove('is-speaking'));
+    DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => {
+      el.classList.remove('is-speaking');
+      el.style.setProperty('--np-ring-progress', '0%');
+    });
     return;
   }
   const threads = Store.getThreads();
@@ -1886,7 +1890,9 @@ function _syncNowPlayingSpeaker() {
     }
   }
   DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => {
-    el.classList.toggle('is-speaking', !!speakingId && el.dataset.authorId === speakingId);
+    const isSpeaking = !!speakingId && el.dataset.authorId === speakingId;
+    el.classList.toggle('is-speaking', isSpeaking);
+    el.style.setProperty('--np-ring-progress', isSpeaking ? `${progress}%` : '0%');
   });
 }
 

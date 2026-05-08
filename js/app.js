@@ -1659,9 +1659,9 @@ async function openChat(chat) {
 
 function scrollChatToTop() {
   setTimeout(() => {
-    if (DOM.chatTopics) DOM.chatTopics.scrollTop = 0;
-    if (DOM.chatBody) DOM.chatBody.scrollTop = 0;
-  }, 100);
+    if (DOM.chatTopics) DOM.chatTopics.scrollTop = DOM.chatTopics.scrollHeight;
+    if (DOM.chatBody) DOM.chatBody.scrollTop = DOM.chatBody.scrollHeight;
+  }, 50);
 }
 
 async function hydrateActiveConversation(force = false) {

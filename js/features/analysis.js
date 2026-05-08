@@ -85,17 +85,17 @@ const AnalysisModal = {
     }
 
     barEls.forEach((el, index) => {
-      const delay = 220 + (index * 420);
+      const delay = 100 + (index * 180);
       this._timeouts.push(setTimeout(() => {
         el.classList.add('reveal');
         this._timeouts.push(setTimeout(() => {
           el.classList.add('filling');
           el.querySelector('.analysis-bar__fill')?.classList.add('filled');
-        }, 90));
+        }, 50));
       }, delay));
     });
 
-    const totalDelay = 220 + ((barEls.length - 1) * 420) + 1100;
+    const totalDelay = 100 + ((barEls.length - 1) * 180) + 400;
     this._timeouts.push(setTimeout(() => {
       this.close();
       if (this._onComplete) this._onComplete();

@@ -134,6 +134,20 @@ const PlaybackController = {
     await this._playThreadIndex(thread, sequence, 0, rowEl);
   },
 
+  async playThreadAt(thread, index, rowEl) {
+    this.init();
+    if (!thread) return;
+
+    const sequence = _threadPlaybackSequence(thread);
+    if (!sequence.length) {
+      console.warn('[yAp] No playable sequence for thread', { threadId: thread.id });
+      return;
+    }
+
+    const safeIndex = Math.max(0, Math.min(Number(index) || 0, sequence.length - 1));
+    await this._playThreadIndex(thread, sequence, safeIndex, rowEl);
+  },
+
   stop() {
     _resetThreadPlaybackProgress(this.activeRowEl);
     if (this.activeRowEl) this.activeRowEl.classList.remove('is-playing');
@@ -442,8 +456,7 @@ function _topicRowHTML(thread, message, replies) {
       </div>
       ${_renderSegmentTrack(segments)}
       ${replies.length ? `<div class="topic-card__reply-summary">
-        <span class="topic-card__avatars">${replies.map(_replyAvatarHTML).join('')}</span>
-        <span class="topic-card__reply-count">${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}</span>
+        <span class="topic-card__avatars">${_replyAvatarHTML(message)}${replies.map(_replyAvatarHTML).join('')}</span>
       </div>` : ''}
     </div>
   `;
@@ -463,7 +476,6 @@ function _replyRowHTML(message) {
         <span class="reply-row__play"><span class="topic-row__play-icon"></span></span>
         <span class="reply-row__title">${escapeHtml(replyTitle)}</span>
         <span class="reply-row__meta">
-          <span class="reply-row__speaker">${escapeHtml(speakerName)}</span>
           <span class="reply-row__time">${_formatClockTime(message.sentAt)}</span>
           <span class="reply-row__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>
         </span>

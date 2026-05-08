@@ -48,6 +48,7 @@ const AppState = {
     active: false,
     topicIndex: 0,
     isPlaying: false,
+    lastSpeakerId: null,
   },
   groupSettingsTab: 'info',
   groupSettingsEditing: false,
@@ -297,7 +298,7 @@ function cacheDOM() {
   DOM.npTopicTitle  = document.getElementById('np-topic-title');
   DOM.npStage       = document.getElementById('np-stage');
   DOM.npAvatars     = document.getElementById('np-avatars');
-  DOM.npDots        = document.getElementById('np-dots');
+  DOM.npTimeline   = document.getElementById("np-timeline");
   DOM.btnNpClose    = document.getElementById('btn-np-close');
   DOM.btnNpPrev     = document.getElementById('btn-np-prev');
   DOM.btnNpPlaypause = document.getElementById('btn-np-playpause');
@@ -1632,6 +1633,7 @@ async function openChat(chat) {
     DOM.chatMemberPips.style.visibility = 'visible';
     setDisplay(DOM.chatEmpty, false);
     renderTopics();
+    scrollChatToTop();
   }
 
   await hydrateActiveConversation(true);
@@ -1643,7 +1645,7 @@ async function openChat(chat) {
     DOM.chatMemberPips.style.visibility = 'visible';
     setDisplay(DOM.chatEmpty, false);
     renderTopics();
-    scrollChatToBottom();
+    scrollChatToTop();
   } else {
     DOM.chatMemberPips.style.visibility = 'hidden';
     setDisplay(DOM.chatEmpty, true);
@@ -1655,12 +1657,11 @@ async function openChat(chat) {
   await markChatMessagesAsHeard(chat.id);
 }
 
-function scrollChatToBottom() {
-  if (DOM.chatBody) {
-    setTimeout(() => {
-      DOM.chatBody.scrollTop = DOM.chatBody.scrollHeight;
-    }, 100);
-  }
+function scrollChatToTop() {
+  setTimeout(() => {
+    if (DOM.chatTopics) DOM.chatTopics.scrollTop = 0;
+    if (DOM.chatBody) DOM.chatBody.scrollTop = 0;
+  }, 100);
 }
 
 async function hydrateActiveConversation(force = false) {
@@ -1715,6 +1716,7 @@ function openNowPlaying() {
   AppState.nowPlaying.active = true;
   AppState.nowPlaying.topicIndex = 0;
   AppState.nowPlaying.isPlaying = true;
+  AppState.nowPlaying.lastSpeakerId = null;
   DOM.nowPlayingOverlay.classList.add('visible');
   DOM.nowPlayingOverlay.setAttribute('aria-hidden', 'false');
   _renderNowPlayingTopic(0, null);
@@ -1766,8 +1768,68 @@ function _nowPlayingGoToTopic(index, direction) {
   if (safeIndex === AppState.nowPlaying.topicIndex && AppState.nowPlaying.active) return;
   PlaybackController.stop();
   AppState.nowPlaying.topicIndex = safeIndex;
+  AppState.nowPlaying.lastSpeakerId = null;
   _renderNowPlayingTopic(safeIndex, direction);
   _startNowPlayingPlayback();
+}
+
+function _nowPlayingSkipMemo(direction) {
+  if (!AppState.nowPlaying.active) return;
+
+  const playlist = _getNowPlayingMemoPlaylist();
+  if (!playlist.length) return;
+
+  const activePosition = _getNowPlayingActivePlaylistIndex(playlist);
+  const offset = direction === 'prev' ? -1 : 1;
+  const activeMemo = playlist[activePosition] || playlist[0];
+  let targetMemo = null;
+
+  for (let step = 1; step < playlist.length; step += 1) {
+    const candidateIndex = (activePosition + (offset * step) + playlist.length) % playlist.length;
+    const candidate = playlist[candidateIndex];
+    if (!activeMemo?.speakerId || candidate.speakerId !== activeMemo.speakerId) {
+      targetMemo = candidate;
+      break;
+    }
+  }
+
+  if (!targetMemo) {
+    targetMemo = playlist[(activePosition + offset + playlist.length) % playlist.length];
+  }
+  if (!targetMemo) return;
+
+  AppState.nowPlaying.isPlaying = true;
+  AppState.nowPlaying.topicIndex = targetMemo.topicIndex;
+  AppState.nowPlaying.lastSpeakerId = targetMemo.speakerId;
+  _syncNowPlayingPauseIcon(true);
+  _setNowPlayingTopicTitle(targetMemo.thread.label || `Topic ${targetMemo.topicIndex + 1}`, direction);
+  _buildNowPlayingAvatarsNew(targetMemo.thread, targetMemo.speakerId);
+  PlaybackController.playThreadAt(targetMemo.thread, targetMemo.sequenceIndex, null).catch(() => {});
+}
+
+function _getNowPlayingMemoPlaylist() {
+  const threads = Store.getThreads();
+  return threads.flatMap((thread, topicIndex) =>
+    _threadPlaybackSequence(thread).map((item, sequenceIndex) => ({
+      thread,
+      topicIndex,
+      item,
+      sequenceIndex,
+      speakerId: item?.authorId || item?.author?.name || null,
+    }))
+  );
+}
+
+function _getNowPlayingActivePlaylistIndex(playlist) {
+  const activeMeta = PlaybackController.activeMeta;
+  const activeItemId = PlaybackController.activeItemId;
+  const activeIndex = playlist.findIndex(entry => {
+    if (activeMeta?.mode === 'thread' && activeMeta?.threadId === entry.thread.id) {
+      return Number(activeMeta.sequenceIndex) === entry.sequenceIndex;
+    }
+    return activeItemId && (entry.item.id === activeItemId || entry.item.voiceMessageId === activeItemId);
+  });
+  return activeIndex >= 0 ? activeIndex : 0;
 }
 
 function _renderNowPlayingTopic(index, direction) {
@@ -1775,49 +1837,41 @@ function _renderNowPlayingTopic(index, direction) {
   const thread = threads[index];
   if (!thread) return;
 
-  // Topic title
-  if (DOM.npTopicTitle) DOM.npTopicTitle.textContent = thread.label || `Topic ${index + 1}`;
+  _setNowPlayingTopicTitle(thread.label || `Topic ${index + 1}`, direction);
+  _buildNowPlayingAvatarsNew(thread, _getInitialNowPlayingSpeakerId(thread));
+}
 
-  // Slide animation
-  if (direction && DOM.npAvatars) {
-    const outDirection = direction === 'next' ? '-100%' : '100%';
-    const inDirection = direction === 'next' ? '100%' : '-100%';
-
-    // Animate out
-    DOM.npAvatars.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
-    DOM.npAvatars.style.transform = `translateX(${outDirection})`;
-    DOM.npAvatars.style.opacity = '0';
-
-    setTimeout(() => {
-      if (!DOM.npAvatars) return;
-      // Build new avatars off-screen
-      DOM.npAvatars.style.transition = 'none';
-      DOM.npAvatars.style.transform = `translateX(${inDirection})`;
-      DOM.npAvatars.style.opacity = '0';
-      _buildNowPlayingAvatars(thread);
-
-      // Animate in
-      requestAnimationFrame(() => {
-        DOM.npAvatars.style.transition = 'transform 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease';
-        DOM.npAvatars.style.transform = 'translateX(0)';
-        DOM.npAvatars.style.opacity = '1';
-        setTimeout(() => {
-          if (DOM.npAvatars) DOM.npAvatars.style.transition = '';
-        }, 400);
-      });
-    }, 220);
-  } else {
-    _buildNowPlayingAvatars(thread);
+function _setNowPlayingTopicTitle(title, direction = null) {
+  if (!DOM.npTopicTitle) return;
+  if (!direction || DOM.npTopicTitle.textContent === title) {
+    DOM.npTopicTitle.textContent = title;
+    DOM.npTopicTitle.classList.remove('is-swiping-out', 'is-swiping-in', 'is-visible');
+    DOM.npTopicTitle.style.removeProperty('--np-title-out-x');
+    DOM.npTopicTitle.style.removeProperty('--np-title-in-x');
+    return;
   }
 
-  // Dots
-  _renderNowPlayingDots(threads.length, index);
+  const outX = direction === 'prev' ? '28px' : '-28px';
+  const inX = direction === 'prev' ? '-28px' : '28px';
+  DOM.npTopicTitle.style.setProperty('--np-title-out-x', outX);
+  DOM.npTopicTitle.style.setProperty('--np-title-in-x', inX);
+  DOM.npTopicTitle.classList.remove('is-swiping-in', 'is-visible');
+  DOM.npTopicTitle.classList.add('is-swiping-out');
+
+  setTimeout(() => {
+    if (!DOM.npTopicTitle) return;
+    DOM.npTopicTitle.textContent = title;
+    DOM.npTopicTitle.classList.remove('is-swiping-out');
+    DOM.npTopicTitle.classList.add('is-swiping-in');
+    requestAnimationFrame(() => {
+      DOM.npTopicTitle?.classList.add('is-visible');
+    });
+  }, 160);
 }
 
 function _buildNowPlayingAvatars(thread) {
   if (!DOM.npAvatars) return;
   const people = [];
-  const seen = new Set();
   const durationByKey = new Map();
   const messages = (thread.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
   messages.forEach(msg => {
@@ -1873,33 +1927,315 @@ function _renderNowPlayingDots(total, activeIndex) {
 }
 
 function _syncNowPlayingSpeaker() {
-  if (!AppState.nowPlaying.active || !DOM.npAvatars) return;
+  if (!AppState.nowPlaying.active) return;
+  
   const activeItemId = PlaybackController.activeItemId;
-  const progress = PlaybackController.audio ? (PlaybackController.audio.currentTime / (PlaybackController.audio.duration || 1)) * 100 : 0;
-  if (!activeItemId) {
-    DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => {
-      el.classList.remove('is-speaking');
-      el.style.setProperty('--np-ring-progress', '0%');
-    });
-    return;
-  }
   const threads = Store.getThreads();
   const thread = threads[AppState.nowPlaying.topicIndex];
   if (!thread) return;
+
+  // Find who is currently speaking
   let speakingId = null;
-  for (const msg of (thread.messages || [])) {
-    if (msg.id === activeItemId || msg.voiceMessageId === activeItemId) {
-      speakingId = msg.authorId || msg.author?.name || null;
-      break;
+  if (activeItemId) {
+    for (const msg of (thread.messages || [])) {
+      if (msg.id === activeItemId || msg.voiceMessageId === activeItemId) {
+        speakingId = msg.authorId || msg.author?.name || null;
+        break;
+      }
     }
   }
-  DOM.npAvatars.querySelectorAll('.np-avatar').forEach(el => {
-    const isSpeaking = !!speakingId && el.dataset.authorId === speakingId;
-    el.classList.toggle('is-speaking', isSpeaking);
-    el.style.setProperty('--np-ring-progress', isSpeaking ? `${progress}%` : '0%');
+
+  // Rebuild avatars if speaker changed
+  if (speakingId && (!AppState.nowPlaying.lastSpeakerId || AppState.nowPlaying.lastSpeakerId !== speakingId)) {
+    AppState.nowPlaying.lastSpeakerId = speakingId;
+    if (DOM.npAvatars) {
+      _buildNowPlayingAvatarsNew(thread, speakingId);
+    }
+  }
+
+  _syncNowPlayingAvatarProgress();
+}
+
+function _buildNowPlayingTimeline(thread) {
+  if (!DOM.npTimeline) return;
+  const messages = (thread.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+  if (messages.length === 0) {
+    DOM.npTimeline.innerHTML = '';
+    return;
+  }
+
+  // Calculate total duration and segment positions
+  const segments = [];
+  let totalDuration = 0;
+  messages.forEach(msg => {
+    const durationMs = Number(msg.durationMs) || 0;
+    const startMs = totalDuration;
+    const endMs = totalDuration + durationMs;
+    segments.push({
+      msg,
+      startMs,
+      endMs,
+      durationMs,
+      color: msg.author?.color || pickUserColor(msg.author?.name || ''),
+    });
+    totalDuration = endMs;
+  });
+
+  const totalLabel = formatDurationClock(totalDuration || 0);
+  const segmentHtml = segments.map(seg => {
+    const flexGrow = totalDuration > 0 ? seg.durationMs / totalDuration : 1;
+    return `<span class="np-timeline__segment" style="flex:${flexGrow};" data-message-id="${escapeHtml(seg.msg.id || '')}" data-author-id="${escapeHtml(seg.msg.authorId || seg.msg.author?.name || '')}"></span>`;
+  }).join('');
+  const playedSegmentHtml = segments.map(seg => {
+    const flexGrow = totalDuration > 0 ? seg.durationMs / totalDuration : 1;
+    return `<span class="np-timeline__segment np-timeline__segment--played" style="flex:${flexGrow};" data-message-id="${escapeHtml(seg.msg.id || '')}" data-author-id="${escapeHtml(seg.msg.authorId || seg.msg.author?.name || '')}"></span>`;
+  }).join('');
+
+  DOM.npTimeline.innerHTML = `
+    <span class="np-timeline__tick" data-np-elapsed>0:00</span>
+    <span class="np-timeline__track">
+      ${segmentHtml}
+      <span class="np-timeline__played" aria-hidden="true">${playedSegmentHtml}</span>
+    </span>
+    <span class="np-timeline__tick" data-np-remaining>-${totalLabel}</span>
+  `;
+
+  // Set total duration on the timeline for progress tracking
+  DOM.npTimeline.setAttribute('data-total-duration', totalDuration);
+  DOM.npTimeline.style.setProperty('--timeline-progress', '0%');
+}
+
+function _buildNowPlayingAvatarsNew(thread, currentSpeakerId) {
+  if (!DOM.npAvatars) return;
+
+  const previousRects = _getNowPlayingAvatarRects();
+  const peopleByKey = new Map();
+  const seen = new Set();
+  const durationByKey = new Map();
+  const messages = (thread.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+  const topicSpeakerKeys = new Set();
+
+  const addPerson = person => {
+    const key = person?.id || person?.phoneE164 || person?.name;
+    if (!key || peopleByKey.has(key)) return;
+    peopleByKey.set(key, {
+      id: key,
+      name: person.name || 'Friend',
+      color: person.color || pickUserColor(person.name || person.phoneE164 || key),
+      avatarUrl: person.avatarUrl || '',
+      hasMemoInTopic: false,
+    });
+  };
+
+  messages.forEach(msg => {
+    const key = msg.authorId || msg.author?.name;
+    if (!key) return;
+    topicSpeakerKeys.add(key);
+    durationByKey.set(key, (durationByKey.get(key) || 0) + (Number(msg.durationMs) || 0));
+    addPerson({
+      id: msg.authorId || msg.author?.name || '',
+      name: msg.author?.name || 'Friend',
+      color: msg.author?.color || pickUserColor(msg.author?.name || ''),
+      avatarUrl: msg.author?.avatarUrl || '',
+    });
+  });
+
+  (AppState.activeChat?.members || []).forEach(member => {
+    const resolvedMember = resolveAvatarMember(member);
+    addPerson({
+      id: resolvedMember?.id || member?.id || member?.phoneE164 || member?.name || '',
+      name: resolvedMember?.name || member?.name || member?.phoneE164 || 'Friend',
+      color: resolvedMember?.color || member?.color || pickUserColor(member?.name || member?.phoneE164 || member?.id || ''),
+      avatarUrl: resolvedMember?.avatarUrl || member?.avatarUrl || '',
+      phoneE164: resolvedMember?.phoneE164 || member?.phoneE164 || '',
+    });
+  });
+
+  const people = Array.from(peopleByKey.values()).map(person => ({
+    ...person,
+    hasMemoInTopic: topicSpeakerKeys.has(person.id),
+  }));
+
+  // Separate current speaker from everyone else. If playback has not emitted yet, use the first memo speaker.
+  const currentSpeaker = people.find(p => p.id === currentSpeakerId) || people.find(p => p.hasMemoInTopic) || people[0];
+  const floatingPeople = people.filter(p => p.id !== currentSpeaker?.id);
+
+  let html = '';
+  
+  if (currentSpeaker) {
+    const totalMs = durationByKey.get(currentSpeaker.id) || 0;
+    const secs = Math.round(totalMs / 1000);
+    const timestamp = totalMs > 0
+      ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+      : '';
+    html += _buildNowPlayingAvatar(currentSpeaker, 'np-avatar--current is-speaking', {
+      durationLabel: timestamp,
+      ringProgress: _getSpeakerTimelineProgress(thread, currentSpeaker.id),
+    });
+  }
+
+  if (floatingPeople.length > 0) {
+    html += '<div class="np-avatar--others-container">';
+    floatingPeople.forEach((person, index) => {
+      html += _buildNowPlayingAvatar(person, `np-avatar--other${person.hasMemoInTopic ? ' has-topic-memo' : ''}`, {
+        styleVars: _getNowPlayingFloatingStyle(index, floatingPeople.length),
+      });
+    });
+    html += '</div>';
+  }
+
+  DOM.npAvatars.innerHTML = html;
+  DOM.npAvatars.setAttribute('data-count', people.length);
+  _animateNowPlayingAvatarSwap(previousRects);
+}
+
+function _getNowPlayingAvatarRects() {
+  const rects = new Map();
+  DOM.npAvatars?.querySelectorAll('.np-avatar[data-author-id]').forEach(avatar => {
+    const key = avatar.getAttribute('data-author-id');
+    if (!key) return;
+    const rect = avatar.getBoundingClientRect();
+    if (rect.width && rect.height) rects.set(key, rect);
+  });
+  return rects;
+}
+
+function _animateNowPlayingAvatarSwap(previousRects) {
+  if (!DOM.npAvatars || !previousRects?.size) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
+
+  const avatars = Array.from(DOM.npAvatars.querySelectorAll('.np-avatar[data-author-id]'));
+  if (!avatars.length) return;
+
+  DOM.npAvatars.classList.add('is-swapping');
+  let animated = false;
+
+  avatars.forEach(avatar => {
+    const key = avatar.getAttribute('data-author-id');
+    const oldRect = previousRects.get(key);
+    const newRect = avatar.getBoundingClientRect();
+    if (!oldRect || !newRect.width || !newRect.height) {
+      avatar.style.opacity = '0';
+      return;
+    }
+
+    const dx = oldRect.left - newRect.left;
+    const dy = oldRect.top - newRect.top;
+    const scale = Math.max(0.45, Math.min(1.8, oldRect.width / newRect.width));
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(scale - 1) < 0.02) return;
+
+    animated = true;
+    avatar.style.transition = 'none';
+    avatar.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(${scale})`;
+    avatar.style.opacity = avatar.classList.contains('np-avatar--current') ? '0.72' : '0.5';
+  });
+
+  requestAnimationFrame(() => {
+    avatars.forEach(avatar => {
+      avatar.style.transition = 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease, filter 420ms ease';
+      avatar.style.transform = 'translate(-50%, -50%) translate(0px, 0px) scale(1)';
+      avatar.style.opacity = '';
+    });
+
+    setTimeout(() => {
+      avatars.forEach(avatar => {
+        avatar.style.transition = '';
+        avatar.style.transform = '';
+        avatar.style.opacity = '';
+      });
+      DOM.npAvatars?.classList.remove('is-swapping');
+    }, animated ? 560 : 260);
   });
 }
 
+function _buildNowPlayingAvatar(person, className, options = {}) {
+  const initials = buildUserInitials(person.name);
+  const photoStyle = person.avatarUrl
+    ? `background-image:url('${escapeHtml(person.avatarUrl)}');background-size:cover;background-position:center;background-repeat:no-repeat`
+    : `--avatar-accent:${person.color};`;
+  const photoClass = person.avatarUrl ? '' : 'avatar-fallback';
+  const ringProgress = Math.max(0, Math.min(100, Number(options.ringProgress) || 0));
+
+  return `
+    <div class="np-avatar ${className}" data-author-id="${escapeHtml(person.id)}" style="--np-accent:${person.color};--np-ring-progress:${ringProgress};--np-ring-deg:${ringProgress * 3.6}deg;${options.styleVars || ''}">
+      <div class="np-avatar__label">${escapeHtml(person.name)}</div>
+      <div class="np-avatar__ring-wrap">
+        <div class="np-avatar__ring np-avatar__ring--progress"></div>
+        <div class="np-avatar__photo ${photoClass}" style="${photoStyle}">
+          ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
+        </div>
+      </div>
+      ${options.durationLabel ? `<div class="np-avatar__duration">${escapeHtml(options.durationLabel)}</div>` : ''}
+    </div>
+  `;
+}
+
+function _getNowPlayingFloatingStyle(index, total) {
+  const presets = {
+    1: [[-86, 28]],
+    2: [[-94, 20], [92, 56]],
+    3: [[-112, 12], [104, 26], [-18, 90]],
+    4: [[-124, 10], [116, 18], [-72, 92], [72, 96]],
+    5: [[-128, 6], [122, 14], [-86, 82], [8, 102], [96, 88]],
+  };
+  const point = presets[total]?.[index];
+  if (point) {
+    return `--np-other-x:${point[0]}px;--np-other-y:${point[1]}px;--np-float-delay:${index * -0.7}s;`;
+  }
+
+  const columns = Math.min(4, Math.max(1, total));
+  const col = index % columns;
+  const row = Math.floor(index / columns);
+  const center = (columns - 1) / 2;
+  const offsetX = (col - center) * 76;
+  const offsetY = 22 + row * 72 + (col % 2) * 16;
+  return `--np-other-x:${Math.max(-136, Math.min(136, offsetX))}px;--np-other-y:${offsetY}px;--np-float-delay:${index * -0.7}s;`;
+}
+
+function _getInitialNowPlayingSpeakerId(thread) {
+  const firstMsg = (thread?.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0))[0];
+  return firstMsg?.authorId || firstMsg?.author?.name || null;
+}
+
+function _getSpeakerTimelineProgress(thread, speakerId) {
+  if (!speakerId) return 0;
+  const activeItemId = PlaybackController.activeItemId;
+  const messages = (thread?.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+  let speakerTotal = 0;
+  let speakerElapsed = 0;
+
+  messages.forEach(msg => {
+    const key = msg.authorId || msg.author?.name;
+    const durationMs = Number(msg.durationMs) || 0;
+    if (key !== speakerId) return;
+    speakerTotal += durationMs;
+    if (msg.id === activeItemId || msg.voiceMessageId === activeItemId) {
+      const startSeconds = Math.max(0, Number(PlaybackController.activeMeta?.startAt) || 0);
+      const elapsedMs = Math.max(0, (PlaybackController.audio.currentTime - startSeconds) * 1000);
+      speakerElapsed += Math.min(durationMs, elapsedMs);
+    } else if (PlaybackController.activeMeta?.sequenceIndex != null) {
+      const sequence = PlaybackController.activeMeta.sequence || [];
+      const activeIndex = PlaybackController.activeMeta.sequenceIndex;
+      const msgIndex = sequence.findIndex(item => item.id === msg.id || item.voiceMessageId === msg.voiceMessageId);
+      if (msgIndex >= 0 && msgIndex < activeIndex) speakerElapsed += durationMs;
+    }
+  });
+
+  return speakerTotal > 0 ? (speakerElapsed / speakerTotal) * 100 : 0;
+}
+
+function _syncNowPlayingAvatarProgress() {
+  if (!PlaybackController.audio) return;
+  const threads = Store.getThreads();
+  const thread = threads[AppState.nowPlaying.topicIndex];
+  const currentAvatar = DOM.npAvatars?.querySelector('.np-avatar--current');
+  const currentSpeakerId = currentAvatar?.getAttribute('data-author-id');
+  if (thread && currentAvatar && currentSpeakerId) {
+    const speakerProgress = Math.max(0, Math.min(100, _getSpeakerTimelineProgress(thread, currentSpeakerId)));
+    currentAvatar.style.setProperty('--np-ring-progress', `${speakerProgress}`);
+    currentAvatar.style.setProperty('--np-ring-deg', `${speakerProgress * 3.6}deg`);
+  }
+}
 function _showRecRow(which) {
   // which: 'recording' | 'stopped' | 'sending'
   DOM.recActionsRecording.classList.toggle('hidden', which !== 'recording');
@@ -3271,6 +3607,16 @@ async function routeAuthenticatedUser() {
     return;
   }
 
+  const canLeaveSplashEarly = AppState.screen === 'splash'
+    && !AppState.auth.pendingInviteToken
+    && !AppState.auth.pendingChatId;
+  if (canLeaveSplashEarly) {
+    const cachedChats = readCachedChatsForUser(getCurrentUserId());
+    if (cachedChats.length) AppState.chats = cachedChats;
+    navigate('chats', 'fade');
+    scheduleChatsListRender();
+  }
+
   const appUser = await ensureAppUserFromAuthSession(authSession);
   if (!appUser?.id) {
     // DB lookup/insert failed, but the user IS verified (Twilio OTP succeeded).
@@ -3326,6 +3672,17 @@ async function routeAuthenticatedUser() {
     }
   }
 
+  const canShowChatsBeforeRefresh = !AppState.auth.pendingChatId && !joinedChatId;
+  let showedChatsBeforeRefresh = false;
+  if (canShowChatsBeforeRefresh) {
+    const cachedChats = readCachedChatsForUser(appUser.id);
+    if (cachedChats.length) AppState.chats = cachedChats;
+    AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
+    navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
+    scheduleChatsListRender();
+    showedChatsBeforeRefresh = true;
+  }
+
   await refreshChatsAndRender();
   bindResumeRefreshHandlers();
   ensureNotificationPermission().catch(error => {
@@ -3343,7 +3700,7 @@ async function routeAuthenticatedUser() {
 
   if (!AppState.chats.length) {
     AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
-    navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
+    if (!showedChatsBeforeRefresh) navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
     scheduleChatsListRender();
     return;
   }
@@ -3357,7 +3714,7 @@ async function routeAuthenticatedUser() {
   }
 
   AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
-  navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
+  if (!showedChatsBeforeRefresh) navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
   scheduleChatsListRender();
 }
 
@@ -4048,10 +4405,10 @@ function wireEvents() {
   DOM.btnNpClose?.addEventListener('click', closeNowPlaying);
   DOM.btnNpPlaypause?.addEventListener('click', _toggleNowPlayingPause);
   DOM.btnNpPrev?.addEventListener('click', () => {
-    _nowPlayingGoToTopic(AppState.nowPlaying.topicIndex - 1, 'prev');
+    _nowPlayingSkipMemo('prev');
   });
   DOM.btnNpNext?.addEventListener('click', () => {
-    _nowPlayingGoToTopic(AppState.nowPlaying.topicIndex + 1, 'next');
+    _nowPlayingSkipMemo('next');
   });
 
   // Hook into PlaybackController audio events for now-playing sync

@@ -279,10 +279,12 @@ function cacheDOM() {
   DOM.selfAvatar = document.getElementById('self-avatar');
   DOM.btnStartChat = document.getElementById('btn-start-chat');
   DOM.btnSearch = document.getElementById('btn-search');
+  DOM.chatContextMenu = document.getElementById('chat-context-menu');
 
   // Chat screen
   DOM.chatTitle      = document.getElementById('chat-title');
   DOM.chatMemberPips = document.getElementById('chat-member-pips');
+  DOM.chatBody       = document.getElementById('chat-body');
   DOM.chatEmpty      = document.getElementById('chat-empty');
   DOM.chatTopics     = document.getElementById('chat-topics');
   DOM.chatProcessing = document.getElementById('chat-processing');
@@ -642,6 +644,7 @@ function scheduleConversationCachePrime(delayMs = 180) {
 
 async function refreshChatsAndRender() {
   await refreshChats();
+  updateChatsUnreadCounts();
   scheduleChatsListRender();
   scheduleConversationCachePrime();
   return AppState.chats;
@@ -668,7 +671,7 @@ function renderChatsList() {
     DOM.inputChatSearch.value = AppState.chatsSearchQuery;
   }
 
-  setElementImage(DOM.selfAvatar, currentUser.avatarUrl);
+  setElementImage(DOM.selfAvatar, currentUser.avatarUrl, currentUser.initials || buildUserInitials(currentUser.name || 'You'));
 
   if (showEmptyState) {
     DOM.chatsGrid.innerHTML = '';
@@ -713,6 +716,92 @@ function pinChatInLocalLists(chat) {
     ...(AppState.chats || []).filter(entry => entry.id !== pinnedChat.id),
   ].sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
   writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+}
+
+function showChatContextMenu(chatId) {
+  if (!DOM.chatContextMenu) return;
+
+  const card = document.querySelector(`[data-chat-id="${chatId}"]`);
+  const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
+  if (!card || !popover) return;
+
+  const cardRect = card.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+
+  let top = cardRect.bottom + 12;
+  let left = cardRect.left + (cardRect.width / 2) - (popoverRect.width / 2);
+
+  // Prevent popover from going off-screen horizontally
+  const padding = 16;
+  if (left < padding) {
+    left = padding;
+  } else if (left + popoverRect.width > window.innerWidth - padding) {
+    left = window.innerWidth - popoverRect.width - padding;
+  }
+
+  // Prevent popover from going off-screen vertically
+  if (top + popoverRect.height > window.innerHeight - padding) {
+    top = cardRect.top - popoverRect.height - 12;
+  }
+
+  popover.style.top = Math.max(padding, top) + 'px';
+  popover.style.left = left + 'px';
+
+  AppState.contextMenuChatId = chatId;
+  DOM.chatContextMenu.removeAttribute('hidden');
+  DOM.chatContextMenu.classList.add('active');
+}
+
+function hideChatContextMenu() {
+  if (!DOM.chatContextMenu) return;
+  const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
+  if (popover) {
+    popover.style.top = '';
+    popover.style.left = '';
+  }
+  DOM.chatContextMenu.classList.remove('active');
+  DOM.chatContextMenu.setAttribute('hidden', '');
+  AppState.contextMenuChatId = null;
+}
+
+async function handleChatContextAction(action) {
+  const chatId = AppState.contextMenuChatId;
+  if (!chatId) return;
+
+  const chat = AppState.chats.find(c => c.id === chatId);
+  if (!chat) return;
+
+  hideChatContextMenu();
+
+  try {
+    switch (action) {
+      case 'pin':
+        pinChatInLocalLists(chat);
+        await refreshChatsAndRender();
+        break;
+      case 'mark-unread':
+        chat.unread = 1;
+        writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+        await refreshChatsAndRender();
+        break;
+      case 'hide-alerts':
+        chat.hideAlerts = !chat.hideAlerts;
+        writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+        await refreshChatsAndRender();
+        break;
+      case 'delete':
+        if (confirm(`Leave "${chat.name}"?`)) {
+          await leaveChat(chatId, getCurrentUserId());
+          AppState.chats = AppState.chats.filter(c => c.id !== chatId);
+          AppState.pendingChats = AppState.pendingChats.filter(c => c.id !== chatId);
+          writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+          await refreshChatsAndRender();
+        }
+        break;
+    }
+  } catch (error) {
+    console.error('[yAp] Context action failed:', error);
+  }
 }
 
 function buildChatActivitySnapshot(chats = AppState.chats) {
@@ -905,6 +994,26 @@ function startRemoteSync() {
   window.addEventListener('focus', () => {
     syncRemoteState({ forceConversation: AppState.screen === 'chat' });
   });
+  window.addEventListener('online', () => {
+    syncRemoteState({ forceConversation: true });
+  });
+  AppState.sync.handlersBound = true;
+}
+
+function bindResumeRefreshHandlers() {
+  if (AppState.sync.handlersBound) return;
+
+  const refreshOnResume = () => {
+    if (!AppState.supabaseOk || !AppState.auth.session || !getCurrentUserId()) return;
+    const minRefreshMs = Math.max(15_000, Number(YAP_SUPABASE_CHAT_REFRESH_MIN_MS || 0));
+    if ((Date.now() - Number(AppState.sync.lastChatsRefreshAt || 0)) < minRefreshMs) return;
+    syncRemoteState({ forceConversation: AppState.screen === 'chat' });
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshOnResume();
+  });
+  window.addEventListener('focus', refreshOnResume);
   window.addEventListener('online', () => {
     syncRemoteState({ forceConversation: true });
   });
@@ -1364,8 +1473,13 @@ function renderFloatingProfile(wrapper, label, photo, member, fallbackSeed) {
 }
 
 function _chatArtHTML(chat) {
+  if (chat.avatarUrl) {
+    return `<div class="chat-art-circle" style="background-image:url('${escapeHtml(chat.avatarUrl)}');background-size:cover;background-position:center;background-repeat:no-repeat"></div>`;
+  }
+
   if (chat.visual === 'besties') {
-    const bestiesMembers = getChatOtherMembers(chat).slice(0, 2);
+    const otherMembers = getChatOtherMembers(chat);
+    const bestiesMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 2);
     if (bestiesMembers.length) {
       return `
         <div class="chat-art-besties">
@@ -1410,7 +1524,8 @@ function _chatArtHTML(chat) {
     return `<div class="chat-art-circle chat-art-circle--mushroom"></div>`;
   }
 
-  const artMembers = getChatOtherMembers(chat).slice(0, 2);
+  const otherMembers = getChatOtherMembers(chat);
+  const artMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 2);
   if (artMembers.length) {
     return `
       <div class="chat-art-besties">
@@ -1422,14 +1537,21 @@ function _chatArtHTML(chat) {
     `;
   }
 
-  return `<div class="chat-art-circle"><span>${chat.emoji || '💬'}</span></div>`;
+  const fallbackLabel = buildUserInitials(chat.name || chat.emoji || 'Y');
+  return `<div class="chat-art-circle avatar-fallback chat-art-circle--fallback" style="--avatar-accent:${pickUserColor(chat.name || fallbackLabel)}"><span>${escapeHtml(fallbackLabel)}</span></div>`;
 }
 
 function renderActiveChatShell(chat) {
   DOM.chatTitle.textContent = chat.name;
 
+  const currentUserId = getCurrentUserId();
   DOM.chatMemberPips.innerHTML = (chat.members || [])
-    .map(member => `<div class="member-pip" style="background-image:url('${member.avatarUrl || ''}'); background-color:${member.color || pickUserColor(member.name || member.phoneE164 || member.id || '')}"></div>`)
+    .filter(member => member.id !== currentUserId)
+    .map(member => {
+      const avatarUrl = member.avatarUrl ? `url('${member.avatarUrl}')` : 'none';
+      const bgColor = member.color || pickUserColor(member.name || member.phoneE164 || member.id || '');
+      return `<div class="member-pip" style="background-image:${avatarUrl}; background-color:${bgColor}; background-size:cover; background-position:center;"></div>`;
+    })
     .join('');
 
   const otherMembers = getChatOtherMembers(chat);
@@ -1446,6 +1568,51 @@ function renderActiveChatShell(chat) {
 }
 
 // ── Open a chat ───────────────────────────────────────
+function updateChatsUnreadCounts() {
+  const currentUserId = getCurrentUserId();
+  for (const chat of AppState.chats || []) {
+    const threads = readCachedThreadsForChat(chat.id);
+    let unreadCount = 0;
+    for (const thread of threads || []) {
+      for (const message of thread.messages || []) {
+        if (message.authorId !== currentUserId && !message.heardByCurrentUser) {
+          unreadCount++;
+        }
+      }
+    }
+    chat.unread = unreadCount;
+  }
+}
+
+async function markChatMessagesAsHeard(chatId) {
+  const threads = Store.getThreads();
+  const currentUserId = getCurrentUserId();
+  if (!currentUserId || !threads.length) return;
+
+  const heardPromises = [];
+  for (const thread of threads) {
+    for (const message of thread.messages || []) {
+      if (message.authorId !== currentUserId && !message.heardByCurrentUser && message.voiceMessageId) {
+        heardPromises.push(savePlaybackProgressRecord({
+          userId: currentUserId,
+          voiceMessageId: message.voiceMessageId,
+          heard: true,
+          playedMs: 0,
+        }));
+      }
+    }
+  }
+
+  if (heardPromises.length > 0) {
+    await Promise.all(heardPromises);
+    const chat = AppState.chats.find(c => c.id === chatId);
+    if (chat) {
+      chat.unread = 0;
+      refreshChats();
+    }
+  }
+}
+
 async function openChat(chat) {
   AppState.activeChat = chat;
   Store.setActiveChat(chat.id);
@@ -1476,12 +1643,24 @@ async function openChat(chat) {
     DOM.chatMemberPips.style.visibility = 'visible';
     setDisplay(DOM.chatEmpty, false);
     renderTopics();
+    scrollChatToBottom();
   } else {
     DOM.chatMemberPips.style.visibility = 'hidden';
     setDisplay(DOM.chatEmpty, true);
     setDisplay(DOM.chatTopics, false);
   }
   renderChatPresence(AppState.activeChat);
+
+  // Mark all unheard messages as heard
+  await markChatMessagesAsHeard(chat.id);
+}
+
+function scrollChatToBottom() {
+  if (DOM.chatBody) {
+    setTimeout(() => {
+      DOM.chatBody.scrollTop = DOM.chatBody.scrollHeight;
+    }, 100);
+  }
 }
 
 async function hydrateActiveConversation(force = false) {
@@ -2406,17 +2585,17 @@ function renderCreateGroupContactRow(contact, { compact = false } = {}) {
     ? 'You'
     : matchedUser
       ? 'On yAp'
-      : 'Not on yAp';
+      : 'Invite';
   const subtitle = isSelf
     ? 'Message yourself'
     : matchedUser
       ? phone
-      : (compact ? phone : 'Registered users only');
+      : (compact ? phone : 'Send an SMS invite');
   const compactSubline = compact ? '' : `<div class="create-chat-picker__contact-sub">${escapeHtml(subtitle)}</div>`;
   const avatarContent = matchedUser?.avatarUrl
     ? ''
     : `<img class="create-chat-picker__contact-placeholder" src="assets/contact-placeholder.svg" alt="" aria-hidden="true">`;
-  const isAddable = !!matchedUser && !isSelected;
+  const isAddable = !!phone && !isSelected;
 
   return `
     <button class="create-chat-picker__contact-row${isSelected ? ' is-added' : ''}" type="button" data-add-create-group-contact="${escapeHtml(phone)}" ${isAddable ? '' : 'disabled'}>
@@ -2457,7 +2636,6 @@ async function renderCreateGroupPicker() {
   const exactPhone = normalizePhoneNumber(query);
   const manualMatchedUser = exactPhone ? await getRegisteredUserByPhone(exactPhone) : null;
   const canAddManual = !!exactPhone
-    && !!manualMatchedUser
     && !allContacts.some(contact => contact.phone_e164 === exactPhone)
     && !AppState.onboarding.pendingMembers.some(member => member.phone === exactPhone);
 
@@ -2475,15 +2653,16 @@ async function renderCreateGroupPicker() {
       </div>
       <div class="create-chat-picker__contact-meta">
         <div class="create-chat-picker__contact-name">${escapeHtml(manualMatchedUser?.name || exactPhone)}</div>
-        <div class="create-chat-picker__contact-sub">${escapeHtml(exactPhone)}</div>
+        <div class="create-chat-picker__contact-sub">${escapeHtml(manualMatchedUser ? exactPhone : 'Send an SMS invite')}</div>
       </div>
+      <span class="create-chat-picker__contact-badge create-chat-picker__contact-badge--${manualMatchedUser ? 'registered' : 'invite'}">${manualMatchedUser ? 'On yAp' : 'Invite'}</span>
     </button>
   ` : '';
 
   DOM.createChatContacts.hidden = false;
   DOM.createChatContacts.innerHTML = rows || manualRow
     ? `<div class="create-chat-picker__contact-card">${manualRow}${rows}</div>`
-    : `<div class="create-chat-picker__empty">${exactPhone ? 'That number is not on yAp yet.' : 'No matches yet.'}</div>`;
+    : `<div class="create-chat-picker__empty">${exactPhone ? 'Tap Add to invite that number by SMS.' : 'No matches yet.'}</div>`;
 }
 
 async function addPendingGroupMember() {
@@ -2513,12 +2692,7 @@ async function addPendingGroupMember() {
 
   if (AppState.supabaseOk) {
     const matchedUser = await getRegisteredUserByPhone(resolvedPhone);
-    if (!matchedUser) {
-      setFeedback(DOM.createGroupFeedback, 'That phone number is not on yAp yet. Right now you can only add registered users.', 'error');
-      DOM.inputCreateGroupSearch?.focus();
-      return;
-    }
-    resolvedName = matchedUser.name || resolvedName || resolvedPhone;
+    resolvedName = matchedUser?.name || resolvedName || resolvedPhone;
   }
 
   if (AppState.onboarding.pendingMembers.some(member => member.phone === resolvedPhone)) {
@@ -2650,22 +2824,22 @@ async function renderContactsHub() {
     const status = inOnboarding
       ? (matchedUser ? 'On yAp' : 'Imported')
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? (inGroup ? 'In Conversation' : invited ? 'Pending' : matchedUser ? 'On yAp' : 'Not on yAp')
-      : (selected ? 'Added' : matchedUser ? 'On yAp' : 'Not on yAp');
+      ? (inGroup ? 'In Conversation' : invited ? 'Pending' : matchedUser ? 'On yAp' : 'Invite')
+      : (selected ? 'Added' : matchedUser ? 'On yAp' : 'Invite');
     const isDisabled = inOnboarding
       ? true
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? inGroup || invited || !matchedUser
-      : selected || !matchedUser;
+      ? inGroup || invited
+      : selected;
     const buttonLabel = inOnboarding
       ? 'Saved'
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? (inGroup ? 'Added' : invited ? 'Pending' : matchedUser ? 'Add' : 'Unavailable')
-      : (selected ? 'Added' : matchedUser ? 'Add' : 'Unavailable');
+      ? (inGroup ? 'Added' : invited ? 'Pending' : matchedUser ? 'Add' : 'Invite')
+      : (selected ? 'Added' : matchedUser ? 'Add' : 'Invite');
 
     return `
       <div class="contacts-hub-row" data-contact-phone="${escapeHtml(phone)}">
-        <div class="contacts-hub-row__avatar" style="${matchedUser?.avatarUrl ? `background-image:url('${matchedUser.avatarUrl}')` : ''}">${escapeHtml(initials)}</div>
+        <div class="contacts-hub-row__avatar ${matchedUser?.avatarUrl ? '' : 'avatar-fallback'}" style="${matchedUser?.avatarUrl ? `background-image:url('${matchedUser.avatarUrl}')` : `--avatar-accent:${pickUserColor(contact.display_name || matchedUser?.name || phone)}`}">${matchedUser?.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}</div>
         <div class="contacts-hub-row__meta">
           <div class="contacts-hub-row__name">${escapeHtml(contact.display_name || matchedUser?.name || 'Unknown contact')}</div>
           <div class="contacts-hub-row__sub">${escapeHtml(phone)}</div>
@@ -2688,10 +2862,7 @@ async function refreshChats() {
 
   AppState.chatsRefreshPromise = (async () => {
   if (!AppState.supabaseOk) {
-    const demoChats = CHATS.filter(chat => chat.members.some(member => member.id === getCurrentUserId()));
-    const demoIds = new Set(demoChats.map(c => c.id));
-    const pending = (AppState.pendingChats || []).filter(c => !demoIds.has(c.id));
-    AppState.chats = [...pending, ...demoChats];
+    AppState.chats = AppState.pendingChats || [];
     return AppState.chats;
   }
 
@@ -2728,6 +2899,7 @@ async function refreshChats() {
   }).sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
 
   AppState.chats = dedupedChats;
+  updateChatsUnreadCounts();
   writeCachedChatsForUser(AppState.chats, getCurrentUserId());
   AppState.pendingChats = AppState.pendingChats.filter(chat => !remoteIds.has(chat.id));
   if (AppState.activeChat?.id) {
@@ -2890,8 +3062,9 @@ function extractLinkCardsFromChat(chat) {
 }
 
 function buildGroupSettingsPhotoTiles(chat) {
+  const currentUserId = getCurrentUserId();
   const memberTiles = (chat?.members || [])
-    .filter(member => member?.avatarUrl)
+    .filter(member => member.id !== currentUserId && member?.avatarUrl)
     .map((member, index) => ({
       id: `${member.id}-${index}`,
       imageUrl: member.avatarUrl,
@@ -2903,7 +3076,9 @@ function buildGroupSettingsPhotoTiles(chat) {
 
   if (memberTiles.length) return memberTiles.slice(0, 8);
 
-  return (chat?.members || []).slice(0, 6).map((member, index) => ({
+  return (chat?.members || [])
+    .filter(member => member.id !== currentUserId)
+    .slice(0, 6).map((member, index) => ({
     id: `${member.id}-${index}`,
     imageUrl: '',
     initials: buildUserInitials(member.name || 'Y'),
@@ -2950,7 +3125,7 @@ function renderGroupSettings(invites = []) {
   if (DOM.toggleGroupHideAlerts) DOM.toggleGroupHideAlerts.checked = !!AppState.groupSettingsPrefs.hideAlerts;
 
   if (DOM.groupSettingsHeroAvatars) {
-    DOM.groupSettingsHeroAvatars.innerHTML = members.slice(0, 3).map(member => `
+    DOM.groupSettingsHeroAvatars.innerHTML = members.filter(member => member.id !== currentUserId).slice(0, 3).map(member => `
       <div class="${buildAvatarClass('group-details-hero__avatar', member)}" style="${buildAvatarStyle(member)}">
         ${buildAvatarContent(member)}
       </div>
@@ -3136,6 +3311,7 @@ async function routeAuthenticatedUser() {
   }
 
   await refreshChatsAndRender();
+  bindResumeRefreshHandlers();
   ensureNotificationPermission().catch(error => {
     console.warn('[yAp] notification permission request failed:', error);
   });
@@ -3479,9 +3655,10 @@ function wireEvents() {
       }).then(async result => {
         await refreshActiveChatAndSettings();
         await renderContactsHub();
+        const inviteCount = result?.invitesCreated || 0;
         setFeedback(
           DOM.contactsHubFeedback,
-          `${name} added to this group.`,
+          inviteCount ? `SMS invite sent to ${name}.` : `${name} added to this group.`,
           'success'
         );
       }).catch(error => {
@@ -3689,6 +3866,48 @@ function wireEvents() {
     if (chat?.active) openChat(chat);
   });
 
+  // Long-press context menu for chat cards
+  let pressTimer = null;
+  let pressTarget = null;
+  DOM.chatsGrid.addEventListener('pointerdown', event => {
+    const card = event.target.closest('[data-chat-id]');
+    if (!card) return;
+    pressTarget = card;
+    card.classList.add('chat-card--pressing');
+    pressTimer = setTimeout(() => {
+      showChatContextMenu(card.dataset.chatId);
+      pressTimer = null;
+    }, 500);
+  });
+  DOM.chatsGrid.addEventListener('pointerup', () => {
+    if (pressTarget) pressTarget.classList.remove('chat-card--pressing');
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = null;
+    pressTarget = null;
+  });
+  DOM.chatsGrid.addEventListener('pointercancel', () => {
+    if (pressTarget) pressTarget.classList.remove('chat-card--pressing');
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = null;
+    pressTarget = null;
+  });
+
+  // Chat context menu handlers
+  DOM.chatContextMenu?.addEventListener('click', event => {
+    if (event.target === DOM.chatContextMenu || event.target === DOM.chatContextMenu.querySelector('.chat-context-menu__overlay')) {
+      hideChatContextMenu();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && DOM.chatContextMenu && !DOM.chatContextMenu.hidden) {
+      hideChatContextMenu();
+    }
+  });
+  document.getElementById('ctx-pin-chat')?.addEventListener('click', () => handleChatContextAction('pin'));
+  document.getElementById('ctx-mark-unread')?.addEventListener('click', () => handleChatContextAction('mark-unread'));
+  document.getElementById('ctx-hide-alerts')?.addEventListener('click', () => handleChatContextAction('hide-alerts'));
+  document.getElementById('ctx-delete-chat')?.addEventListener('click', () => handleChatContextAction('delete'));
+
   DOM.btnBack.addEventListener('click', async () => {
     if (AppState.activeChat) {
       pinChatInLocalLists(AppState.activeChat);
@@ -3745,11 +3964,14 @@ function wireEvents() {
       DOM.inputGroupMemberName.value = '';
       DOM.inputGroupMemberPhone.value = '';
       await refreshActiveChatAndSettings();
-      setFeedback(
-        DOM.groupSettingsFeedback,
-        'Member added.',
-        'success'
-      );
+      const addedCount = result?.addedUsers?.length || 0;
+      const inviteCount = result?.invitesCreated || 0;
+      const message = inviteCount && !addedCount
+        ? 'SMS invite sent.'
+        : inviteCount
+          ? 'Member added and SMS invite sent.'
+          : 'Member added.';
+      setFeedback(DOM.groupSettingsFeedback, message, 'success');
     } catch (error) {
       setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not add that member.', 'error');
     } finally {

@@ -47,16 +47,10 @@ const Pipeline = {
       _pEmit('yap:pipeline:transcribed', { transcript });
     } catch (error) {
       console.warn('[yAp] Audio processing failed — saving memo with fallback threading:', error);
-      if (YAP_DEV_ALLOW_MOCK_FALLBACK) {
-        transcript = 'Hey what are you guys up to this weekend? Also wanted to tell you about something funny that happened today.';
-        segments = this._mockSegments(durationMs);
-        _pEmit('yap:pipeline:transcribed', { transcript });
-      } else {
-        transcript = '';
-        transcriptWords = null;
-        segments = this._fallbackSegments(durationMs, transcript);
-        _pEmit('yap:pipeline:transcribed', { transcript: '' });
-      }
+      transcript = '';
+      transcriptWords = null;
+      segments = this._fallbackSegments(durationMs, transcript);
+      _pEmit('yap:pipeline:transcribed', { transcript: '' });
     }
 
     _pEmit('yap:pipeline:segments', { segments });
@@ -470,26 +464,6 @@ const Pipeline = {
   },
 
   // ── Helpers ───────────────────────────────────────────
-  _mockSegments(durationMs) {
-    const half = Math.round(durationMs / 2);
-    return [
-      {
-        label: 'weekend plans',
-        excerpt: 'what are you up to this weekend',
-        transcript: 'what are you up to this weekend',
-        start_ms: 0,
-        end_ms: half,
-      },
-      {
-        label: 'funny story',
-        excerpt: 'something funny happened today',
-        transcript: 'something funny happened today',
-        start_ms: half,
-        end_ms: durationMs,
-      },
-    ];
-  },
-
   _fallbackSegments(durationMs, transcript = '') {
     const normalizedTranscript = String(transcript || '').trim();
     return [

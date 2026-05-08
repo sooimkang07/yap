@@ -3100,6 +3100,7 @@ function renderGroupSettingsTabState() {
 function renderGroupSettings(invites = []) {
   const chat = AppState.activeChat;
   if (!chat) return;
+  const currentUserId = getCurrentUserId();
   const canManage = canManageActiveChat();
   const editing = canManage && AppState.groupSettingsEditing;
   const members = chat.members || [];

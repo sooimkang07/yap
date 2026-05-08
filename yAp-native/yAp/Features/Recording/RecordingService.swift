@@ -7,10 +7,16 @@ final class RecordingService: NSObject, ObservableObject {
     private var recorder: AVAudioRecorder?
 
     func requestPermission() async -> Bool {
-        await AVAudioApplication.requestRecordPermission()
+        let granted = await AVAudioApplication.requestRecordPermission()
+        return granted
     }
 
     func startRecording(to url: URL) throws {
+        let status = AVAudioSession.sharedInstance().recordPermission
+        guard status == .granted else {
+            throw RecordingError.microphonePermissionDenied
+        }
+
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         try session.setActive(true)
@@ -32,5 +38,16 @@ final class RecordingService: NSObject, ObservableObject {
     func stopRecording() {
         recorder?.stop()
         isRecording = false
+    }
+}
+
+enum RecordingError: LocalizedError {
+    case microphonePermissionDenied
+
+    var errorDescription: String? {
+        switch self {
+        case .microphonePermissionDenied:
+            return "Microphone permission denied. Please allow microphone access and try again."
+        }
     }
 }

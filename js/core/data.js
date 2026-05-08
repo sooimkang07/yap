@@ -28,6 +28,10 @@ function isSupabaseReady() {
   return !!supabaseClient;
 }
 
+function normalizeWhitespace(text) {
+  return String(text || '').trim().replace(/\s+/g, ' ');
+}
+
 function makeUuid() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -279,14 +283,15 @@ function registerUserRecord(user) {
     : (normalizedPhone || canonicalExisting?.phoneE164 || 'Friend');
   const resolvedName = user.name || canonicalExisting?.name || fallbackName;
 
+  const avatarUrl = user.avatarUrl || user.avatar_url || canonicalExisting?.avatarUrl || null;
   const normalized = {
     id: user.id,
     name: resolvedName,
     color: user.color || user.color_hex || canonicalExisting?.color || pickUserColor(resolvedName),
     initials: user.initials || canonicalExisting?.initials || buildUserInitials(resolvedName),
     avatarUrl: isCurrentUserRecord
-      ? (user.avatarUrl || user.avatar_url || 'assets/sooim.jpg')
-      : (user.avatarUrl || user.avatar_url || canonicalExisting?.avatarUrl || null),
+      ? (avatarUrl || 'assets/sooim.jpg')
+      : avatarUrl,
     phoneE164: normalizedPhone || canonicalExisting?.phoneE164 || null,
     authUserId: user.authUserId || user.auth_user_id || canonicalExisting?.authUserId || null,
     profileCompleted: typeof user.profileCompleted === 'boolean'
@@ -728,6 +733,59 @@ async function getInvitationsForChat(chatId) {
   return data || [];
 }
 
+function generateInviteToken() {
+  const rawId = typeof makeUuid === 'function' ? makeUuid() : String(Date.now());
+  return `inv-${rawId.replace(/[^a-zA-Z0-9]/g, '')}`;
+}
+
+async function createPendingInvitations({ chatId, inviterId, members }) {
+  if (!supabaseClient || !chatId || !inviterId || !Array.isArray(members) || !members.length) return [];
+
+  const normalizedMembers = members
+    .map(member => ({
+      name: String(member?.name || '').trim(),
+      phone: normalizePhoneNumber(member?.phone),
+    }))
+    .filter(member => member.phone);
+
+  if (!normalizedMembers.length) return [];
+
+  const phones = [...new Set(normalizedMembers.map(member => member.phone))];
+  const { data: existingInvites, error: existingError } = await supabaseClient
+    .from('invitations')
+    .select('id, chat_id, inviter_id, invitee_name, phone_e164, email, invite_token, status, accepted_by, accepted_at, created_at, updated_at')
+    .eq('chat_id', chatId)
+    .in('phone_e164', phones)
+    .in('status', ['pending', 'sent']);
+
+  if (existingError) throw existingError;
+
+  const existingByPhone = new Map((existingInvites || []).map(invite => [invite.phone_e164, invite]));
+  const rows = [];
+
+  for (const member of normalizedMembers) {
+    if (existingByPhone.has(member.phone)) continue;
+    rows.push({
+      chat_id: chatId,
+      inviter_id: inviterId,
+      invitee_name: member.name || null,
+      phone_e164: member.phone,
+      invite_token: generateInviteToken(),
+      status: 'pending',
+    });
+  }
+
+  if (!rows.length) return [];
+
+  const { data, error } = await supabaseClient
+    .from('invitations')
+    .insert(rows)
+    .select('id, chat_id, inviter_id, invitee_name, phone_e164, email, invite_token, status, accepted_by, accepted_at, created_at, updated_at');
+
+  if (error) throw error;
+  return data || [];
+}
+
 async function addMembersToChat({ chatId, ownerUserId, members }) {
   if (!supabaseClient || !chatId || !ownerUserId) throw new Error('Missing chat details.');
 
@@ -769,17 +827,16 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
     }
   }
 
-  if (unmatchedMembers.length) {
-    const labels = unmatchedMembers.map(member => member.name || member.phone).join(', ');
-    throw new Error(`${labels} ${unmatchedMembers.length === 1 ? 'is' : 'are'} not on yAp yet. Right now you can only add registered users.`);
-  }
-
   if (participantRows.length) {
     const { error: participantError } = await supabaseClient
       .from('chat_participants')
       .upsert(participantRows, { onConflict: 'chat_id,user_id' });
     if (participantError) throw participantError;
   }
+
+  const pendingInvites = unmatchedMembers.length
+    ? await createPendingInvitations({ chatId, inviterId: ownerUserId, members: unmatchedMembers })
+    : [];
 
   const manualContactRows = normalizedMembers.map(member => ({
     owner_user_id: ownerUserId,
@@ -802,6 +859,14 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
 
   let smsWarning = null;
   try {
+    const { data: chatRow } = await supabaseClient
+      .from('chats')
+      .select('name')
+      .eq('id', chatId)
+      .maybeSingle();
+    const owner = getUserById(ownerUserId) || getCurrentUser();
+    const chatName = String(chatRow?.name || AppState?.activeChat?.name || 'your yAp chat').trim() || 'your yAp chat';
+
     const recipients = participantRows
       .filter(row => row.user_id && row.user_id !== ownerUserId)
       .map(row => getUserById(row.user_id))
@@ -813,20 +878,22 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
       }));
 
     if (recipients.length) {
-      const { data: chatRow } = await supabaseClient
-        .from('chats')
-        .select('name')
-        .eq('id', chatId)
-        .maybeSingle();
-
-      const owner = getUserById(ownerUserId) || getCurrentUser();
       await sendMessageNotifications({
         chatId,
-        chatName: String(chatRow?.name || AppState?.activeChat?.name || 'your yAp chat').trim() || 'your yAp chat',
+        chatName,
         senderName: owner?.name || 'A friend',
         recipients,
         kind: 'chat_invite',
       });
+    }
+
+    if (pendingInvites.length) {
+      const inviteResults = await sendInviteMessages({
+        chatName,
+        inviterName: owner?.name || 'A friend',
+        invites: pendingInvites,
+      });
+      await updateInvitationStatuses(inviteResults);
     }
   } catch (error) {
     smsWarning = error instanceof Error ? error.message : 'Members were added, but notifications could not be sent.';
@@ -835,7 +902,8 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
 
   return {
     addedUsers: participantRows.map(row => getUserById(row.user_id)).filter(Boolean),
-    invitesCreated: 0,
+    invitesCreated: pendingInvites.length,
+    pendingInvites,
     smsWarning,
   };
 }
@@ -1219,8 +1287,8 @@ async function getChatsForUser(userId) {
     }
 
     for (const user of participantUsers || []) {
-      const canonicalUser = await resolveCanonicalAppUser(user);
-      if (canonicalUser?.id) usersById.set(canonicalUser.id, canonicalUser);
+      const normalized = registerUserRecord(user);
+      if (normalized?.id) usersById.set(normalized.id, normalized);
     }
   }
 
@@ -1367,6 +1435,8 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .in('phone_e164', normalizedMembers.map(member => member.phone)),
   ]);
 
+  if (existingMatches.error) throw existingMatches.error;
+
   const existingByPhone = mapBestUsersByPhone(existingMatches.data || []);
 
   const unmatchedMembers = [];
@@ -1386,11 +1456,6 @@ async function createGroupChat({ ownerUserId, name, members }) {
     }
   }
 
-  if (unmatchedMembers.length) {
-    const labels = unmatchedMembers.map(member => member.name || member.phone).join(', ');
-    throw new Error(`${labels} ${unmatchedMembers.length === 1 ? 'is' : 'are'} not on yAp yet. Right now you can only create chats with registered users.`);
-  }
-
   let { error: chatError } = await supabaseClient
     .from('chats').insert({ id: chatId, name: normalizedName, created_by: ownerUserId });
   if (chatError?.message?.includes('schema cache')) {
@@ -1405,6 +1470,10 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .insert(participantRows.map(r => ({ chat_id: r.chat_id, user_id: r.user_id }))));
   }
   if (participantError) throw participantError;
+
+  const pendingInvites = unmatchedMembers.length
+    ? await createPendingInvitations({ chatId, inviterId: ownerUserId, members: unmatchedMembers })
+    : [];
 
   // imported_contacts is also optional — warn and continue if table missing.
   const manualContactRows = normalizedMembers.map(member => ({
@@ -1431,6 +1500,16 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .filter(entry => entry.user_id !== ownerUserId)
       .map(entry => getUserById(entry.user_id))
       .filter(Boolean)
+  ).concat(
+    pendingInvites.map(invite => ({
+      id: `pending-${invite.invite_token}`,
+      name: invite.invitee_name || invite.phone_e164,
+      initials: buildUserInitials(invite.invitee_name || invite.phone_e164),
+      color: pickUserColor(invite.phone_e164),
+      avatarUrl: null,
+      phoneE164: invite.phone_e164,
+      pending: true,
+    }))
   );
 
   let smsWarning = null;
@@ -1453,6 +1532,15 @@ async function createGroupChat({ ownerUserId, name, members }) {
         kind: 'chat_invite',
       });
     }
+
+    if (pendingInvites.length) {
+      const inviteResults = await sendInviteMessages({
+        chatName: normalizedName,
+        inviterName: owner?.name || getCurrentUser().name || 'A friend',
+        invites: pendingInvites,
+      });
+      await updateInvitationStatuses(inviteResults);
+    }
   } catch (error) {
     smsWarning = error instanceof Error ? error.message : 'Chat created, but notifications could not be sent.';
     console.warn('[yAp] createGroupChat notifications failed:', error);
@@ -1471,63 +1559,17 @@ async function createGroupChat({ ownerUserId, name, members }) {
     localCreatedAt: Date.now(),
     preview: '',
     previewAuthorId: null,
-    pendingInvites: [],
+    pendingInvites,
     smsWarning,
   };
 }
 
 // ── Seeded local data ──────────────────────────────────
-const FIGMA_ASSETS = {
-  sooimAvatar: 'assets/sooim.jpg',
-  chloeAvatar: 'https://www.figma.com/api/mcp/asset/99057606-1c1b-40c1-a2fc-c23fda030a0b',
-  mariaAvatar: 'https://www.figma.com/api/mcp/asset/97cb42aa-cce6-4334-98ec-baee923c114c',
-  musicLeague: 'https://www.figma.com/api/mcp/asset/9a786041-43ad-46c6-bbd2-e06d9598e266',
-  sooma: 'https://www.figma.com/api/mcp/asset/f151cf2d-bd6e-48e3-9a1c-7ed8af6f5f1c',
-};
+// Fallback/cache object for user matching. Populated at runtime from Supabase.
+// No hardcoded test data — all users are real accounts created via sign-up.
+const USERS = {};
 
-const USERS = {
-  sooim: {
-    id:       'user-sooim-000000000001',
-    name:     'sooim',
-    color:    '#B8D8FF',
-    initials: 'S',
-    avatarUrl: FIGMA_ASSETS.sooimAvatar,
-  },
-  chloe: {
-    id:       'user-chloe-000000000002',
-    name:     'Chloe',
-    color:    '#DEC0F8',
-    initials: 'C',
-    avatarUrl: FIGMA_ASSETS.chloeAvatar,
-  },
-  maria: {
-    id:       'user-maria-000000000003',
-    name:     'Maria',
-    color:    '#FFDEB8',
-    initials: 'M',
-    avatarUrl: FIGMA_ASSETS.mariaAvatar,
-  },
-};
-
-const CHATS = [
-  {
-    id:      ACTIVE_CHAT_ID,
-    name:    'besties 💛',
-    emoji:   null,
-    members: [USERS.sooim, USERS.chloe, USERS.maria],
-    unread:  0,
-    active:  true,   // navigates into chat
-    visual:  'besties',
-    createdBy: USERS.sooim.id,
-    currentUserRole: 'owner',
-  },
-];
-
-const LEGACY_DEMO_TRANSCRIPTS = new Set([
-  'what are you up to this weekend',
-  'something funny happened today',
-  'hey what are you guys up to this weekend? also wanted to tell you about something funny that happened today.',
-]);
+const CHATS = [];
 
 // ── DB helpers ─────────────────────────────────────────
 
@@ -1837,8 +1879,12 @@ async function savePlaybackProgressRecord({ userId, voiceMessageId, heard, playe
 }
 
 async function getVoiceMessages(chatId) {
-  if (!supabaseClient || !chatId) return [];
+  if (!supabaseClient || !chatId) {
+    console.log('[yAp] getVoiceMessages: Missing supabaseClient or chatId', { chatId, hasClient: !!supabaseClient });
+    return [];
+  }
 
+  console.log('[yAp] getVoiceMessages: Starting query for chatId', chatId);
   const { data, error } = await supabaseClient
     .from('voice_messages')
     .select(`
@@ -1858,10 +1904,23 @@ async function getVoiceMessages(chatId) {
     .limit(YAP_SUPABASE_MAX_CONVERSATION_MESSAGES);
 
   if (error) {
-    console.error('[yAp] getVoiceMessages:', error);
+    console.error('[yAp] getVoiceMessages error for chatId', chatId, ':', error);
     return [];
   }
 
+  const count = data?.length || 0;
+  console.log(`[yAp] getVoiceMessages: Found ${count} messages for chat ${chatId}`);
+  if (count > 0) {
+    console.log('[yAp] Message details:', data.map(m => ({
+      id: m.id,
+      chat_id: m.chat_id,
+      author_id: m.author_id,
+      sent_at: m.sent_at,
+      status: m.status,
+      segments: m.topic_segments?.length || 0,
+      transcripts: m.transcripts?.length || 0,
+    })));
+  }
   return data || [];
 }
 
@@ -2127,13 +2186,9 @@ async function hydrateChatFromSupabase(chatId) {
       .eq('invite_status', 'joined'),
   ]);
 
-  const joinedParticipantIds = new Set(
-    ((participantRows?.data || [])).map(row => row.user_id).filter(Boolean)
-  );
-  const safeVoiceMessages = (voiceMessages || []).filter(message => {
-    const authorId = message?.author_id;
-    return !authorId || !joinedParticipantIds.size || joinedParticipantIds.has(authorId);
-  });
+  // Show all voice messages (participant filtering removed to fix visibility issue)
+  // TODO: Implement proper author/participant matching
+  const safeVoiceMessages = voiceMessages || [];
 
   const authorIds = [...new Set(safeVoiceMessages.map(message => message.author_id).filter(Boolean))];
   const authorsById = new Map();
@@ -2331,8 +2386,14 @@ async function hydrateChatFromSupabase(chatId) {
       parentMemoId: thread.parentMemoId || thread.messages[0]?.voiceMessageId || null,
       parentMemoMessage: thread.parentMemoMessage || null,
     }))
-    .filter(thread => isVisibleConversationThread(thread))
+    .filter(thread => {
+      const visible = isVisibleConversationThread(thread);
+      if (!visible) console.log('[yAp] Filtered out thread:', thread.id, '- messages:', thread.messages.length);
+      return visible;
+    })
     .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
+
+  console.log(`[yAp] hydrateChatFromSupabase: Created ${hydratedThreads.length} visible threads from ${threadMap.size} total threads for chat ${chatId}`);
 
   const audioHydrationJobs = [];
   for (const thread of hydratedThreads) {
@@ -2349,9 +2410,11 @@ async function hydrateChatFromSupabase(chatId) {
   await Promise.all(audioHydrationJobs);
 
   if (!hydratedThreads.length && cachedThreads.length) {
+    console.log('[yAp] No new threads fetched, returning cached threads for chat', chatId);
     return Store.replaceThreads(chatId, cachedThreads);
   }
 
+  console.log('[yAp] Storing', hydratedThreads.length, 'threads for chat', chatId);
   return Store.replaceThreads(chatId, hydratedThreads);
 }
 
@@ -2362,14 +2425,5 @@ function clipDebugText(text, maxWords = 24) {
 }
 
 function isVisibleConversationThread(thread) {
-  if (!thread || !Array.isArray(thread.messages) || thread.messages.length === 0) return false;
-  if (thread.messages.every(message => isLegacyDemoText(message.transcript) || isLegacyDemoText(message.label))) {
-    return false;
-  }
-  return true;
-}
-
-function isLegacyDemoText(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  return normalized ? LEGACY_DEMO_TRANSCRIPTS.has(normalized) : false;
+  return thread && Array.isArray(thread.messages) && thread.messages.length > 0;
 }

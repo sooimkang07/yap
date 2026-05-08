@@ -21,12 +21,10 @@ const YAP_SEND_MESSAGE_NOTIFICATIONS_ENDPOINT = '/api/send-message-notifications
 const YAP_SEND_PHONE_CODE_ENDPOINT = '/api/send-phone-code';
 const YAP_VERIFY_PHONE_CODE_ENDPOINT = '/api/verify-phone-code';
 const YAP_HEALTH_ENDPOINT = '/api/health';
-const YAP_DEV_ALLOW_MOCK_FALLBACK = false;
 
-// Egress safety: keep Supabase reads intentional while this project is on a paid plan.
-// Turn these back on only after checking Supabase usage/logs.
-const YAP_SUPABASE_REMOTE_SYNC_ENABLED = false;
-const YAP_SUPABASE_PRELOAD_CONVERSATIONS = false;
+// Supabase sync enabled for real-time data fetching
+const YAP_SUPABASE_REMOTE_SYNC_ENABLED = true;
+const YAP_SUPABASE_PRELOAD_CONVERSATIONS = true;
 const YAP_SUPABASE_SYNC_INTERVAL_MS = 60_000;
 const YAP_SUPABASE_CHAT_REFRESH_MIN_MS = 30_000;
 const YAP_SUPABASE_MAX_CHAT_PREVIEW_MESSAGES = 100;
@@ -34,10 +32,10 @@ const YAP_SUPABASE_MAX_CONVERSATION_MESSAGES = 50;
 const YAP_SUPABASE_MAX_IMPORTED_CONTACTS = 300;
 const YAP_SUPABASE_CONVERSATION_CACHE_TTL_MS = 60_000;
 
-// Default session for local development until real auth is wired in.
-const APP_DEFAULT_CURRENT_USER_ID = 'user-sooim-000000000001';
+// Session storage keys
 const APP_SESSION_STORAGE_KEY = 'yap.session.currentUserId';
 const APP_AUTH_SESSION_STORAGE_KEY = 'yap.session.auth';
 
-// Active chat for Phase 1 demo
-const ACTIVE_CHAT_ID = 'chat-besties-000000000010';
+// No default test users — all accounts are real
+const APP_DEFAULT_CURRENT_USER_ID = null;
+const ACTIVE_CHAT_ID = null;

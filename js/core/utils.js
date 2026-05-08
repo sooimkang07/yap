@@ -96,10 +96,10 @@ function clipWords(text, maxWords = 8) {
   return `${words.slice(0, maxWords).join(' ')}...`;
 }
 
-function setElementImage(element, imageUrl) {
+function setElementImage(element, imageUrl, fallbackText = '') {
   if (!element) return;
-  element.textContent = '';
   element.classList.toggle('has-image', !!imageUrl);
+  element.textContent = imageUrl ? '' : fallbackText;
   element.style.backgroundImage = imageUrl ? `url('${imageUrl}')` : '';
   element.style.background = imageUrl ? 'transparent' : '';
   element.style.backgroundSize = imageUrl ? 'cover' : '';

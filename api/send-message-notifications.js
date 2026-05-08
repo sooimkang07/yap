@@ -20,7 +20,7 @@ module.exports = async function handler(req, res) {
     const recipients = Array.isArray(body?.recipients) ? body.recipients : [];
     const isReply = !!body?.isReply;
     const kind = String(body?.kind || 'message').trim() || 'message';
-    const deliveryMode = String(process.env.YAP_NOTIFICATION_DELIVERY_MODE || 'push').toLowerCase();
+    const deliveryMode = String(process.env.YAP_NOTIFICATION_DELIVERY_MODE || 'sms').toLowerCase();
 
     const results = [];
     const openUrl = buildChatUrl(baseUrl, body?.chatId);

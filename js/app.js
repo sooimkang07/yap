@@ -3064,28 +3064,35 @@ function extractLinkCardsFromChat(chat) {
 function buildGroupSettingsPhotoTiles(chat) {
   const currentUserId = getCurrentUserId();
   const memberTiles = (chat?.members || [])
-    .filter(member => member.id !== currentUserId && member?.avatarUrl)
-    .map((member, index) => ({
-      id: `${member.id}-${index}`,
-      imageUrl: member.avatarUrl,
-      initials: buildUserInitials(member.name || 'Y'),
-      accent: member.color || pickUserColor(member.name || member.phoneE164 || member.id || ''),
-      badge: buildUserInitials(member.name || 'Y'),
-      badgeAccent: member.color || '#9fb3f0',
-    }));
+    .filter(member => member.id !== currentUserId)
+    .map(member => {
+      const resolved = resolveAvatarMember(member);
+      return {
+        id: `${member.id}`,
+        imageUrl: resolved?.avatarUrl || '',
+        initials: buildUserInitials(resolved?.name || 'Y'),
+        accent: resolved?.color || pickUserColor(resolved?.name || resolved?.phoneE164 || resolved?.id || ''),
+        badge: buildUserInitials(resolved?.name || 'Y'),
+        badgeAccent: resolved?.color || '#9fb3f0',
+      };
+    })
+    .filter(tile => tile.imageUrl);
 
   if (memberTiles.length) return memberTiles.slice(0, 8);
 
   return (chat?.members || [])
     .filter(member => member.id !== currentUserId)
-    .slice(0, 6).map((member, index) => ({
-    id: `${member.id}-${index}`,
-    imageUrl: '',
-    initials: buildUserInitials(member.name || 'Y'),
-    accent: member.color || pickUserColor(member.name || member.phoneE164 || member.id || ''),
-    badge: buildUserInitials(member.name || 'Y'),
-    badgeAccent: member.color || '#9fb3f0',
-  }));
+    .slice(0, 6).map((member, index) => {
+    const resolved = resolveAvatarMember(member);
+    return {
+      id: `${member.id}-${index}`,
+      imageUrl: '',
+      initials: buildUserInitials(resolved?.name || 'Y'),
+      accent: resolved?.color || pickUserColor(resolved?.name || resolved?.phoneE164 || resolved?.id || ''),
+      badge: buildUserInitials(resolved?.name || 'Y'),
+      badgeAccent: resolved?.color || '#9fb3f0',
+    };
+  });
 }
 
 function renderGroupSettingsTabState() {

@@ -1334,7 +1334,7 @@ function buildAvatarStyle(member) {
   const resolvedMember = resolveAvatarMember(member);
   const accent = resolvedMember?.color || pickUserColor(resolvedMember?.name || resolvedMember?.phoneE164 || resolvedMember?.id || '');
   return resolvedMember?.avatarUrl
-    ? `background-image:url("${resolvedMember.avatarUrl}");background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent`
+    ? `background-image:url(${resolvedMember.avatarUrl});background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent`
     : `--avatar-accent:${accent}`;
 }
 

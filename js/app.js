@@ -1851,14 +1851,11 @@ function _buildNowPlayingAvatars(thread) {
       : '';
     return `
       <div class="np-avatar ${positions[i]}" data-author-id="${escapeHtml(person.id)}" style="--np-accent:${accent}">
+        <div class="np-avatar__label">${escapeHtml(person.name)}</div>
         <div class="np-avatar__ring-wrap">
+          <div class="np-avatar__ring np-avatar__ring--progress"></div>
           <div class="np-avatar__photo ${photoClass}" style="${photoStyle}">
             ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
-          </div>
-          <div class="np-avatar__label-wrap">
-            <div class="np-avatar__ring np-avatar__ring--outer"></div>
-            <div class="np-avatar__ring np-avatar__ring--inner"></div>
-            <div class="np-avatar__label">${escapeHtml(person.name)}</div>
           </div>
         </div>
         ${timestamp ? `<div class="np-avatar__duration">${timestamp}</div>` : ''}

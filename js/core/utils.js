@@ -106,7 +106,7 @@ function setElementImage(element, imageUrl, fallbackText = '') {
   element.classList.toggle('has-image', !!imageUrl);
   element.textContent = imageUrl ? '' : fallbackText;
   element.style.backgroundImage = imageUrl ? `url(${imageUrl})` : '';
-  element.style.background = imageUrl ? 'transparent' : '';
+  element.style.backgroundColor = imageUrl ? 'transparent' : '';
   element.style.backgroundSize = imageUrl ? 'cover' : '';
   element.style.backgroundPosition = imageUrl ? 'center' : '';
 }

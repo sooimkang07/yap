@@ -3176,7 +3176,9 @@ function renderGroupSettings(invites = []) {
   }
 
   if (DOM.groupSettingsContactCard && DOM.groupSettingsContactPhone) {
-    DOM.groupSettingsContactCard.hidden = !(isDirectChat && directMember?.phoneE164);
+    const shouldShowContact = isDirectChat && directMember?.phoneE164;
+    console.log('[yAp] Contact card:', { isDirectChat, hasPhone: !!directMember?.phoneE164, shouldShow: shouldShowContact, otherMembersCount: otherMembers.length });
+    DOM.groupSettingsContactCard.hidden = !shouldShowContact;
     DOM.groupSettingsContactPhone.textContent = directMember?.phoneE164 || '';
   }
 

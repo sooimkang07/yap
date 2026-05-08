@@ -2450,7 +2450,6 @@ html, body {
 }
 
 .self-avatar.has-image {
-  background: transparent !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }

@@ -48,10 +48,12 @@ function getCurrentUser() {
   const currentUserId = getCurrentUserId();
   const currentUser = getUserById(currentUserId);
   if (currentUser) {
-    return {
+    const result = {
       ...currentUser,
       avatarUrl: currentUser.avatarUrl || 'assets/sooim.jpg',
     };
+    console.log('[yAp] getCurrentUser:', { userId: currentUserId, avatar: result.avatarUrl, user: currentUser });
+    return result;
   }
   return {
     id: currentUserId,
@@ -98,6 +100,9 @@ function clipWords(text, maxWords = 8) {
 
 function setElementImage(element, imageUrl, fallbackText = '') {
   if (!element) return;
+  if (element.id === 'self-avatar') {
+    console.log('[yAp] Setting self-avatar:', { imageUrl, fallbackText, elementId: element.id });
+  }
   element.classList.toggle('has-image', !!imageUrl);
   element.textContent = imageUrl ? '' : fallbackText;
   element.style.backgroundImage = imageUrl ? `url(${imageUrl})` : '';

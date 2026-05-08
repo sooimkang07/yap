@@ -1,8 +1,10 @@
 import SwiftUI
 
 struct ChatsListView: View {
+    @EnvironmentObject var sessionStore: SessionStore
     @State private var chats: [ChatSummary] = []
     @State private var showingNewGroup = false
+    @State private var showingSettings = false
     private let chatService = ChatService()
 
     var body: some View {
@@ -21,7 +23,13 @@ struct ChatsListView: View {
             }
             .navigationTitle("Chats")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gear")
+                    }
+
                     Button {
                         showingNewGroup = true
                     } label: {
@@ -35,8 +43,13 @@ struct ChatsListView: View {
             .sheet(isPresented: $showingNewGroup) {
                 NewGroupView()
             }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
             .task {
-                chats = await chatService.loadChats()
+                if let userId = sessionStore.currentUserId {
+                    chats = await chatService.loadChats(userId: userId)
+                }
             }
         }
     }

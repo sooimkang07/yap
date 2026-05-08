@@ -1780,18 +1780,24 @@ function _renderNowPlayingTopic(index, direction) {
 
   // Slide animation
   if (direction && DOM.npAvatars) {
-    const outClass = direction === 'next' ? 'slide-out-right' : 'slide-out-left';
-    const inClass = direction === 'next' ? 'slide-in-left' : 'slide-in-right';
+    const outClass = direction === 'next' ? 'slide-out-left' : 'slide-out-right';
+    const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
     DOM.npAvatars.classList.add(outClass);
     setTimeout(() => {
       if (!DOM.npAvatars) return;
       DOM.npAvatars.classList.remove(outClass);
+      const startTransform = inClass === 'slide-in-right' ? 'translateX(100%)' : 'translateX(-100%)';
+      DOM.npAvatars.style.transform = startTransform;
       DOM.npAvatars.classList.add(inClass);
       _buildNowPlayingAvatars(thread);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
+          DOM.npAvatars.style.transform = 'translateX(0)';
           DOM.npAvatars?.classList.add('entering');
-          setTimeout(() => DOM.npAvatars?.classList.remove(inClass, 'entering'), 400);
+          setTimeout(() => {
+            DOM.npAvatars?.classList.remove(inClass, 'entering');
+            DOM.npAvatars.style.transform = '';
+          }, 400);
         });
       });
     }, 220);

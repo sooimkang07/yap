@@ -1780,25 +1780,30 @@ function _renderNowPlayingTopic(index, direction) {
 
   // Slide animation
   if (direction && DOM.npAvatars) {
-    const outClass = direction === 'next' ? 'slide-out-left' : 'slide-out-right';
-    const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
-    DOM.npAvatars.classList.add(outClass);
+    const outDirection = direction === 'next' ? '-100%' : '100%';
+    const inDirection = direction === 'next' ? '100%' : '-100%';
+
+    // Animate out
+    DOM.npAvatars.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+    DOM.npAvatars.style.transform = `translateX(${outDirection})`;
+    DOM.npAvatars.style.opacity = '0';
+
     setTimeout(() => {
       if (!DOM.npAvatars) return;
-      DOM.npAvatars.classList.remove(outClass);
-      const startTransform = inClass === 'slide-in-right' ? 'translateX(100%)' : 'translateX(-100%)';
-      DOM.npAvatars.style.transform = startTransform;
-      DOM.npAvatars.classList.add(inClass);
+      // Build new avatars off-screen
+      DOM.npAvatars.style.transition = 'none';
+      DOM.npAvatars.style.transform = `translateX(${inDirection})`;
+      DOM.npAvatars.style.opacity = '0';
       _buildNowPlayingAvatars(thread);
+
+      // Animate in
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          DOM.npAvatars.style.transform = 'translateX(0)';
-          DOM.npAvatars?.classList.add('entering');
-          setTimeout(() => {
-            DOM.npAvatars?.classList.remove(inClass, 'entering');
-            DOM.npAvatars.style.transform = '';
-          }, 400);
-        });
+        DOM.npAvatars.style.transition = 'transform 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease';
+        DOM.npAvatars.style.transform = 'translateX(0)';
+        DOM.npAvatars.style.opacity = '1';
+        setTimeout(() => {
+          if (DOM.npAvatars) DOM.npAvatars.style.transition = '';
+        }, 400);
       });
     }, 220);
   } else {

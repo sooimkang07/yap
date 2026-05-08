@@ -1782,15 +1782,19 @@ function _renderNowPlayingTopic(index, direction) {
   if (direction && DOM.npAvatars) {
     const outClass = direction === 'next' ? 'slide-out-left' : 'slide-out-right';
     const inClass = direction === 'next' ? 'slide-in-right' : 'slide-in-left';
+    console.log('[yAp] NP Animation:', { direction, outClass, inClass });
     DOM.npAvatars.classList.add(outClass);
     setTimeout(() => {
       if (!DOM.npAvatars) return;
+      console.log('[yAp] NP Before:', DOM.npAvatars.className);
       DOM.npAvatars.classList.remove(outClass);
       DOM.npAvatars.classList.add(inClass);
+      console.log('[yAp] NP After add inClass:', DOM.npAvatars.className);
       _buildNowPlayingAvatars(thread);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           DOM.npAvatars?.classList.add('entering');
+          console.log('[yAp] NP Final:', DOM.npAvatars?.className);
           setTimeout(() => DOM.npAvatars?.classList.remove(inClass, 'entering'), 400);
         });
       });

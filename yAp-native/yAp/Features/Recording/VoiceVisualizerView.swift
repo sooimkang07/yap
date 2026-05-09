@@ -58,7 +58,7 @@ class AudioLevelMonitor: NSObject, ObservableObject {
     @Published var normalizedLevels: [Double] = Array(repeating: 0.0, count: 20)
 
     private var audioEngine: AVAudioEngine?
-    private let objectWillChange = PassthroughSubject<Void, Never>()
+    let objectWillChange = PassthroughSubject<Void, Never>()
 
     func startMonitoring() {
         let audioEngine = AVAudioEngine()

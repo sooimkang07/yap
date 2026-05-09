@@ -52,7 +52,19 @@ struct ChatView: View {
 
                 // Chat Content
                 ZStack {
-                    if !hasTopics {
+                    if isLoading {
+                        // Loading State
+                        VStack(spacing: YapTheme.Spacing.medium) {
+                            Spacer()
+                            ProgressView()
+                                .tint(YapTheme.ColorToken.accent)
+                            Text("Loading memos...")
+                                .font(.system(size: 15))
+                                .foregroundColor(YapTheme.ColorToken.textSecondary)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else if !hasTopics {
                         // Empty State
                         VStack(spacing: YapTheme.Spacing.large) {
                             Spacer()
@@ -90,31 +102,40 @@ struct ChatView: View {
                         }
                         .frame(maxWidth: .infinity)
                     } else {
-                        // Topic Cards List
-                        ScrollView {
-                            VStack(spacing: 6) {
-                                ForEach(topicCards, id: \.id) { topic in
-                                    TopicCardView(
-                                        topicId: topic.id,
-                                        title: topic.title,
-                                        duration: topic.duration,
-                                        speakerName: topic.speaker,
-                                        speakerColor: topic.speakerColor,
-                                        replyCount: topic.replyCount,
-                                        replyAvatarColors: Array(repeating: topic.speakerColor, count: topic.replyCount),
-                                        onPlay: {
-                                            withAnimation {
-                                                currentlyPlayingId = topic.id
-                                                showNowPlaying = true
+                        // Topic Cards List - scrolls to bottom on load
+                        ScrollViewReader { scrollProxy in
+                            ScrollView {
+                                VStack(spacing: 6) {
+                                    ForEach(topicCards, id: \.id) { topic in
+                                        TopicCardView(
+                                            topicId: topic.id,
+                                            title: topic.title,
+                                            duration: topic.duration,
+                                            speakerName: topic.speaker,
+                                            speakerColor: topic.speakerColor,
+                                            replyCount: topic.replyCount,
+                                            replyAvatarColors: Array(repeating: topic.speakerColor, count: topic.replyCount),
+                                            onPlay: {
+                                                withAnimation {
+                                                    currentlyPlayingId = topic.id
+                                                    showNowPlaying = true
+                                                }
+                                            },
+                                            onTap: {
+                                                selectedTopicId = topic.id
                                             }
-                                        },
-                                        onTap: {
-                                            selectedTopicId = topic.id
-                                        }
-                                    )
+                                        )
+                                        .id(topic.id)
+                                    }
+                                }
+                                .padding(YapTheme.Spacing.medium)
+                            }
+                            .onAppear {
+                                // Scroll to the most recent (last) memo
+                                if let lastTopic = topicCards.last {
+                                    scrollProxy.scrollTo(lastTopic.id, anchor: .bottom)
                                 }
                             }
-                            .padding(YapTheme.Spacing.medium)
                         }
                     }
                 }
@@ -185,6 +206,10 @@ struct ChatView: View {
     }
 
     private func loadMemos() async {
+        DispatchQueue.main.async {
+            self.isLoading = true
+        }
+
         let memos = await chatService.loadMemos(chatId: chat.id)
         DispatchQueue.main.async {
             self.topicCards = memos.enumerated().map { index, memo in
@@ -197,7 +222,7 @@ struct ChatView: View {
                     replyCount: memo.replyCount
                 )
             }
-            isLoading = false
+            self.isLoading = false
         }
     }
 

@@ -47,9 +47,7 @@ struct ChatsListView: View {
                 SettingsView()
             }
             .task {
-                if let userId = sessionStore.currentUserId {
-                    chats = await chatService.loadChats(userId: userId)
-                }
+                chats = await chatService.loadChats(userId: sessionStore.currentUser.id.uuidString)
             }
         }
     }

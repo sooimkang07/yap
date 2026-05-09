@@ -6,26 +6,17 @@ struct ChatService {
     func loadChats(userId: String) async -> [ChatSummary] {
         do {
             let chats = try await supabase.fetchChats(userId: userId)
-            var summaries: [ChatSummary] = []
-
-            for chat in chats {
-                // Fetch memos for this chat to get preview
-                let memos = try await supabase.fetchMemos(chatId: chat.id)
-                let preview = memos.first?.title ?? "No memos yet"
-
-                summaries.append(
-                    ChatSummary(
-                        id: chat.id,
-                        title: chat.title,
-                        memberCount: 0, // TODO: fetch from participants table
-                        preview: preview
-                    )
+            // Don't fetch memos here - just use a generic preview
+            let summaries = chats.map { chat in
+                ChatSummary(
+                    id: chat.id,
+                    title: chat.title,
+                    memberCount: 0,
+                    preview: "Voice memos will appear here"
                 )
             }
-
             return summaries
         } catch {
-            // Fallback to mock data if Supabase fails
             return mockChats()
         }
     }
@@ -33,27 +24,29 @@ struct ChatService {
     func loadMemos(chatId: String) async -> [MemoCard] {
         do {
             let memos = try await supabase.fetchMemos(chatId: chatId)
-            var cards: [MemoCard] = []
-
-            for memo in memos {
-                let replies = try await supabase.fetchReplies(memoId: memo.id)
-
-                cards.append(
-                    MemoCard(
-                        id: memo.id,
-                        title: memo.title,
-                        speaker: "Speaker", // TODO: fetch from users table
-                        duration: memo.duration,
-                        replyCount: replies.count,
-                        createdAt: memo.created_at
-                    )
+            // Don't fetch replies here - load them on demand when topic is expanded
+            let cards = memos.map { memo in
+                MemoCard(
+                    id: memo.id,
+                    title: memo.title,
+                    speaker: "Speaker",
+                    duration: memo.duration,
+                    replyCount: 0, // Will be fetched on demand
+                    createdAt: memo.created_at
                 )
             }
-
             return cards
         } catch {
-            // Fallback to mock data
             return mockMemos()
+        }
+    }
+
+    func loadReplies(memoId: String) async -> Int {
+        do {
+            let replies = try await supabase.fetchReplies(memoId: memoId)
+            return replies.count
+        } catch {
+            return 0
         }
     }
 

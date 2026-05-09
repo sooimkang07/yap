@@ -1866,15 +1866,25 @@ function closeRecordingOverlay() {
 function openNowPlaying() {
   const threads = Store.getThreads();
   if (!threads.length) return;
+
+  // Find the last unheard thread; if all heard, start from the end
+  let startIndex = threads.length - 1;
+  for (let i = threads.length - 1; i >= 0; i--) {
+    if (threads[i].unheardCount > 0) {
+      startIndex = i;
+      break;
+    }
+  }
+
   AppState.nowPlaying.active = true;
-  AppState.nowPlaying.topicIndex = 0;
+  AppState.nowPlaying.topicIndex = startIndex;
   AppState.nowPlaying.isPlaying = true;
   AppState.nowPlaying.lastSpeakerId = null;
   AppState.nowPlaying.completedAll = false;
   AppState.nowPlaying.topicDotColors = {};
   DOM.nowPlayingOverlay.classList.add('visible');
   DOM.nowPlayingOverlay.setAttribute('aria-hidden', 'false');
-  _renderNowPlayingTopic(0, null);
+  _renderNowPlayingTopic(startIndex, null);
   _startNowPlayingPlayback();
 }
 

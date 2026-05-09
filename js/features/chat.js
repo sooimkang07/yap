@@ -281,6 +281,16 @@ const PlaybackController = {
 function renderTopics() {
   PlaybackController.init();
   const threads = Store.getThreads();
+
+  // Measure latency if we just sent a message
+  if (AppState.recording.sentAt && threads.length > 0) {
+    const latency = Date.now() - AppState.recording.sentAt;
+    if (latency < 30000) { // Only measure recent sends
+      console.log(`[Message Latency] Message appeared in ${latency}ms`);
+    }
+    AppState.recording.sentAt = 0; // Clear after logging
+  }
+
   _syncChatViewToggle(threads);
 
   setDisplay(DOM.chatEmpty, !threads.length);

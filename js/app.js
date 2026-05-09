@@ -33,6 +33,7 @@ const AppState = {
   recording: {
     manager: null,
     phase:   'idle',       // idle | recording | stopped | sending
+    sentAt: 0,            // timestamp when message was sent
   },
   playback: {
     lastHeardChatId: null,
@@ -858,7 +859,14 @@ function handleRealtimePostgresChange(payload) {
     && changedChatId
     && changedChatId === activeChatId;
 
-  queueRealtimeSync(isActiveChatMessageChange ? 0 : 120);
+  if (isActiveChatMessageChange) {
+    // Force fresh data immediately when new message arrives in active chat
+    AppState.sync.pendingForceConversation = true;
+    queueRealtimeSync(0);
+  } else {
+    // Debounced sync for other changes
+    queueRealtimeSync(120);
+  }
 }
 
 function buildChatDeepLink(chatId) {
@@ -1148,17 +1156,31 @@ function ensureRealtimeSyncChannel() {
 
   channel.subscribe(async status => {
     if (status === 'SUBSCRIBED') {
+      console.log('[yAp] Realtime subscription active');
       await syncLocalPresence();
       refreshRemotePresenceState();
       renderChatPresence(AppState.activeChat);
       return;
     }
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn(`[yAp] Realtime channel ${status}, falling back to polling`);
       AppState.sync.realtimeChannel = null;
+      // Auto-reconnect in 5 seconds
+      setTimeout(() => ensureRealtimeSyncChannel(), 5000);
     }
   });
 
   AppState.sync.realtimeChannel = channel;
+
+  // Periodically check realtime health (every 30 seconds)
+  setInterval(() => {
+    if (!AppState.sync.realtimeChannel || !supabaseClient?.channel) return;
+    if (AppState.sync.realtimeChannel.state !== 'joined') {
+      console.warn('[yAp] Realtime connection lost, re-establishing...');
+      closeRealtimeSyncChannel();
+      ensureRealtimeSyncChannel();
+    }
+  }, 30000);
 }
 
 function clearPendingChatLink() {
@@ -2839,6 +2861,41 @@ async function sendRecording() {
   // Independent URL that survives mgr.discard()
   const audioUrl   = URL.createObjectURL(blob);
   const replyTargetThreadId = AppState.replyTargetThreadId;
+  const chatId = AppState.activeChat?.id || ACTIVE_CHAT_ID;
+  const authorId = getCurrentUserId();
+
+  // Track send time for latency measurement
+  const sendTime = Date.now();
+  AppState.recording.sentAt = sendTime;
+
+  // Show optimistic message immediately (before analysis)
+  if (replyTargetThreadId) {
+    const thread = Store.getThread(replyTargetThreadId);
+    if (thread) {
+      const optimisticMessage = {
+        id: `optimistic-reply-${Date.now()}`,
+        voiceMessageId: `optimistic-${Date.now()}`,
+        threadId: replyTargetThreadId,
+        authorId,
+        author: getCurrentUser(),
+        audioUrl,
+        audioBlob: blob,
+        durationMs,
+        label: 'Voice reply',
+        transcript: 'Sending reply...',
+        excerpt: 'Sending reply...',
+        startMs: 0,
+        endMs: durationMs,
+        sentAt: Date.now(),
+        heardByCurrentUser: true,
+        optimistic: true,
+        status: 'sending',
+      };
+      Store.addMessage(replyTargetThreadId, optimisticMessage);
+      renderTopics();
+      scrollChatToLatest();
+    }
+  }
 
   // Brief dots animation, then hand off to analysis modal
   setTimeout(async () => {
@@ -2852,8 +2909,8 @@ async function sendRecording() {
         const replyMessage = await Pipeline.replyToThread(
           blob,
           durationMs,
-          AppState.activeChat?.id || ACTIVE_CHAT_ID,
-          getCurrentUserId(),
+          chatId,
+          authorId,
           replyTargetThreadId,
           audioUrl
         );
@@ -2866,7 +2923,7 @@ async function sendRecording() {
 
       // Open analysis modal immediately so user sees feedback
       AnalysisModal.open();
-      await Pipeline.run(blob, durationMs, AppState.activeChat?.id || ACTIVE_CHAT_ID, getCurrentUserId(), audioUrl);
+      await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err || 'Something went wrong');
       console.error('[yAp] Pipeline error:', {

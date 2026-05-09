@@ -94,9 +94,13 @@ class RecordingManager {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
-      const msg = err.name === 'NotAllowedError'
-        ? 'Microphone permission denied. Please allow microphone access and try again.'
-        : `Could not access microphone: ${err.message}`;
+      let msg = `Could not access microphone: ${err.message}`;
+      if (err.name === 'NotAllowedError') {
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        msg = isIOS
+          ? 'Microphone permission denied.\n\nTo use voice memos:\n1. Open Settings\n2. Go to Privacy > Microphone\n3. Enable microphone access for yAp\n4. Return to the app and try again'
+          : 'Microphone permission denied.\n\nTo use voice memos:\n1. Check your browser\'s permission settings\n2. Allow microphone access for this site\n3. Refresh the page and try again';
+      }
       throw new Error(msg);
     }
 

@@ -2791,7 +2791,9 @@ async function startRecording() {
   } catch (err) {
     const message = err?.message || 'We could not start recording on this device.';
     console.warn('[yAp] startRecording failed:', err);
-    showIOSAlert(message, { title: 'Microphone Unavailable' });
+    const isPermissionError = err?.message?.includes('permission');
+    const title = isPermissionError ? 'Enable Microphone' : 'Microphone Unavailable';
+    showIOSAlert(message, { title });
     _setRecordingIdleState();
     closeRecordingOverlay();
   }

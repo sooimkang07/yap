@@ -211,6 +211,7 @@ function cacheDOM() {
   DOM.createChatPermissionBody = document.getElementById('create-chat-permission-body');
   DOM.createChatSelected = document.getElementById('create-chat-selected');
   DOM.createChatContacts = document.getElementById('create-chat-contacts');
+  DOM.createChatHelperText = document.getElementById('create-chat-helper-text');
   DOM.createChatAlpha = document.getElementById('create-chat-alpha');
   DOM.createChatBottomMeta = document.getElementById('create-chat-bottom-meta');
   DOM.btnCreateGroupRow = document.getElementById('btn-create-group-row');
@@ -3110,6 +3111,7 @@ function scoreCreateGroupContactMatch(contact, query) {
   const phone = String(contact.phone_e164 || '').trim().toLowerCase();
   const nameCandidates = [profileName, importedName].filter(Boolean);
 
+  // Priority 1: Name matches (scores 0-3)
   for (const name of nameCandidates) {
     if (name === normalizedQuery) return 0;
   }
@@ -3122,8 +3124,10 @@ function scoreCreateGroupContactMatch(contact, query) {
   for (const name of nameCandidates) {
     if (name.includes(normalizedQuery)) return 3;
   }
+
+  // Priority 2: Phone number matches (only exact start match, scores 4)
+  // This allows searching by phone but names always take priority
   if (phone.startsWith(normalizedQuery)) return 4;
-  if (phone.includes(normalizedQuery)) return 5;
 
   return Number.POSITIVE_INFINITY;
 }
@@ -4126,6 +4130,8 @@ function wireEvents() {
   });
   DOM.inputCreateGroupSearch?.addEventListener('input', event => {
     AppState.onboarding.createGroupSearchQuery = event.target.value || '';
+    const hasInput = String(event.target.value || '').trim().length > 0;
+    DOM.createChatHelperText?.classList.toggle('is-hidden', hasInput);
     renderCreateGroupPicker();
   });
   DOM.inputCreateGroupSearch?.addEventListener('keydown', event => {

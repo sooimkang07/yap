@@ -198,6 +198,7 @@ const Pipeline = {
       threadLabel: primaryTouch?.thread?.label || primaryTouch?.userMessage?.label || 'New message',
       transcript: transcript || primaryTouch?.userMessage?.transcript || '',
       isReply,
+      messageId: primaryTouch?.userMessage?.voiceMessageId || primaryTouch?.userMessage?.id || null,
     });
   },
 

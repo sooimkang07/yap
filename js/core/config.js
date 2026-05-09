@@ -18,6 +18,7 @@ const YAP_GENERATE_REPLIES_ENDPOINT = '/api/generate-replies';
 const YAP_SYNTHESIZE_REPLY_ENDPOINT = '/api/synthesize-reply';
 const YAP_SEND_INVITES_ENDPOINT = '/api/send-invites';
 const YAP_SEND_MESSAGE_NOTIFICATIONS_ENDPOINT = '/api/send-message-notifications';
+const YAP_PROCESS_NOTIFICATION_JOBS_ENDPOINT = '/api/process-notification-jobs';
 const YAP_SEND_PHONE_CODE_ENDPOINT = '/api/send-phone-code';
 const YAP_VERIFY_PHONE_CODE_ENDPOINT = '/api/verify-phone-code';
 const YAP_HEALTH_ENDPOINT = '/api/health';

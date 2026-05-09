@@ -16,9 +16,8 @@ module.exports = async function handler(req, res) {
     const baseUrl = String(body?.baseUrl || '').trim();
     const invites = Array.isArray(body?.invites) ? body.invites : [];
 
-    const results = [];
-    for (const invite of invites) {
-      if (!invite?.id || !invite?.invite_token || !invite?.phone_e164) continue;
+    const sendableInvites = invites.filter(invite => invite?.id && invite?.invite_token && invite?.phone_e164);
+    const results = await Promise.all(sendableInvites.map(async invite => {
 
       const joinUrl = buildJoinUrl(baseUrl, invite.invite_token);
       const inviteeName = String(invite.invitee_name || '').trim();
@@ -27,15 +26,15 @@ module.exports = async function handler(req, res) {
 
       try {
         await sendSms(invite.phone_e164, message);
-        results.push({ id: invite.id, status: 'sent' });
+        return { id: invite.id, status: 'sent' };
       } catch (error) {
-        results.push({
+        return {
           id: invite.id,
           status: 'pending',
           error: error instanceof Error ? error.message : 'Unknown SMS delivery error',
-        });
+        };
       }
-    }
+    }));
 
     return res.status(200).json({ results });
   } catch (error) {

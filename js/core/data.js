@@ -7,6 +7,7 @@
 let supabaseClient = null;
 const APP_CHATS_CACHE_PREFIX = 'yap.cache.chats';
 const APP_THREADS_CACHE_PREFIX = 'yap.cache.threads';
+const APP_NOTIFICATION_OUTBOX_KEY = 'yap.notification.outbox';
 const APP_USER_SELECT_FIELDS = 'id, name, color_hex, avatar_url, auth_user_id, phone_e164, email, initials, profile_completed, created_at, updated_at';
 
 function initSupabase() {
@@ -1027,48 +1028,219 @@ function dedupeNotificationRecipients(recipients = []) {
   });
 }
 
-async function sendMessageNotifications({ chatId, chatName, senderName, recipients, threadLabel, transcript, isReply, kind }) {
-  if (!Array.isArray(recipients) || !recipients.length) return [];
+function readNotificationOutbox() {
+  return readCachedJson(APP_NOTIFICATION_OUTBOX_KEY, []);
+}
 
+function writeNotificationOutbox(entries = []) {
+  writeCachedJson(APP_NOTIFICATION_OUTBOX_KEY, Array.isArray(entries) ? entries.slice(-20) : []);
+}
+
+function enqueueNotificationPayload(payload) {
+  if (!payload || !Array.isArray(payload.recipients) || !payload.recipients.length) return;
+  const outbox = readNotificationOutbox();
+  outbox.push({
+    id: generateAppRecordId('notif'),
+    createdAt: Date.now(),
+    attempts: 0,
+    payload,
+  });
+  writeNotificationOutbox(outbox);
+}
+
+async function postNotificationPayload(payload, { keepalive = false } = {}) {
   const response = await fetch(YAP_SEND_MESSAGE_NOTIFICATIONS_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      chatId,
-      chatName,
-      senderName,
-      recipients,
-      threadLabel,
-      transcript,
-      isReply: !!isReply,
-      kind: String(kind || '').trim() || 'message',
-      baseUrl: window.location.origin + window.location.pathname,
-    }),
+    keepalive,
+    cache: 'no-store',
+    body: JSON.stringify(payload),
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const responsePayload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || 'Message notifications failed.');
+    throw new Error(responsePayload?.error || 'Message notifications failed.');
   }
 
-  return Array.isArray(payload?.results) ? payload.results : [];
+  return Array.isArray(responsePayload?.results) ? responsePayload.results : [];
+}
+
+async function createNotificationJobs(jobs = []) {
+  const rows = (Array.isArray(jobs) ? jobs : []).filter(job => job?.recipient_phone_e164);
+  if (!supabaseClient || !rows.length) return [];
+
+  const { data, error } = await supabaseClient
+    .from('notification_jobs')
+    .insert(rows)
+    .select('id, status, recipient_user_id, recipient_phone_e164, invitation_id');
+
+  if (error) throw error;
+  triggerNotificationJobProcessing();
+  return data || [];
+}
+
+function triggerNotificationJobProcessing() {
+  if (!YAP_PROCESS_NOTIFICATION_JOBS_ENDPOINT) return;
+  fetch(YAP_PROCESS_NOTIFICATION_JOBS_ENDPOINT, {
+    method: 'POST',
+    keepalive: true,
+    cache: 'no-store',
+  }).catch(error => console.warn('[yAp] notification job processing trigger failed:', error));
+}
+
+async function flushNotificationOutbox() {
+  const outbox = readNotificationOutbox();
+  if (!outbox.length) return [];
+
+  const remaining = [];
+  const delivered = [];
+
+  for (const entry of outbox) {
+    try {
+      const results = await postNotificationPayload(entry.payload, { keepalive: true });
+      delivered.push(...results);
+    } catch (error) {
+      const attempts = Number(entry.attempts || 0) + 1;
+      if (attempts < 5) {
+        remaining.push({ ...entry, attempts });
+      } else {
+        console.warn('[yAp] Dropping notification outbox entry after retries:', error);
+      }
+    }
+  }
+
+  writeNotificationOutbox(remaining);
+  return delivered;
+}
+
+async function sendMessageNotifications({ chatId, chatName, senderName, recipients, threadLabel, transcript, isReply, kind, messageId }) {
+  if (!Array.isArray(recipients) || !recipients.length) return [];
+  const notificationKind = String(kind || '').trim() || (isReply ? 'reply' : 'message');
+  const targetUrl = buildChatDeepLinkForNotification(chatId);
+
+  const payload = {
+    chatId,
+    chatName,
+    senderName,
+    recipients,
+    threadLabel,
+    transcript,
+    isReply: !!isReply,
+    kind: notificationKind,
+    baseUrl: window.location.origin + window.location.pathname,
+  };
+
+  const queuedRows = recipients
+    .map(recipient => ({
+      chat_id: chatId || null,
+      voice_message_id: messageId || null,
+      invitation_id: recipient.invitation_id || null,
+      recipient_user_id: recipient.id && !String(recipient.id).startsWith('pending-') ? recipient.id : null,
+      recipient_phone_e164: normalizePhoneNumber(recipient.phone_e164 || recipient.phoneE164 || ''),
+      recipient_name: recipient.name || '',
+      sender_user_id: getCurrentUserId() || null,
+      sender_name: senderName || getCurrentUser().name || 'A friend',
+      chat_name: chatName || 'your yAp chat',
+      kind: notificationKind === 'chat_invite' ? 'chat_invite' : (isReply ? 'reply' : 'message'),
+      thread_label: threadLabel || null,
+      transcript: transcript || null,
+      target_url: targetUrl,
+      channel: 'sms',
+      status: 'pending',
+    }))
+    .filter(row => row.recipient_phone_e164);
+
+  if (queuedRows.length) {
+    try {
+      const jobs = await createNotificationJobs(queuedRows);
+      return jobs.map(job => ({
+        id: job.recipient_user_id || job.id,
+        jobId: job.id,
+        channel: 'sms',
+        status: 'queued',
+      }));
+    } catch (error) {
+      console.warn('[yAp] notification job enqueue failed; falling back to direct send:', error);
+    }
+  }
+
+  try {
+    const results = await postNotificationPayload(payload, { keepalive: true });
+    flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+    return results;
+  } catch (error) {
+    enqueueNotificationPayload(payload);
+    throw error;
+  }
+}
+
+function buildChatDeepLinkForNotification(chatId) {
+  const url = new URL(window.location.origin + window.location.pathname);
+  if (chatId) url.searchParams.set('chat', chatId);
+  return url.toString();
 }
 
 async function sendInviteMessages({ chatName, inviterName, invites }) {
   if (!Array.isArray(invites) || !invites.length) return [];
+  const normalizedInvites = invites
+    .map(invite => ({
+      id: invite.id,
+      invite_token: invite.invite_token,
+      phone_e164: normalizePhoneNumber(invite.phone_e164 || ''),
+      invitee_name: invite.invitee_name || '',
+    }))
+    .filter(invite => invite.id && invite.invite_token && invite.phone_e164);
+
+  if (!normalizedInvites.length) return [];
+
+  if (supabaseClient) {
+    const jobs = normalizedInvites.map(invite => {
+      const targetUrl = new URL(window.location.origin + window.location.pathname);
+      targetUrl.searchParams.set('invite', invite.invite_token);
+      return {
+        chat_id: null,
+        invitation_id: invite.id,
+        recipient_user_id: null,
+        recipient_phone_e164: invite.phone_e164,
+        recipient_name: invite.invitee_name,
+        sender_user_id: getCurrentUserId() || null,
+        sender_name: inviterName || getCurrentUser().name || 'A friend',
+        chat_name: chatName || 'a yAp group',
+        kind: 'chat_invite',
+        target_url: targetUrl.toString(),
+        channel: 'sms',
+        status: 'pending',
+      };
+    });
+
+    try {
+      const createdJobs = await createNotificationJobs(jobs);
+      if (createdJobs.length) {
+        return normalizedInvites.map(invite => ({
+          id: invite.id,
+          status: 'sent',
+          deliveryStatus: 'queued',
+        }));
+      }
+    } catch (error) {
+      console.warn('[yAp] invite notification job enqueue failed; falling back to direct send:', error);
+    }
+  }
 
   const response = await fetch(YAP_SEND_INVITES_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
+    keepalive: true,
+    cache: 'no-store',
     body: JSON.stringify({
       chatName,
       inviterName,
       baseUrl: window.location.origin + window.location.pathname,
-      invites: invites.map(invite => ({
+      invites: normalizedInvites.map(invite => ({
         id: invite.id,
         invite_token: invite.invite_token,
         phone_e164: invite.phone_e164,

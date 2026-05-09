@@ -49,6 +49,8 @@ const AppState = {
     topicIndex: 0,
     isPlaying: false,
     lastSpeakerId: null,
+    completedAll: false,
+    topicDotColors: {},
   },
   groupSettingsTab: 'info',
   groupSettingsEditing: false,
@@ -71,6 +73,8 @@ const AppState = {
     conversationCacheVersions: new Map(),
     remotePresence: new Map(),
     lastChatsRefreshAt: 0,
+    pendingForceConversation: false,
+    pendingForceChats: false,
   },
   navTimer: null,
   viewportSyncRaf: 0,
@@ -298,6 +302,8 @@ function cacheDOM() {
   DOM.npTopicTitle  = document.getElementById('np-topic-title');
   DOM.npStage       = document.getElementById('np-stage');
   DOM.npAvatars     = document.getElementById('np-avatars');
+  DOM.npTopicProgress = document.getElementById('np-topic-progress');
+  DOM.npDots = DOM.npTopicProgress;
   DOM.npTimeline   = document.getElementById("np-timeline");
   DOM.btnNpClose    = document.getElementById('btn-np-close');
   DOM.btnNpPrev     = document.getElementById('btn-np-prev');
@@ -343,7 +349,7 @@ function cacheDOM() {
   DOM.iosAlertAction = document.getElementById('ios-alert-action');
 }
 
-const SCREEN_TRANSITION_MS = 190;
+const SCREEN_TRANSITION_MS = 150;
 const SHEET_TRANSITION_MS = 220;
 
 function isSheetScreen(screenId) {
@@ -400,8 +406,6 @@ function updateViewportMetrics() {
   const viewportBottomInset = textEntryFocused ? 0 : rawViewportBottomInset;
   const appHeight = textEntryFocused
     ? Math.max(AppState.viewportBaseHeight || 0, layoutViewportHeight, viewportHeight)
-    : viewportBottomInset > 0
-    ? Math.max(layoutViewportHeight, viewportHeight)
     : viewportHeight;
   const nextBaseHeight = keyboardInset > 0
     ? Math.max(AppState.viewportBaseHeight || 0, viewportHeight)
@@ -539,25 +543,25 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
     });
   } else if (direction === 'back') {
     to.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.92';
-    to.style.transform = onboardingFlowTransition ? 'translate3d(-8%, 0, 0)' : 'translate3d(-22px, 0, 0)';
+    to.style.transform = onboardingFlowTransition ? 'translate3d(-14px, 0, 0)' : 'translate3d(-18px, 0, 0)';
     requestAnimationFrame(() => {
       to.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       from.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       to.style.opacity = '1';
       to.style.transform = 'translate3d(0, 0, 0)';
       from.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.96';
-      from.style.transform = 'translate3d(100%, 0, 0)';
+      from.style.transform = 'translate3d(28px, 0, 0)';
     });
   } else {
     to.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.96';
-    to.style.transform = 'translate3d(100%, 0, 0)';
+    to.style.transform = 'translate3d(28px, 0, 0)';
     requestAnimationFrame(() => {
       to.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       from.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
       to.style.opacity = '1';
       to.style.transform = 'translate3d(0, 0, 0)';
       from.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.9';
-      from.style.transform = onboardingFlowTransition ? 'translate3d(-8%, 0, 0)' : 'translate3d(-22px, 0, 0)';
+      from.style.transform = onboardingFlowTransition ? 'translate3d(-14px, 0, 0)' : 'translate3d(-18px, 0, 0)';
     });
   }
 
@@ -696,15 +700,15 @@ function renderChatsList() {
     const displayName = getChatDisplayName(chat);
     const artHTML = _chatArtHTML(chat);
     const badgeHTML = chat.unread > 0
-      ? `<div class="chat-badge">${chat.unread}</div>`
+      ? `<span class="chat-badge" aria-label="${chat.unread} unread message${chat.unread === 1 ? '' : 's'}"></span>`
       : '';
 
     return `
       <div class="chat-card chat-card--${chat.visual || 'default'}${chat.id === ACTIVE_CHAT_ID ? ' chat-card--besties' : ''}" data-chat-id="${chat.id}">
         <div class="chat-card__art">${artHTML}</div>
         <div class="chat-card__footer">
-          <div class="chat-card__name">${escapeHtml(displayName)}</div>
           ${badgeHTML}
+          <div class="chat-card__name">${escapeHtml(displayName)}</div>
         </div>
       </div>
     `;
@@ -838,8 +842,22 @@ function queueRealtimeSync(delayMs = 250) {
 
   AppState.sync.realtimeTimer = window.setTimeout(() => {
     AppState.sync.realtimeTimer = 0;
-    syncRemoteState({ forceConversation: true });
+    syncRemoteState({ forceConversation: true, forceChats: true });
   }, Math.max(0, delayMs || 0));
+}
+
+function handleRealtimePostgresChange(payload) {
+  const table = payload?.table || '';
+  const eventType = payload?.eventType || '';
+  const row = payload?.new || payload?.old || {};
+  const activeChatId = AppState.activeChat?.id || null;
+  const changedChatId = row?.chat_id || null;
+  const isActiveChatMessageChange = table === 'voice_messages'
+    && eventType === 'INSERT'
+    && changedChatId
+    && changedChatId === activeChatId;
+
+  queueRealtimeSync(isActiveChatMessageChange ? 0 : 120);
 }
 
 function buildChatDeepLink(chatId) {
@@ -927,15 +945,20 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
   }
 }
 
-async function syncRemoteState({ forceConversation = false } = {}) {
-  if (!AppState.supabaseOk || !AppState.auth.session || !getCurrentUserId() || AppState.sync.inFlight) return;
+async function syncRemoteState({ forceConversation = false, forceChats = false } = {}) {
+  if (!AppState.supabaseOk || !AppState.auth.session || !getCurrentUserId()) return;
+  if (AppState.sync.inFlight) {
+    AppState.sync.pendingForceConversation = AppState.sync.pendingForceConversation || forceConversation;
+    AppState.sync.pendingForceChats = AppState.sync.pendingForceChats || forceChats;
+    return;
+  }
 
   AppState.sync.inFlight = true;
   const previousSnapshot = AppState.sync.chatSnapshot;
   const activeChatId = AppState.activeChat?.id || null;
 
   try {
-    await refreshChats();
+    await refreshChats({ force: forceChats });
 
     if (activeChatId) {
       AppState.activeChat = AppState.chats.find(chat => chat.id === activeChatId) || AppState.activeChat;
@@ -979,6 +1002,18 @@ async function syncRemoteState({ forceConversation = false } = {}) {
     console.warn('[yAp] remote sync failed:', error);
   } finally {
     AppState.sync.inFlight = false;
+    const pendingForceConversation = AppState.sync.pendingForceConversation;
+    const pendingForceChats = AppState.sync.pendingForceChats;
+    AppState.sync.pendingForceConversation = false;
+    AppState.sync.pendingForceChats = false;
+    if (pendingForceConversation || pendingForceChats) {
+      window.setTimeout(() => {
+        syncRemoteState({
+          forceConversation: pendingForceConversation,
+          forceChats: pendingForceChats,
+        });
+      }, 0);
+    }
   }
 }
 
@@ -1054,6 +1089,8 @@ function stopRemoteSync() {
   AppState.sync.conversationPrimePromise = null;
   AppState.sync.conversationCacheVersions = new Map();
   AppState.sync.remotePresence = new Map();
+  AppState.sync.pendingForceConversation = false;
+  AppState.sync.pendingForceChats = false;
   if (AppState.sync.realtimeChannel) {
     try {
       supabaseClient?.removeChannel?.(AppState.sync.realtimeChannel);
@@ -1089,7 +1126,7 @@ function ensureRealtimeSyncChannel() {
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table },
-      () => queueRealtimeSync(120)
+      payload => handleRealtimePostgresChange(payload)
     );
   });
 
@@ -1154,7 +1191,7 @@ async function waitForChatAvailability(chatId, { attempts = 5, delayMs = 700 } =
   }
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await refreshChats();
+    await refreshChats({ force: true });
     const found = AppState.chats.find(chat => chat.id === chatId) || null;
     if (found) return found;
     if (attempt < attempts - 1) {
@@ -1203,8 +1240,37 @@ function syncProfileSetupAvatarPreview() {
     accent: pickUserColor(name || 'profile-setup'),
   });
   if (DOM.profilePhotoPickLabel) {
-    DOM.profilePhotoPickLabel.textContent = imageUrl ? 'Change Photo' : 'Add Photo';
+    DOM.profilePhotoPickLabel.textContent = hasCustomProfileAvatar(imageUrl) ? 'Change Photo' : 'Add required photo';
   }
+}
+
+function isPlaceholderProfileName(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return !normalized || normalized === 'name' || normalized === 'you';
+}
+
+function hasCustomProfileAvatar(value = '') {
+  const normalized = String(value || '').trim();
+  return !!normalized && normalized !== 'assets/sooim.jpg';
+}
+
+function validateProfileSetupFields() {
+  const name = DOM.inputProfileName?.value?.trim() || '';
+  const avatarUrl = DOM.inputProfileAvatar?.value?.trim() || '';
+
+  if (isPlaceholderProfileName(name)) {
+    DOM.inputProfileName?.focus();
+    setFeedback(DOM.profileSetupFeedback, 'Add your name before continuing.', 'error');
+    return false;
+  }
+
+  if (!hasCustomProfileAvatar(avatarUrl)) {
+    DOM.btnProfilePhotoPick?.focus();
+    setFeedback(DOM.profileSetupFeedback, 'Add a profile photo before continuing.', 'error');
+    return false;
+  }
+
+  return true;
 }
 
 function syncProfileManageAvatarLabel(user = getCurrentUser()) {
@@ -1630,6 +1696,7 @@ function renderActiveChatShell(chat) {
 
   const otherMembers = getChatOtherMembers(chat);
   renderChatPresence(chat);
+  DOM.chatEmpty?.classList.toggle('is-single-member', otherMembers.length === 1);
 
   const featuredMembers = otherMembers.slice(0, 2);
   const firstMember = featuredMembers[0];
@@ -1802,6 +1869,8 @@ function openNowPlaying() {
   AppState.nowPlaying.topicIndex = 0;
   AppState.nowPlaying.isPlaying = true;
   AppState.nowPlaying.lastSpeakerId = null;
+  AppState.nowPlaying.completedAll = false;
+  AppState.nowPlaying.topicDotColors = {};
   DOM.nowPlayingOverlay.classList.add('visible');
   DOM.nowPlayingOverlay.setAttribute('aria-hidden', 'false');
   _renderNowPlayingTopic(0, null);
@@ -1811,6 +1880,8 @@ function openNowPlaying() {
 function closeNowPlaying() {
   AppState.nowPlaying.active = false;
   AppState.nowPlaying.isPlaying = false;
+  AppState.nowPlaying.completedAll = false;
+  AppState.nowPlaying.topicDotColors = {};
   PlaybackController.stop();
   DOM.nowPlayingOverlay.classList.remove('visible');
   DOM.nowPlayingOverlay.setAttribute('aria-hidden', 'true');
@@ -1822,6 +1893,7 @@ function _startNowPlayingPlayback() {
   const thread = threads[AppState.nowPlaying.topicIndex];
   if (!thread) return;
   AppState.nowPlaying.isPlaying = true;
+  AppState.nowPlaying.completedAll = false;
   _syncNowPlayingPauseIcon(true);
   PlaybackController.playThread(thread, null).catch(() => {});
 }
@@ -1854,6 +1926,7 @@ function _nowPlayingGoToTopic(index, direction) {
   PlaybackController.stop();
   AppState.nowPlaying.topicIndex = safeIndex;
   AppState.nowPlaying.lastSpeakerId = null;
+  AppState.nowPlaying.completedAll = false;
   _renderNowPlayingTopic(safeIndex, direction);
   _startNowPlayingPlayback();
 }
@@ -1886,6 +1959,7 @@ function _nowPlayingSkipMemo(direction) {
   AppState.nowPlaying.isPlaying = true;
   AppState.nowPlaying.topicIndex = targetMemo.topicIndex;
   AppState.nowPlaying.lastSpeakerId = targetMemo.speakerId;
+  AppState.nowPlaying.completedAll = false;
   _syncNowPlayingPauseIcon(true);
   _setNowPlayingTopicTitle(targetMemo.thread.label || `Topic ${targetMemo.topicIndex + 1}`, direction);
   _buildNowPlayingAvatarsNew(targetMemo.thread, targetMemo.speakerId);
@@ -1924,6 +1998,7 @@ function _renderNowPlayingTopic(index, direction) {
 
   _setNowPlayingTopicTitle(thread.label || `Topic ${index + 1}`, direction);
   _buildNowPlayingAvatarsNew(thread, _getInitialNowPlayingSpeakerId(thread));
+  _syncNowPlayingTopicProgress();
 }
 
 function _setNowPlayingTopicTitle(title, direction = null) {
@@ -2003,12 +2078,56 @@ function _buildNowPlayingAvatars(thread) {
   }).join('');
 }
 
-function _renderNowPlayingDots(total, activeIndex) {
+function _renderNowPlayingDots(threads, activeIndex) {
   if (!DOM.npDots) return;
-  if (total <= 1) { DOM.npDots.innerHTML = ''; return; }
-  DOM.npDots.innerHTML = Array.from({ length: total }, (_, i) =>
-    `<div class="np-dot${i === activeIndex ? ' is-active' : ''}"></div>`
-  ).join('');
+  const total = Array.isArray(threads) ? threads.length : 0;
+  if (total <= 0) { DOM.npDots.innerHTML = ''; return; }
+  DOM.npDots.innerHTML = threads.map((thread, i) => {
+    const isActive = i === activeIndex;
+    const isComplete = i < activeIndex || AppState.nowPlaying.completedAll;
+    const color = AppState.nowPlaying.topicDotColors?.[thread.id] || _getNowPlayingTopicDotColor(thread);
+    const progress = isActive || isComplete ? 1 : 0;
+    return `<span class="np-dot${isActive ? ' is-active' : ''}${isComplete ? ' is-complete' : ''}" style="--np-dot-progress:${progress};--np-dot-color:${escapeHtml(color)}" aria-hidden="true"></span>`;
+  }).join('');
+}
+
+function _getNowPlayingTopicDotColor(thread) {
+  const fallbackMessage = (thread?.messages || [])[0];
+  const fallbackColor = fallbackMessage?.author?.color || pickUserColor(fallbackMessage?.author?.name || thread?.label || 'topic');
+  const meta = PlaybackController.activeMeta;
+  if (thread && meta?.mode === 'thread' && meta.threadId === thread.id && Array.isArray(meta.sequence)) {
+    const item = meta.sequence[Math.max(0, Number(meta.sequenceIndex) || 0)];
+    return item?.author?.color || fallbackColor;
+  }
+
+  if (AppState.nowPlaying.lastSpeakerId) {
+    const speakerMessage = (thread?.messages || []).find(msg =>
+      (msg.authorId || msg.author?.name) === AppState.nowPlaying.lastSpeakerId
+    );
+    if (speakerMessage?.author?.color) return speakerMessage.author.color;
+  }
+
+  return fallbackColor;
+}
+
+function _syncNowPlayingTopicProgress(options = {}) {
+  const threads = Store.getThreads();
+  if (!threads.length) {
+    _renderNowPlayingDots([], 0);
+    return;
+  }
+
+  if (options.completeAll) AppState.nowPlaying.completedAll = true;
+  const activeIndex = Math.max(0, Math.min(AppState.nowPlaying.topicIndex, threads.length - 1));
+  const activeThread = threads[activeIndex];
+  const activeColor = _getNowPlayingTopicDotColor(activeThread);
+  if (activeThread?.id) {
+    AppState.nowPlaying.topicDotColors = {
+      ...(AppState.nowPlaying.topicDotColors || {}),
+      [activeThread.id]: activeColor,
+    };
+  }
+  _renderNowPlayingDots(threads, activeIndex);
 }
 
 function _syncNowPlayingSpeaker() {
@@ -2039,6 +2158,7 @@ function _syncNowPlayingSpeaker() {
   }
 
   _syncNowPlayingAvatarProgress();
+  _syncNowPlayingTopicProgress();
 }
 
 function _buildNowPlayingTimeline(thread) {
@@ -3290,72 +3410,75 @@ async function renderContactsHub() {
   }).join('');
 }
 
-async function refreshChats() {
-  if (AppState.chatsRefreshPromise) {
+async function refreshChats({ force = false } = {}) {
+  if (!force && AppState.chatsRefreshPromise) {
     return AppState.chatsRefreshPromise;
   }
 
-  AppState.chatsRefreshPromise = (async () => {
-  if (!AppState.supabaseOk) {
-    AppState.chats = AppState.pendingChats || [];
+  const refreshPromise = (async () => {
+    if (!AppState.supabaseOk) {
+      AppState.chats = AppState.pendingChats || [];
+      return AppState.chats;
+    }
+
+    const lastRefreshAt = Number(AppState.sync.lastChatsRefreshAt || 0);
+    const cachedChats = readCachedChatsForUser(getCurrentUserId());
+    if (!force && cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
+      AppState.chats = cachedChats;
+      return AppState.chats;
+    }
+
+    const remoteChats = await getChatsForUser(getCurrentUserId());
+    AppState.sync.lastChatsRefreshAt = Date.now();
+    const resolvedRemoteChats = Array.isArray(remoteChats) ? remoteChats : cachedChats;
+    const pendingChatFreshnessMs = 2 * 60 * 1000;
+    const now = Date.now();
+
+    AppState.pendingChats = (AppState.pendingChats || []).filter(chat => {
+      if (chat?.persistLocally) return !!chat?.id;
+      const createdAt = Number(chat?.localCreatedAt || chat?.lastMessageAt || 0);
+      return !!chat?.id && (now - createdAt) < pendingChatFreshnessMs;
+    });
+
+    const remoteIds = new Set(resolvedRemoteChats.map(chat => chat.id));
+    const mergedChats = [
+      ...resolvedRemoteChats,
+      ...AppState.pendingChats.filter(chat => !remoteIds.has(chat.id)),
+    ];
+
+    const seenChatIds = new Set();
+    const dedupedChats = mergedChats.filter(chat => {
+      if (!chat?.id || seenChatIds.has(chat.id)) return false;
+      seenChatIds.add(chat.id);
+      return true;
+    }).sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
+
+    AppState.chats = dedupedChats;
+    updateChatsUnreadCounts();
+    writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+    AppState.pendingChats = AppState.pendingChats.filter(chat => !remoteIds.has(chat.id));
+    if (AppState.activeChat?.id) {
+      AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
+    }
     return AppState.chats;
-  }
-
-  const lastRefreshAt = Number(AppState.sync.lastChatsRefreshAt || 0);
-  const cachedChats = readCachedChatsForUser(getCurrentUserId());
-  if (cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
-    AppState.chats = cachedChats;
-    return AppState.chats;
-  }
-
-  const remoteChats = await getChatsForUser(getCurrentUserId());
-  AppState.sync.lastChatsRefreshAt = Date.now();
-  const resolvedRemoteChats = Array.isArray(remoteChats) ? remoteChats : cachedChats;
-  const pendingChatFreshnessMs = 2 * 60 * 1000;
-  const now = Date.now();
-
-  AppState.pendingChats = (AppState.pendingChats || []).filter(chat => {
-    if (chat?.persistLocally) return !!chat?.id;
-    const createdAt = Number(chat?.localCreatedAt || chat?.lastMessageAt || 0);
-    return !!chat?.id && (now - createdAt) < pendingChatFreshnessMs;
-  });
-
-  const remoteIds = new Set(resolvedRemoteChats.map(chat => chat.id));
-  const mergedChats = [
-    ...resolvedRemoteChats,
-    ...AppState.pendingChats.filter(chat => !remoteIds.has(chat.id)),
-  ];
-
-  const seenChatIds = new Set();
-  const dedupedChats = mergedChats.filter(chat => {
-    if (!chat?.id || seenChatIds.has(chat.id)) return false;
-    seenChatIds.add(chat.id);
-    return true;
-  }).sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
-
-  AppState.chats = dedupedChats;
-  updateChatsUnreadCounts();
-  writeCachedChatsForUser(AppState.chats, getCurrentUserId());
-  AppState.pendingChats = AppState.pendingChats.filter(chat => !remoteIds.has(chat.id));
-  if (AppState.activeChat?.id) {
-    AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
-  }
-  return AppState.chats;
   })();
+  AppState.chatsRefreshPromise = refreshPromise;
 
   try {
-    return await AppState.chatsRefreshPromise;
+    return await refreshPromise;
   } finally {
-    AppState.chatsRefreshPromise = null;
+    if (AppState.chatsRefreshPromise === refreshPromise) {
+      AppState.chatsRefreshPromise = null;
+    }
   }
 }
 
 function prefillProfileForm(user) {
   if (!user) return;
-  if (DOM.inputProfileName && !DOM.inputProfileName.value) {
+  if (DOM.inputProfileName && !DOM.inputProfileName.value && !isPlaceholderProfileName(user.name)) {
     DOM.inputProfileName.value = user.name || '';
   }
-  if (DOM.inputProfileAvatar && !DOM.inputProfileAvatar.value) {
+  if (DOM.inputProfileAvatar && !DOM.inputProfileAvatar.value && hasCustomProfileAvatar(user.avatarUrl)) {
     DOM.inputProfileAvatar.value = user.avatarUrl || '';
   }
   syncProfileSetupAvatarPreview();
@@ -3569,45 +3692,50 @@ function renderGroupSettings(invites = []) {
   }
 
   if (DOM.groupSettingsPeopleStrip) {
-    const invitePhoneSet = new Set(invites.map(invite => invite.phone_e164).filter(Boolean));
-    const peopleStripEntries = [
-      ...otherMembers.map(member => ({
-        member,
-        status: member.pending || invitePhoneSet.has(member.phoneE164) ? 'Pending Invite' : '',
-        key: member.id || member.phoneE164 || member.name || '',
-      })),
-      ...invites
-        .filter(invite => invite.phone_e164 && !otherMembers.some(member => member.phoneE164 === invite.phone_e164))
-        .map(invite => ({
-          member: {
-            id: `invite-${invite.id}`,
-            name: invite.invitee_name || invite.phone_e164 || 'Pending invite',
-            phoneE164: invite.phone_e164 || '',
-            pending: true,
-          },
-          status: 'Pending',
-          key: `invite-${invite.id}`,
+    DOM.groupSettingsPeopleStrip.hidden = isDirectChat;
+    if (isDirectChat) {
+      DOM.groupSettingsPeopleStrip.innerHTML = '';
+    } else {
+      const invitePhoneSet = new Set(invites.map(invite => invite.phone_e164).filter(Boolean));
+      const peopleStripEntries = [
+        ...otherMembers.map(member => ({
+          member,
+          status: member.pending || invitePhoneSet.has(member.phoneE164) ? 'Pending Invite' : '',
+          key: member.id || member.phoneE164 || member.name || '',
         })),
-    ];
-    const addNode = canManage ? `
-      <button class="group-details-person group-details-person--add" id="btn-group-settings-browse-contacts" type="button" aria-label="Add contact">
-        <span class="group-details-person__avatar">+</span>
-        <span class="group-details-person__name">Add</span>
-      </button>
-    ` : '';
+        ...invites
+          .filter(invite => invite.phone_e164 && !otherMembers.some(member => member.phoneE164 === invite.phone_e164))
+          .map(invite => ({
+            member: {
+              id: `invite-${invite.id}`,
+              name: invite.invitee_name || invite.phone_e164 || 'Pending invite',
+              phoneE164: invite.phone_e164 || '',
+              pending: true,
+            },
+            status: 'Pending',
+            key: `invite-${invite.id}`,
+          })),
+      ];
+      const addNode = canManage ? `
+        <button class="group-details-person group-details-person--add" id="btn-group-settings-browse-contacts" type="button" aria-label="Add contact">
+          <span class="group-details-person__avatar">+</span>
+          <span class="group-details-person__name">Add</span>
+        </button>
+      ` : '';
 
-    DOM.groupSettingsPeopleStrip.innerHTML = `
-      ${peopleStripEntries.map(({ member, status }) => `
-        <div class="group-details-person">
-          <div class="${buildAvatarClass('group-details-person__avatar', member)}" style="${buildAvatarStyle(member)}">
-            ${buildAvatarContent(member)}
+      DOM.groupSettingsPeopleStrip.innerHTML = `
+        ${peopleStripEntries.map(({ member, status }) => `
+          <div class="group-details-person">
+            <div class="${buildAvatarClass('group-details-person__avatar', member)}" style="${buildAvatarStyle(member)}">
+              ${buildAvatarContent(member)}
+            </div>
+            <div class="group-details-person__name">${escapeHtml(member.name || member.phoneE164 || 'Member')}</div>
+            ${status ? `<div class="group-details-person__status">${escapeHtml(status)}</div>` : ''}
           </div>
-          <div class="group-details-person__name">${escapeHtml(member.name || member.phoneE164 || 'Member')}</div>
-          ${status ? `<div class="group-details-person__status">${escapeHtml(status)}</div>` : ''}
-        </div>
-      `).join('')}
-      ${addNode}
-    `;
+        `).join('')}
+        ${addNode}
+      `;
+    }
   }
 
   if (DOM.groupSettingsContactCard && DOM.groupSettingsContactPhone) {
@@ -3950,6 +4078,7 @@ function wireEvents() {
   DOM.formProfileSetup?.addEventListener('submit', async event => {
     event.preventDefault();
     if (!validateFormWithIOSAlert(DOM.formProfileSetup)) return;
+    if (!validateProfileSetupFields()) return;
     setFeedback(DOM.profileSetupFeedback, '');
     setButtonBusy(DOM.btnSaveProfile, true, 'Saving...');
 
@@ -4513,10 +4642,12 @@ function wireEvents() {
     const threads = Store.getThreads();
     const nextIndex = AppState.nowPlaying.topicIndex + 1;
     if (nextIndex < threads.length) {
+      _syncNowPlayingTopicProgress();
       setTimeout(() => _nowPlayingGoToTopic(nextIndex, 'next'), 400);
     } else {
       _syncNowPlayingPauseIcon(false);
       AppState.nowPlaying.isPlaying = false;
+      _syncNowPlayingTopicProgress({ completeAll: true });
     }
   };
 
@@ -4619,6 +4750,13 @@ async function boot() {
 
   AppState.supabaseOk = initSupabase();
   if (YAP_SUPABASE_REMOTE_SYNC_ENABLED) startRemoteSync();
+  flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+  window.addEventListener('online', () => {
+    flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+  });
+  window.addEventListener('focus', () => {
+    flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+  });
   if (AppState.supabaseOk && supabaseClient?.auth) {
     supabaseClient.auth.onAuthStateChange((_event, session) => {
       AppState.auth.session = session || getStoredAuthSession() || null;

@@ -62,8 +62,8 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ results });
     }
 
-    for (const recipient of recipients) {
-      if (!recipient?.id || !recipient?.phone_e164) continue;
+    const smsRecipients = recipients.filter(recipient => recipient?.id && recipient?.phone_e164);
+    const smsResults = await Promise.all(smsRecipients.map(async recipient => {
 
       const greeting = recipient.name ? `Hi ${recipient.name}, ` : '';
       const message = kind === 'chat_invite'
@@ -80,16 +80,18 @@ module.exports = async function handler(req, res) {
 
       try {
         await sendSms(recipient.phone_e164, message);
-        results.push({ id: recipient.id, channel: 'sms', status: 'sent' });
+        return { id: recipient.id, channel: 'sms', status: 'sent' };
       } catch (error) {
-        results.push({
+        return {
           id: recipient.id,
           channel: 'sms',
           status: 'failed',
           error: error instanceof Error ? error.message : 'Unknown SMS delivery error',
-        });
+        };
       }
-    }
+    }));
+
+    results.push(...smsResults);
 
     return res.status(200).json({ results });
   } catch (error) {

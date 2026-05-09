@@ -110,6 +110,34 @@ CREATE TABLE IF NOT EXISTS playback_progress (
   PRIMARY KEY (user_id, voice_message_id)
 );
 
+CREATE TABLE IF NOT EXISTS notification_jobs (
+  id                   TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+  chat_id              TEXT        REFERENCES chats(id) ON DELETE CASCADE,
+  voice_message_id     TEXT        REFERENCES voice_messages(id) ON DELETE CASCADE,
+  invitation_id        TEXT        REFERENCES invitations(id) ON DELETE CASCADE,
+  recipient_user_id    TEXT        REFERENCES users(id) ON DELETE SET NULL,
+  recipient_phone_e164 TEXT        NOT NULL,
+  recipient_name       TEXT,
+  sender_user_id       TEXT        REFERENCES users(id) ON DELETE SET NULL,
+  sender_name          TEXT,
+  chat_name            TEXT,
+  kind                 TEXT        NOT NULL DEFAULT 'message'
+                                     CHECK (kind IN ('message', 'reply', 'chat_invite')),
+  thread_label         TEXT,
+  transcript           TEXT,
+  target_url           TEXT,
+  channel              TEXT        NOT NULL DEFAULT 'sms'
+                                     CHECK (channel IN ('sms', 'push')),
+  status               TEXT        NOT NULL DEFAULT 'pending'
+                                     CHECK (status IN ('pending', 'processing', 'sent', 'failed')),
+  attempt_count        INTEGER     NOT NULL DEFAULT 0,
+  last_error           TEXT,
+  next_attempt_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at              TIMESTAMPTZ,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ── Step 3: Indexes ───────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_users_phone             ON users(phone_e164);
@@ -120,6 +148,37 @@ CREATE INDEX IF NOT EXISTS idx_playback_user           ON playback_progress(user
 CREATE INDEX IF NOT EXISTS idx_invitations_chat        ON invitations(chat_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_invitations_contact     ON invitations(phone_e164, email);
 CREATE INDEX IF NOT EXISTS idx_imported_contacts_owner ON imported_contacts(owner_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_jobs_pending ON notification_jobs(status, next_attempt_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_jobs_chat    ON notification_jobs(chat_id, created_at DESC);
+
+-- ── Step 3b: Realtime ─────────────────────────────────
+-- Required for Supabase postgres_changes subscriptions used by the web app.
+DO $$
+DECLARE
+  realtime_table TEXT;
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    FOREACH realtime_table IN ARRAY ARRAY[
+      'chats',
+      'chat_participants',
+      'voice_messages',
+      'topic_threads',
+      'topic_segments',
+      'transcripts',
+      'playback_progress'
+    ]::TEXT[] LOOP
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime'
+          AND schemaname = 'public'
+          AND tablename = realtime_table
+      ) THEN
+        EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', realtime_table);
+      END IF;
+    END LOOP;
+  END IF;
+END $$;
 
 -- ── Step 4: RLS ───────────────────────────────────────
 
@@ -130,6 +189,7 @@ ALTER TABLE transcripts        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE topic_threads      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE topic_segments     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE playback_progress  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_jobs  ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN CREATE POLICY "allow_all_users"             ON users             FOR ALL USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY "allow_all_chats"             ON chats             FOR ALL USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -141,3 +201,4 @@ DO $$ BEGIN CREATE POLICY "allow_all_transcripts"       ON transcripts        FO
 DO $$ BEGIN CREATE POLICY "allow_all_topic_threads"     ON topic_threads      FOR ALL USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY "allow_all_topic_segments"    ON topic_segments     FOR ALL USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY "allow_all_playback_progress" ON playback_progress  FOR ALL USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "allow_all_notification_jobs" ON notification_jobs  FOR ALL USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

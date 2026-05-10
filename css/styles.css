@@ -96,7 +96,7 @@ html {
   height: 100%;
   background: var(--screen-background);
   /* Keep base UI comfortably readable on iPhone/PWA (rem drives most sizing). */
-  font-size: clamp(16px, 2.6vw, 18px);
+  font-size: clamp(17px, 3vw, 20px);
 }
 
 body {

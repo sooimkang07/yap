@@ -8224,7 +8224,7 @@ select,
 }
 
 /* ═══════════════════════════════════════════════════════ */
-/* Recording Indicator - Floating Avatar Above Mic Button */
+/* Other Users Recording Indicators in Thread */
 /* ═══════════════════════════════════════════════════════ */
 
 /* Avatar glow animation when recording */
@@ -8239,43 +8239,45 @@ select,
   }
 }
 
-/* Floating avatar above mic button */
-.recording-indicator-float {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 0.5rem;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease-out;
+/* Container for avatars of others recording */
+.others-recording-avatars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background-color: rgba(0, 0, 0, 0.02);
 }
 
-.recording-indicator-float.is-visible {
-  opacity: 1;
+/* Individual recording avatar in thread */
+.recording-avatar-float {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.recording-indicator-float.is-active {
-  opacity: 1;
-}
-
-.recording-indicator-float__avatar {
-  width: 2rem;
-  height: 2rem;
+.recording-avatar-float__avatar {
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: 50%;
   background-size: cover;
   background-position: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-.recording-indicator-float.is-active .recording-indicator-float__avatar {
+.recording-avatar-float[data-state="recording"] .recording-avatar-float__avatar {
   animation: avatar-glow 1.5s ease-in-out infinite;
 }
 
-.recording-indicator-float[data-state="recording"] .recording-indicator-float__avatar {
-  animation: avatar-glow 1.5s ease-in-out infinite;
-}
-
-.recording-indicator-float[data-state="sending"] .recording-indicator-float__avatar {
+.recording-avatar-float[data-state="sending"] .recording-avatar-float__avatar {
   animation: avatar-glow 1s ease-in-out infinite;
+}
+
+.recording-avatar-float__label {
+  font-size: 0.75rem;
+  color: rgba(0, 0, 0, 0.6);
+  text-align: center;
+  max-width: 3rem;
+  word-break: break-word;
 }

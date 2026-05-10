@@ -31,6 +31,41 @@ function _initPresenceForChat(chatId) {
 
 
 
+
+// Render avatars of other users recording/sending in this thread
+function _renderOtherUsersRecording(thread) {
+  const currentUserId = getCurrentUserId();
+  const recordingUsers = PresenceManager.getRecordingUsers();
+  if (!recordingUsers.length) return '';
+
+  // Only show OTHER users (not current user)
+  const threadUserIds = new Set(thread.messages.map(m => m.authorId));
+  const otherUsersRecording = recordingUsers.filter(({ userId }) => 
+    userId !== currentUserId && threadUserIds.has(userId)
+  );
+  
+  if (!otherUsersRecording.length) return '';
+
+  const userMap = new Map();
+  thread.messages.forEach(msg => {
+    userMap.set(msg.authorId, msg.author);
+  });
+
+  return `
+    <div class="others-recording-avatars">
+      ${otherUsersRecording.map(({ userId, state }) => {
+        const author = userMap.get(userId);
+        return `
+          <div class="recording-avatar-float" data-state="${state}">
+            <div class="recording-avatar-float__avatar" style="background-image:url('${author?.avatarUrl || ''}'); background-color:${author?.color}"></div>
+            <div class="recording-avatar-float__label">${escapeHtml(author?.name || 'Someone')} ${state === 'sending' ? 'sending' : 'recording'}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function _getThreadDate(thread) {
   const messages = _threadMessagesChronological(thread);
   return messages[0]?.sentAt || thread.createdAt || Date.now();
@@ -513,12 +548,14 @@ function _topicCardInner(thread) {
   const orderedMessages = _threadMessagesChronological(thread);
   const topicMessage = orderedMessages[0] || _topicPrimaryMessage(thread);
   const replies = orderedMessages.slice(1);
+  const othersRecording = _renderOtherUsersRecording(thread);
   const expanded = _expandedThreadId === thread.id
     ? `
       <div class="topic-thread">
         <div class="topic-thread__replies">
           ${replies.map(_replyRowHTML).join('')}
         </div>
+        ${othersRecording}
       </div>
     `
     : '';

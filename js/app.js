@@ -247,6 +247,7 @@ function cacheDOM() {
   DOM.profileSettingsName = document.getElementById('profile-settings-name');
   DOM.profileSettingsPhone = document.getElementById('profile-settings-phone');
   DOM.inputManageProfileName = document.getElementById('input-manage-profile-name');
+  DOM.btnProfileEdit = document.getElementById('btn-profile-edit');
   DOM.inputManageProfileAvatar = document.getElementById('input-manage-profile-avatar');
   DOM.inputManageProfileAvatarFile = document.getElementById('input-manage-profile-avatar-file');
   DOM.btnUpdateProfile = document.getElementById('btn-update-profile');
@@ -868,8 +869,8 @@ function scheduleConversationCachePrime(delayMs = 180) {
   }, Math.max(0, delayMs || 0));
 }
 
-async function refreshChatsAndRender() {
-  await refreshChats();
+async function refreshChatsAndRender({ force = false } = {}) {
+  await refreshChats({ force });
   updateChatsUnreadCounts();
   scheduleChatsListRender();
   scheduleConversationCachePrime();
@@ -980,7 +981,101 @@ function showChatContextMenu(chatId) {
 
   const card = document.querySelector(`[data-chat-id="${chatId}"]`);
   const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
+  const preview = document.getElementById('chat-context-preview');
   if (!card || !popover) return;
+
+  if (preview) {
+    const threads = Store.getCachedThreads(chatId) || [];
+    const previewThreads = [...threads].slice(-3);
+
+    const formatClockTime = sentAt => {
+      if (!sentAt) return '';
+      try {
+        return new Date(sentAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      } catch {
+        return '';
+      }
+    };
+
+    const previewCards = previewThreads.map(thread => {
+      const messages = Array.isArray(thread?.messages) ? thread.messages : [];
+      const seed = messages[0] || null;
+      const title = seed?.label || thread?.label || 'Voice memo';
+      const time = formatClockTime(seed?.sentAt || thread?.lastActivityAt || thread?.createdAt || null);
+
+      const totalMs = messages.reduce((sum, msg) => sum + Math.max(0, Number(msg?.durationMs) || 0), 0);
+      const remaining = totalMs ? `-${formatDurationClock(totalMs)}` : '';
+
+      const authors = [];
+      const seen = new Set();
+      for (const msg of messages) {
+        const key = msg?.authorId || msg?.author?.name || msg?.id;
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        authors.push({
+          name: msg?.author?.name || msg?.authorId || 'Friend',
+          avatarUrl: msg?.author?.avatarUrl || '',
+        });
+        if (authors.length >= 3) break;
+      }
+
+      const avatars = authors.length
+        ? `<div class="chat-context-preview-card__avatars">
+            ${authors.map(a => {
+              const initials = buildUserInitials(a.name || 'Y');
+              const style = a.avatarUrl ? `background-image:url('${escapeHtml(a.avatarUrl)}')` : '';
+              return `<span class="chat-context-preview-card__avatar" style="${style}">${a.avatarUrl ? '' : escapeHtml(initials)}</span>`;
+            }).join('')}
+          </div>`
+        : '';
+
+      return `
+        <div class="chat-context-preview-card">
+          <div class="chat-context-preview-card__header">
+            <div class="chat-context-preview-card__play" aria-hidden="true"></div>
+            <div class="chat-context-preview-card__title">${escapeHtml(title)}</div>
+            ${time ? `<div class="chat-context-preview-card__time">${escapeHtml(time)}</div>` : ''}
+          </div>
+          <div class="chat-context-preview-card__track">
+            <div class="chat-context-preview-card__time">0:00</div>
+            <div class="chat-context-preview-card__line"><span style="width:0%"></span></div>
+            ${remaining ? `<div class="chat-context-preview-card__time">${escapeHtml(remaining)}</div>` : ''}
+          </div>
+          ${avatars}
+        </div>
+      `;
+    }).join('');
+
+    if (previewCards) {
+      preview.innerHTML = previewCards;
+    } else {
+      const chat = AppState.chats.find(c => c.id === chatId) || null;
+      const otherMembers = chat ? getChatOtherMembers(chat) : [];
+      const heroMember = otherMembers[0] ? resolveAvatarMember(otherMembers[0]) : null;
+      const accent = heroMember?.color || pickUserColor(heroMember?.name || heroMember?.phoneE164 || heroMember?.id || 'Y');
+      const accentRgb = _hexToRgb(accent);
+      preview.innerHTML = `
+        <div class="chat-context-preview-empty">
+          ${heroMember
+            ? `<div class="floating-avatar floating-avatar--primary chat-context-preview-empty__floating"
+                 style="--floating-accent:${accent};--floating-accent-rgb:${accentRgb}">
+                <div class="floating-avatar__label">${escapeHtml(heroMember?.name || 'Friend')}</div>
+                <div class="floating-avatar__photo ${heroMember?.avatarUrl ? '' : 'avatar-fallback'}"
+                     style="${heroMember?.avatarUrl ? `background-image:url('${escapeHtml(heroMember.avatarUrl)}');background-size:cover;background-position:center;background-repeat:no-repeat` : `--avatar-accent:${accent};`}">
+                  ${heroMember?.avatarUrl ? '' : `<span>${escapeHtml(buildUserInitials(heroMember?.name || 'Y'))}</span>`}
+                </div>
+              </div>`
+            : `<div class="floating-avatar floating-avatar--primary chat-context-preview-empty__floating"
+                 style="--floating-accent:${accent};--floating-accent-rgb:${accentRgb}">
+                <div class="floating-avatar__label">New chat</div>
+                <div class="floating-avatar__photo avatar-fallback" style="--avatar-accent:${accent};">
+                  <span>${escapeHtml(buildUserInitials('Y'))}</span>
+                </div>
+              </div>`}
+        </div>
+      `;
+    }
+  }
 
   const cardRect = card.getBoundingClientRect();
   const popoverRect = popover.getBoundingClientRect();
@@ -2019,7 +2114,7 @@ async function closeActiveChatAndNavigateToList({ skipTransition = false } = {})
     pinChatInLocalLists(AppState.activeChat);
   }
   try {
-    await refreshChatsAndRender();
+    await refreshChatsAndRender({ force: true });
   } finally {
     AppState.activeChat = null;
     navigate('chats', 'back', { replace: true, skipTransition });
@@ -2339,6 +2434,7 @@ function _buildNowPlayingAvatars(thread) {
       <div class="np-avatar ${positions[i]}" data-author-id="${escapeHtml(person.id)}" style="--chat-avatar-accent:${accent}">
         <div class="np-avatar__label">${escapeHtml(person.name)}</div>
         <div class="np-avatar__ring-wrap">
+          <div class="np-avatar__ring np-avatar__ring--track"></div>
           <div class="np-avatar__ring np-avatar__ring--progress"></div>
           <div class="np-avatar__photo ${photoClass}" style="${photoStyle}">
             ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
@@ -2642,6 +2738,7 @@ function _buildNowPlayingAvatar(person, className, options = {}) {
     <div class="np-avatar ${className}" data-author-id="${escapeHtml(person.id)}" style="--chat-avatar-accent:${accent};${options.styleVars || ''}">
       <div class="np-avatar__label">${escapeHtml(person.name)}</div>
       <div class="np-avatar__ring-wrap">
+        <div class="np-avatar__ring np-avatar__ring--track"></div>
         <div class="np-avatar__ring np-avatar__ring--progress"></div>
         <div class="np-avatar__photo ${photoClass}" style="${photoStyle}">
           ${person.avatarUrl ? '' : `<span>${escapeHtml(initials)}</span>`}
@@ -2736,10 +2833,11 @@ function _nowPlayingRingPlaybackState(thread, sequence) {
 }
 
 /**
- * Full-ring conic: gaps between memos + per-memo arc (duration-weighted), each arc split played / unplayed.
- * Played = speaker accent; unplayed = muted mix so each reply stays visually distinct.
+ * Build segmented track/progress layers for the Now Playing ring.
+ * Track: grey segmented arcs with gaps (duration-weighted).
+ * Progress: colored arc overlays the current playback position across segments.
  */
-function _buildNowPlayingSegmentedRingBackground(thread) {
+function _buildNowPlayingSegmentedRingLayers(thread) {
   const sequence = _resolveNowPlayingRingSequence(thread);
   const n = sequence.length;
   if (!n) return null;
@@ -2749,24 +2847,27 @@ function _buildNowPlayingSegmentedRingBackground(thread) {
   if (totalMs <= 0) return null;
 
   const gapDeg = n <= 1 ? 0 : 4;
-  const gapColor = '#9A9AA8';
+  const gapColor = 'transparent';
+  const trackColor = '#D1D1D6';
   const usable = 360 - n * gapDeg;
   const { sync, idx, segmentElapsedMs } = _nowPlayingRingPlaybackState(thread, sequence);
 
-  const stops = [];
+  const trackStops = [];
+  const progressStops = [];
   let cursor = 0;
 
   for (let i = 0; i < n; i++) {
     if (gapDeg > 0) {
-      stops.push(`${gapColor} ${cursor}deg`, `${cursor + gapDeg}deg`);
+      trackStops.push(`${gapColor} ${cursor}deg`, `${gapColor} ${cursor + gapDeg}deg`);
+      progressStops.push(`${gapColor} ${cursor}deg`, `${gapColor} ${cursor + gapDeg}deg`);
       cursor += gapDeg;
     }
     const arc = (durations[i] / totalMs) * usable;
     const item = sequence[i];
-    const playedColor = _npRingGradientSafeColor(
+    const rawColor = _npRingGradientSafeColor(
       item?.author?.color || pickUserColor(item?.author?.name || item?.authorId || '')
     );
-    const unplayedWedge = `color-mix(in srgb, ${playedColor} 34%, #D4D6DE 66%)`;
+    const playedColor = `color-mix(in srgb, ${rawColor} 72%, white 28%)`;
 
     let p = 0;
     if (sync) {
@@ -2775,38 +2876,50 @@ function _buildNowPlayingSegmentedRingBackground(thread) {
       else if (i === idx) p = Math.min(1, segmentElapsedMs / durMs);
     }
 
-    const playedArc = arc * p;
-    const unplayedArc = arc - playedArc;
+    // Track is always visible (segmented grey).
+    trackStops.push(`${trackColor} ${cursor}deg`, `${cursor + arc}deg`);
 
+    // Progress overlays only the played portion; unplayed is transparent.
+    const playedArc = arc * p;
     if (playedArc > 0.0005) {
-      stops.push(`${playedColor} ${cursor}deg`, `${cursor + playedArc}deg`);
-      cursor += playedArc;
+      progressStops.push(`${playedColor} ${cursor}deg`, `${cursor + playedArc}deg`);
+      if (playedArc < arc) {
+        progressStops.push(`transparent ${cursor + playedArc}deg`, `transparent ${cursor + arc}deg`);
+      }
+    } else {
+      progressStops.push(`transparent ${cursor}deg`, `transparent ${cursor + arc}deg`);
     }
-    if (unplayedArc > 0.0005) {
-      stops.push(`${unplayedWedge} ${cursor}deg`, `${cursor + unplayedArc}deg`);
-      cursor += unplayedArc;
-    }
+
+    cursor += arc;
   }
 
   if (cursor < 359.99) {
-    stops.push(`${gapColor} ${cursor}deg`, `360deg`);
+    trackStops.push(`${gapColor} ${cursor}deg`, `${gapColor} 360deg`);
+    progressStops.push(`${gapColor} ${cursor}deg`, `${gapColor} 360deg`);
   }
 
-  return `conic-gradient(from 0deg, ${stops.join(', ')})`;
+  return {
+    track: `conic-gradient(from 0deg, ${trackStops.join(', ')})`,
+    progress: `conic-gradient(from 0deg, ${progressStops.join(', ')})`,
+  };
 }
 
 function _syncNowPlayingSegmentedRing() {
-  const ringEl = DOM.npAvatars?.querySelector('.np-avatar--current .np-avatar__ring--progress');
-  if (!ringEl) return;
+  const trackEl = DOM.npAvatars?.querySelector('.np-avatar--current .np-avatar__ring--track');
+  const progressEl = DOM.npAvatars?.querySelector('.np-avatar--current .np-avatar__ring--progress');
+  if (!trackEl || !progressEl) return;
   const threads = Store.getThreads();
   const thread = threads[AppState.nowPlaying.topicIndex];
   if (!thread) {
-    ringEl.style.removeProperty('background');
+    trackEl.style.removeProperty('background');
+    progressEl.style.removeProperty('background');
     return;
   }
-  const gradient = _buildNowPlayingSegmentedRingBackground(thread);
-  if (gradient) ringEl.style.background = gradient;
-  else ringEl.style.removeProperty('background');
+  const layers = _buildNowPlayingSegmentedRingLayers(thread);
+  if (layers?.track) trackEl.style.background = layers.track;
+  else trackEl.style.removeProperty('background');
+  if (layers?.progress) progressEl.style.background = layers.progress;
+  else progressEl.style.removeProperty('background');
 }
 
 function _syncNowPlayingAvatarProgress() {
@@ -3263,6 +3376,9 @@ async function sendRecording() {
         return;
       }
 
+      // Memo send: show analysis overlay while pipeline runs.
+      AnalysisModal.open();
+
       // Process in background with no loading screen
       await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl);
     } catch (err) {
@@ -3274,6 +3390,7 @@ async function sendRecording() {
       if (replyTargetThreadId) {
         showIOSAlert(errorMessage, { title: 'Message Not Sent' });
       } else {
+        AnalysisModal.open();
         AnalysisModal.showError(errorMessage);
       }
     } finally {
@@ -3586,13 +3703,14 @@ async function renderCreateGroupPicker() {
   if (!DOM.createChatContacts) return;
 
   const query = String(AppState.onboarding.createGroupSearchQuery || '').trim();
+  const queryLower = query.toLowerCase();
   const allContacts = buildCreateGroupContactIndex(await getCreateGroupContacts());
   const filteredContacts = !query
     ? []
     : allContacts
       .map(contact => ({
         contact,
-        score: scoreCreateGroupContactMatch(contact, query),
+        score: scoreCreateGroupContactMatch(contact, queryLower),
         displayName: (contact.matchedUser?.name || contact.display_name || contact.phone_e164 || '').toLowerCase(),
       }))
       .filter(entry => Number.isFinite(entry.score))
@@ -3843,7 +3961,9 @@ async function refreshChats({ force = false } = {}) {
       scheduleChatsListRender();
     }
     if (!force && cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
+      // Keep UI snappy, but still try to pull the latest chats in the background.
       AppState.chats = cachedChats;
+      backgroundRefreshChats();
       return AppState.chats;
     }
 
@@ -3913,6 +4033,13 @@ function renderProfileSettings() {
   });
   DOM.profileSettingsPhone.textContent = currentUser.phoneE164 || AppState.auth.session?.user?.phone || 'Phone sign-in';
   DOM.inputManageProfileName.value = currentUser.name || '';
+  DOM.inputManageProfileName.readOnly = true;
+  if (DOM.btnProfileEdit) {
+    delete DOM.btnProfileEdit.dataset.editing;
+    DOM.btnProfileEdit.classList.remove('is-icon-only');
+    DOM.btnProfileEdit.textContent = 'Edit';
+    DOM.btnProfileEdit.setAttribute('aria-label', 'Edit profile name');
+  }
   DOM.inputManageProfileAvatar.value = currentUser.avatarUrl || '';
   syncProfileManageAvatarLabel(currentUser);
   setFeedback(DOM.profileManageFeedback, '');
@@ -4794,6 +4921,33 @@ function wireEvents() {
     const target = goBack('chats');
     if (target === 'chats') renderChatsList();
   });
+  DOM.btnProfileEdit?.addEventListener('click', async () => {
+    if (!DOM.inputManageProfileName || !DOM.btnProfileEdit) return;
+
+    const isEditing = DOM.btnProfileEdit.dataset.editing === 'true';
+    if (!isEditing) {
+      DOM.btnProfileEdit.dataset.editing = 'true';
+      DOM.btnProfileEdit.innerHTML = '<img src="assets/done.svg" alt="" aria-hidden="true">';
+      DOM.btnProfileEdit.classList.add('is-icon-only');
+      DOM.btnProfileEdit.setAttribute('aria-label', 'Done editing profile name');
+      DOM.inputManageProfileName.readOnly = false;
+      DOM.inputManageProfileName.focus();
+      try {
+        DOM.inputManageProfileName.setSelectionRange(0, DOM.inputManageProfileName.value.length);
+      } catch {}
+      return;
+    }
+
+    DOM.inputManageProfileName.readOnly = true;
+    DOM.inputManageProfileName.blur();
+    try {
+      await saveManagedProfileNameFromEditor();
+    } catch {}
+    delete DOM.btnProfileEdit.dataset.editing;
+    DOM.btnProfileEdit.classList.remove('is-icon-only');
+    DOM.btnProfileEdit.textContent = 'Edit';
+    DOM.btnProfileEdit.setAttribute('aria-label', 'Edit profile name');
+  });
   DOM.btnManageProfilePhoto?.addEventListener('click', () => {
     DOM.inputManageProfileAvatarFile?.click();
   });
@@ -4889,6 +5043,10 @@ function wireEvents() {
   DOM.chatsGrid.addEventListener('pointerdown', event => {
     const card = event.target.closest('[data-chat-id]');
     if (!card) return;
+    if (event.pointerType === 'touch') {
+      // Prevent iOS text selection / native callout highlight on long press.
+      event.preventDefault();
+    }
     pressTarget = card;
     card.classList.add('chat-card--pressing');
     pressTimer = setTimeout(() => {
@@ -4907,6 +5065,13 @@ function wireEvents() {
     if (pressTimer) clearTimeout(pressTimer);
     pressTimer = null;
     pressTarget = null;
+  });
+
+  // Disable native iOS/Safari context menu (we provide our own).
+  DOM.chatsGrid.addEventListener('contextmenu', event => {
+    const card = event.target.closest?.('[data-chat-id]');
+    if (!card) return;
+    event.preventDefault();
   });
 
   // Chat context menu handlers
@@ -5121,8 +5286,20 @@ function wireEvents() {
 
 // ── Pipeline event listeners ──────────────────────────
 function wirePipelineEvents() {
+  document.addEventListener('yap:pipeline:started', () => {
+    // Only show analysis UI when we're sending a full memo (not reply),
+    // which is the only flow that needs segmentation feedback.
+    if (AppState.replyTargetThreadId) return;
+    if (!DOM.analysisOverlay?.classList.contains('visible')) {
+      AnalysisModal.open();
+    }
+  });
+
   // Segments arrive from API → render immediately with no animation
   document.addEventListener('yap:pipeline:segments', e => {
+    if (!AppState.replyTargetThreadId && DOM.analysisOverlay?.classList.contains('visible')) {
+      AnalysisModal.animateSegments(e.detail?.segments || [], () => {});
+    }
     renderTopics();
     scrollChatToLatest();
   });

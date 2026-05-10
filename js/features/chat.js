@@ -7,7 +7,8 @@ let _expandedThreadId = null;
 
 let _presenceInitialized = false;
 
-const _TOPIC_PLAY_ICON_SVG = `<svg class="topic-row__play-icon" viewBox="0 0 10 12" fill="none" aria-hidden="true"><g class="topic-row__play-icon-play"><path d="M0 0L10 6L0 12Z" fill="currentColor"/></g><g class="topic-row__play-icon-pause" fill="currentColor"><rect x="1" y="1.5" width="2.5" height="9" rx="0.4"/><rect x="6.5" y="1.5" width="2.5" height="9" rx="0.4"/></g></svg>`;
+// Match the rounded play/pause geometry used by #btn-now-playing.
+const _TOPIC_PLAY_ICON_SVG = `<svg class="topic-row__play-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><g class="topic-row__play-icon-play"><path d="M22.5 12C22.5006 12.2546 22.4353 12.5051 22.3105 12.7271C22.1856 12.949 22.0055 13.1349 21.7875 13.2666L8.28 21.5297C8.05227 21.6691 7.79144 21.7453 7.52445 21.7502C7.25746 21.7552 6.99399 21.6887 6.76125 21.5578C6.53073 21.4289 6.3387 21.241 6.2049 21.0132C6.07111 20.7855 6.00039 20.5263 6 20.2622V3.73781C6.00039 3.4737 6.07111 3.21447 6.2049 2.98675C6.3387 2.75904 6.53073 2.57108 6.76125 2.44219C6.99399 2.31126 7.25746 2.24484 7.52445 2.24979C7.79144 2.25473 8.05227 2.33086 8.28 2.47031L21.7875 10.7334C22.0055 10.8651 22.1856 11.051 22.3105 11.2729C22.4353 11.4949 22.5006 11.7453 22.5 12Z\" fill=\"currentColor\"/></g><g class=\"topic-row__play-icon-pause\" fill=\"currentColor\"><rect x=\"6\" y=\"4\" width=\"5\" height=\"16\" rx=\"2\"/><rect x=\"13\" y=\"4\" width=\"5\" height=\"16\" rx=\"2\"/></g></svg>`;
 
 // Initialize presence tracking for the current chat
 function _initPresenceForChat(chatId) {
@@ -575,21 +576,12 @@ function _topicCardInner(thread) {
   const replies = orderedMessages.slice(1);
   const othersRecording = _renderOtherUsersRecording(thread);
   const canExpand = replies.length > 0;
-  const seedText = topicMessage?.transcript || topicMessage?.label || '';
-  const seedHtml = canExpand && seedText
-    ? `
-      <div class="topic-thread__seed">
-        <div class="topic-thread__seed-label">Original</div>
-        <div class="topic-thread__seed-text">${escapeHtml(seedText)}</div>
-      </div>
-    `
-    : '';
+  const expandedMessages = topicMessage ? [topicMessage, ...replies] : replies;
   const expanded = _expandedThreadId === thread.id
     ? `
       <div class="topic-thread">
-        ${seedHtml}
         <div class="topic-thread__replies">
-          ${replies.map(_replyRowHTML).join('')}
+          ${expandedMessages.map(_replyRowHTML).join('')}
         </div>
         ${othersRecording}
       </div>

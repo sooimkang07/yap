@@ -55,6 +55,8 @@ const createRibbonUniforms = (config: RibbonConfig) => ({
   uAmplitudeMultiplier: { value: config.amplitudeMultiplier },
   uFrequencyMultiplier: { value: config.frequencyMultiplier },
   uThickness: { value: config.thickness },
+  // Pixel-constant edge width (shader uses fwidth).
+  uEdgePx: { value: 6.0 },
   uOpacity: { value: config.opacity },
   uColorA: { value: new Color(config.colors[0]) },
   uColorB: { value: new Color(config.colors[1]) },
@@ -224,6 +226,7 @@ function ReactiveScene({
                 fragmentShader: ribbonFragmentShader,
                 transparent: true,
                 depthWrite: false,
+                extensions: { derivatives: true },
                 blending: AdditiveBlending,
                 side: DoubleSide,
               },

@@ -113,6 +113,7 @@ export const ribbonVertexShader = `
 
 export const ribbonFragmentShader = `
   precision highp float;
+  #extension GL_OES_standard_derivatives : enable
 
   varying vec2 vUv;
   varying float vDepth;
@@ -123,6 +124,7 @@ export const ribbonFragmentShader = `
   uniform float uEnvelope;
   uniform float uHigh;
   uniform float uWake;
+  uniform float uEdgePx;
   uniform vec3 uColorA;
   uniform vec3 uColorB;
   uniform vec3 uColorC;
@@ -133,7 +135,9 @@ export const ribbonFragmentShader = `
     float x = vUv.x;
     float y = vUv.y;
 
-    float edge = 1.0 - smoothstep(0.0, 0.18, y) - smoothstep(1.0, 0.82, y);
+    float fw = max(fwidth(y), 1e-4);
+    float w = clamp(uEdgePx, 1.0, 18.0) * fw;
+    float edge = 1.0 - smoothstep(0.0, w, y) - smoothstep(1.0, 1.0 - w, y);
     edge = clamp(edge, 0.0, 1.0);
 
     float iridescenceA = sin((x * 2.3 + y * 0.65 + uTime * 0.08) * 6.2831853) * 0.5 + 0.5;

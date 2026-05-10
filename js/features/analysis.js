@@ -33,7 +33,7 @@ const AnalysisModal = {
     this._statusInterval = setInterval(() => {
       stepIndex = (stepIndex + 1) % ANALYSIS_STATUS_STEPS.length;
       DOM.analysisStatusCopy.textContent = ANALYSIS_STATUS_STEPS[stepIndex];
-    }, 1050);
+    }, 1800);
   },
 
   close() {

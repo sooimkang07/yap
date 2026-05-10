@@ -33,6 +33,11 @@ const YAP_SUPABASE_MAX_CONVERSATION_MESSAGES = 50;
 const YAP_SUPABASE_MAX_IMPORTED_CONTACTS = 300;
 const YAP_SUPABASE_CONVERSATION_CACHE_TTL_MS = 60_000;
 
+// LocalStorage caches can get stale across resumes / SW updates.
+// Keep TTL short so we still get fast UI on open, but don’t “lock in” old history.
+const YAP_LOCAL_CHAT_CACHE_TTL_MS = 10 * 60_000;
+const YAP_LOCAL_THREAD_CACHE_TTL_MS = 10 * 60_000;
+
 // Session storage keys
 const APP_SESSION_STORAGE_KEY = 'yap.session.currentUserId';
 const APP_AUTH_SESSION_STORAGE_KEY = 'yap.session.auth';

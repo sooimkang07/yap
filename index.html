@@ -269,31 +269,34 @@
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-profile" class="screen" data-screen="profile">
     <form class="ios-settings-screen" id="form-profile-manage" novalidate>
-      <div class="ios-settings-nav">
+      <div class="ios-settings-nav ios-settings-nav--profile">
         <button class="glassNavButton nav-back-btn back-btn" id="btn-profile-back" type="button" aria-label="Back">
           <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
             <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-        <div class="ios-settings-nav__title">Profile</div>
-        <span class="ios-settings-nav__spacer" aria-hidden="true"></span>
+        <section class="profile-details-hero" aria-label="Profile">
+          <button class="ios-profile-photo-button" id="btn-manage-profile-photo" type="button" aria-label="Change profile photo">
+            <div class="settings-avatar group-details-hero__avatar" id="profile-settings-avatar"></div>
+          </button>
+          <label class="group-details-hero__name-wrap" for="input-manage-profile-name">
+            <input class="group-details-hero__name" id="input-manage-profile-name" type="text" autocomplete="name" maxlength="40" value="" aria-label="Display name">
+          </label>
+        </section>
+        <button class="group-details-topbar__pill" id="btn-profile-edit" type="button">Edit</button>
       </div>
       <div class="ios-settings-scroll">
-        <div class="ios-settings-card ios-settings-card--hero">
-          <div class="ios-profile-hero">
-            <button class="ios-profile-photo-button" id="btn-manage-profile-photo" type="button" aria-label="Change profile photo">
-              <div class="settings-avatar settings-avatar--xl" id="profile-settings-avatar"></div>
-            </button>
-            <input class="ios-profile-hero__name ios-profile-hero__name-input" id="input-manage-profile-name" type="text" autocomplete="name" maxlength="40" value="You" aria-label="Display name">
-            <div class="ios-profile-hero__sub" id="profile-settings-phone">Phone number</div>
-          </div>
-        </div>
-
         <input id="input-manage-profile-avatar" type="url" inputmode="url" autocomplete="url" hidden>
         <input id="input-manage-profile-avatar-file" type="file" accept="image/*" hidden>
 
-        <section class="ios-settings-section">
-          <div class="ios-settings-card ios-settings-card--list">
+        <section class="ios-settings-section group-details-panel">
+          <div class="group-details-card group-details-card--list">
+            <div class="ios-settings-row">
+              <span class="ios-settings-row__title">Mobile</span>
+              <span class="ios-settings-row__aside" id="profile-settings-phone">Phone number</span>
+            </div>
+          </div>
+          <div class="group-details-card group-details-card--list">
             <button class="ios-settings-row ios-settings-row--destructive" id="btn-sign-out" type="button">
               <span class="ios-settings-row__title">Sign Out</span>
             </button>
@@ -323,7 +326,7 @@
               <input class="group-details-hero__name" id="input-group-settings-name" type="text" autocomplete="off" maxlength="50" required readonly>
             </label>
           </section>
-          <button class="group-details-topbar__pill" id="btn-save-group-settings" type="button">Edit</button>
+          <span class="ios-settings-nav__spacer" aria-hidden="true"></span>
         </div>
 
         <section class="group-details-panel is-active" id="group-settings-panel-info" data-group-settings-panel="info">
@@ -437,6 +440,7 @@
         <path d="M18 9C18 9.19891 17.921 9.38968 17.7803 9.53033C17.6397 9.67098 17.4489 9.75 17.25 9.75H9.75V17.25C9.75 17.4489 9.67098 17.6397 9.53033 17.7803C9.38968 17.921 9.19891 18 9 18C8.80109 18 8.61032 17.921 8.46967 17.7803C8.32902 17.6397 8.25 17.4489 8.25 17.25V9.75H0.75C0.551088 9.75 0.360322 9.67098 0.21967 9.53033C0.0790178 9.38968 0 9.19891 0 9C0 8.80109 0.0790178 8.61032 0.21967 8.46967C0.360322 8.32902 0.551088 8.25 0.75 8.25H8.25V0.75C8.25 0.551088 8.32902 0.360322 8.46967 0.21967C8.61032 0.0790178 8.80109 0 9 0C9.19891 0 9.38968 0.0790178 9.53033 0.21967C9.67098 0.360322 9.75 0.551088 9.75 0.75V8.25H17.25C17.4489 8.25 17.6397 8.32902 17.7803 8.46967C17.921 8.61032 18 8.80109 18 9Z" fill="currentColor"/>
       </svg>
     </button>
+    <div class="chats-empty-state__cta-label" id="btn-start-chat-label">New chat</div>
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->

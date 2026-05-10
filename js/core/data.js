@@ -125,14 +125,29 @@ function sanitizeChatForCache(chat) {
   };
 }
 
+function readCacheEnvelope(key, { ttlMs = 0 } = {}) {
+  const raw = readCachedJson(key, null);
+  if (!raw) return { items: [], savedAt: 0 };
+  if (Array.isArray(raw)) return { items: raw, savedAt: 0 };
+  const items = Array.isArray(raw.items) ? raw.items : [];
+  const savedAt = Number(raw.savedAt || 0);
+  if (ttlMs > 0 && savedAt > 0 && (Date.now() - savedAt) > ttlMs) {
+    removeCachedJson(key);
+    return { items: [], savedAt: 0 };
+  }
+  return { items, savedAt };
+}
+
 function readCachedChatsForUser(userId = getCurrentUserId()) {
-  const cached = readCachedJson(getChatsCacheKey(userId), []);
-  return Array.isArray(cached) ? cached.map(sanitizeChatForCache).filter(Boolean) : [];
+  const key = getChatsCacheKey(userId);
+  const ttlMs = Number(globalThis.YAP_LOCAL_CHAT_CACHE_TTL_MS || 0);
+  const { items } = readCacheEnvelope(key, { ttlMs });
+  return (Array.isArray(items) ? items : []).map(sanitizeChatForCache).filter(Boolean);
 }
 
 function writeCachedChatsForUser(chats = [], userId = getCurrentUserId()) {
   const sanitized = (Array.isArray(chats) ? chats : []).map(sanitizeChatForCache).filter(Boolean);
-  writeCachedJson(getChatsCacheKey(userId), sanitized);
+  writeCachedJson(getChatsCacheKey(userId), { v: 1, savedAt: Date.now(), items: sanitized });
 }
 
 function sanitizeMessageForCache(message) {
@@ -187,13 +202,15 @@ function sanitizeThreadForCache(thread) {
 }
 
 function readCachedThreadsForChat(chatId, userId = getCurrentUserId()) {
-  const cached = readCachedJson(getThreadsCacheKey(chatId, userId), []);
-  return Array.isArray(cached) ? cached.map(sanitizeThreadForCache).filter(Boolean) : [];
+  const key = getThreadsCacheKey(chatId, userId);
+  const ttlMs = Number(globalThis.YAP_LOCAL_THREAD_CACHE_TTL_MS || 0);
+  const { items } = readCacheEnvelope(key, { ttlMs });
+  return (Array.isArray(items) ? items : []).map(sanitizeThreadForCache).filter(Boolean);
 }
 
 function writeCachedThreadsForChat(chatId, threads = [], userId = getCurrentUserId()) {
   const sanitized = (Array.isArray(threads) ? threads : []).map(sanitizeThreadForCache).filter(Boolean);
-  writeCachedJson(getThreadsCacheKey(chatId, userId), sanitized);
+  writeCachedJson(getThreadsCacheKey(chatId, userId), { v: 1, savedAt: Date.now(), items: sanitized });
 }
 
 function removeCachedThreadsForChat(chatId, userId = getCurrentUserId()) {

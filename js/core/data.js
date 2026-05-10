@@ -325,6 +325,7 @@ function registerUserRecord(user) {
 async function getAuthSession() {
   const localSession = getStoredAuthSession();
   if (localSession?.user?.phone) {
+    console.log('[Session] Restored from localStorage');
     return localSession;
   }
 
@@ -334,7 +335,8 @@ async function getAuthSession() {
     console.error('[yAp] auth getSession failed:', error);
     return null;
   }
-  return data?.session || null;
+    if (data?.session) console.log('[Session] Restored from Supabase');
+    return data?.session || null;
 }
 
 async function fetchBackendReadiness() {

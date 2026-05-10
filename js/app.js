@@ -4129,6 +4129,11 @@ function wireEvents() {
 
     try {
       AppState.auth.session = await verifyPhoneOtp(AppState.auth.pendingPhone, DOM.inputAuthCode.value);
+      // Ensure session is persisted for auto-login on next visit
+      if (AppState.auth.session) {
+        setStoredAuthSession(AppState.auth.session);
+        console.log('[Session] Auth session persisted after OTP verification');
+      }
       await routeAuthenticatedUser();
     } catch (error) {
       setFeedback(DOM.authVerifyFeedback, formatVerifyFailureMessage(), 'error');
@@ -4813,6 +4818,12 @@ function registerServiceWorker() {
 // ── Boot ──────────────────────────────────────────────
 async function boot() {
   setCurrentUserId(getCurrentUserId());
+  // Restore auth session on page load
+  const storedSession = getStoredAuthSession();
+  if (storedSession) {
+    AppState.auth.session = storedSession;
+    console.log('[Session] Restored login session from storage');
+  }
   cacheDOM();
   wireViewportHandlers();
   wireEvents();

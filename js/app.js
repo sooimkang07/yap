@@ -4757,6 +4757,7 @@ function wireEvents() {
       _syncNowPlayingPauseIcon(false);
       AppState.nowPlaying.isPlaying = false;
       _syncNowPlayingTopicProgress({ completeAll: true });
+      setTimeout(() => closeNowPlaying(), 600);
     }
   };
 

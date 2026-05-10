@@ -8252,6 +8252,7 @@ select,
   padding: 1rem 0 0 0;
   margin-bottom: 0.25rem;
   letter-spacing: 0;
+  text-align: center;
 }
 
 .topics-section:first-child .topics-date-header {

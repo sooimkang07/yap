@@ -1812,39 +1812,28 @@ async function openChat(chat) {
   renderActiveChatShell(chat);
   syncLocalPresence();
 
+  // Show cached threads instantly without any delay
   const cachedThreads = Store.getCachedThreads(chat.id);
   Store.setActiveChat(chat.id);
-  if (cachedThreads.length > 0) {
-    setDisplay(DOM.chatProcessing, false);
-    DOM.chatMemberPips.style.visibility = 'visible';
-    setDisplay(DOM.chatEmpty, false);
-    setDisplay(DOM.chatTopics, true, 'flex');
-    renderTopics();
-    scrollChatToLatest();
-  } else {
-    DOM.chatMemberPips.style.visibility = 'hidden';
-    setDisplay(DOM.chatEmpty, false);
-    setDisplay(DOM.chatTopics, false);
-    // Load in background without showing processing screen
-  }
+  DOM.chatMemberPips.style.visibility = 'visible';
+  setDisplay(DOM.chatEmpty, false);
+  setDisplay(DOM.chatTopics, true, 'flex');
+  renderTopics();
+  scrollChatToLatest();
 
   navigate('chat', 'forward');
   renderChatPresence(AppState.activeChat);
 
+  // Load fresh threads in background
   hydrateActiveConversation(true)
     .then(() => {
       if (AppState.activeChat?.id !== chat.id) return;
       const existingThreads = Store.getThreads();
-      setDisplay(DOM.chatProcessing, false);
 
       if (existingThreads.length > 0) {
-        DOM.chatMemberPips.style.visibility = 'visible';
-        setDisplay(DOM.chatEmpty, false);
-        setDisplay(DOM.chatTopics, true, 'flex');
         renderTopics();
         scrollChatToLatest();
       } else {
-        DOM.chatMemberPips.style.visibility = 'hidden';
         setDisplay(DOM.chatEmpty, true);
         setDisplay(DOM.chatTopics, false);
       }

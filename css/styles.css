@@ -1594,7 +1594,7 @@ button {
   z-index: 30;
   pointer-events: auto;
   overflow: visible;
-  background: rgba(255, 255, 255, 0.4);
+  background: transparent;
 }
 
 .chat-footer::before {

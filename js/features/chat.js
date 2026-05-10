@@ -5,6 +5,72 @@
 
 let _expandedThreadId = null;
 
+let _presenceInitialized = false;
+
+// Initialize presence tracking for the current chat
+function _initPresenceForChat(chatId) {
+  if (!chatId || _presenceInitialized) return;
+  _presenceInitialized = true;
+  
+  PresenceManager.init(chatId);
+  
+  // Update UI when presence changes
+  PresenceManager.onPresenceUpdate(() => {
+    renderTopics();
+  });
+  
+  // Update UI when recording state changes
+  PresenceManager.onRecordingUpdate(() => {
+    renderTopics();
+  });
+  
+  console.log('[yAp] Presence initialized for chat:', chatId);
+}
+
+// Get live class for avatar if user is live
+function _getLiveClass(userId) {
+  if (PresenceManager.isUserLive(userId)) {
+    return ' avatar--live';
+  }
+  return '';
+}
+
+// Render recording indicators for the thread
+function _renderRecordingIndicators(thread) {
+  const recordingUsers = PresenceManager.getRecordingUsers();
+  if (!recordingUsers.length) return '';
+
+  const threadUserIds = new Set(thread.messages.map(m => m.authorId));
+  const threadRecordingUsers = recordingUsers.filter(({ userId }) => threadUserIds.has(userId));
+  
+  if (!threadRecordingUsers.length) return '';
+
+  const userMap = new Map();
+  thread.messages.forEach(msg => {
+    userMap.set(msg.authorId, msg.author);
+  });
+
+  return `
+    <div class="thread-recording-indicators">
+      ${threadRecordingUsers.map(({ userId, state }) => {
+        const author = userMap.get(userId);
+        const stateLabel = state === 'recording' ? 'Recording' : 'Sending';
+        return `
+          <div class="recording-indicator">
+            <span class="recording-indicator__avatar" style="background-image:url('${author?.avatarUrl || ''}'); background-color:${author?.color}"></span>
+            <span class="recording-indicator__name">${escapeHtml(author?.name || 'Someone')} is ${stateLabel}</span>
+            <div class="recording-indicator__bubbles">
+              <div class="recording-bubble" style="background-color:${author?.color}"></div>
+              <div class="recording-bubble" style="background-color:${author?.color}"></div>
+              <div class="recording-bubble" style="background-color:${author?.color}"></div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function _getThreadDate(thread) {
   const messages = _threadMessagesChronological(thread);
   return messages[0]?.sentAt || thread.createdAt || Date.now();
@@ -342,6 +408,7 @@ const PlaybackController = {
 
 function renderTopics() {
   PlaybackController.init();
+  _initPresenceForChat(AppState.activeChat?.id);
   const threads = Store.getThreads();
 
   // Measure latency if we just sent a message
@@ -486,12 +553,14 @@ function _topicCardInner(thread) {
   const orderedMessages = _threadMessagesChronological(thread);
   const topicMessage = orderedMessages[0] || _topicPrimaryMessage(thread);
   const replies = orderedMessages.slice(1);
+  const recordingIndicators = _renderRecordingIndicators(thread);
   const expanded = _expandedThreadId === thread.id
     ? `
       <div class="topic-thread">
         <div class="topic-thread__replies">
           ${replies.map(_replyRowHTML).join('')}
         </div>
+        ${recordingIndicators}
       </div>
     `
     : '';
@@ -582,7 +651,8 @@ function _renderSegmentTrack(segments) {
 }
 
 function _replyAvatarHTML(message) {
-  return `<span class="topic-card__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>`;
+  const liveClass = _getLiveClass(message.authorId);
+  return `<span class="topic-card__avatar${liveClass}" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>`;
 }
 
 function _topicPrimaryMessage(thread) {

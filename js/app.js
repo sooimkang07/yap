@@ -667,6 +667,33 @@ async function refreshChatsAndRender() {
   return AppState.chats;
 }
 
+
+// Background refresh: fetch fresh chats in background without blocking UI
+async function backgroundRefreshChats() {
+  if (!AppState.supabaseOk || !getCurrentUserId()) return;
+  try {
+    const remoteChats = await getChatsForUser(getCurrentUserId());
+    if (remoteChats && Array.isArray(remoteChats)) {
+      const oldChats = AppState.chats || [];
+      const newChats = remoteChats;
+      
+      // Only re-render if chats actually changed
+      const oldIds = new Set(oldChats.map(c => c.id));
+      const newIds = new Set(newChats.map(c => c.id));
+      const hasChanges = oldIds.size !== newIds.size || 
+                         newChats.some(c => !oldIds.has(c.id));
+      
+      if (hasChanges) {
+        AppState.chats = newChats;
+        writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+        scheduleChatsListRender();
+      }
+    }
+  } catch (error) {
+    console.warn('[yAp] background chat refresh failed:', error);
+  }
+}
+
 function renderChatsList() {
   const chats = AppState.chats.length ? AppState.chats : [];
   const showEmptyState = chats.length === 0;
@@ -3496,6 +3523,11 @@ async function refreshChats({ force = false } = {}) {
 
     const lastRefreshAt = Number(AppState.sync.lastChatsRefreshAt || 0);
     const cachedChats = readCachedChatsForUser(getCurrentUserId());
+    // Show cached chats immediately if available
+    if (cachedChats.length && !AppState.chats.length) {
+      AppState.chats = cachedChats;
+      scheduleChatsListRender();
+    }
     if (!force && cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
       AppState.chats = cachedChats;
       return AppState.chats;
@@ -3969,7 +4001,15 @@ async function routeAuthenticatedUser() {
     showedChatsBeforeRefresh = true;
   }
 
-  await refreshChatsAndRender();
+  // If we showed cached chats, refresh in background so UI stays responsive
+  // Otherwise, await the refresh to show something to the user
+  if (showedChatsBeforeRefresh) {
+    refreshChatsAndRender().catch(error => {
+      console.warn('[yAp] background chat refresh failed:', error);
+    });
+  } else {
+    await refreshChatsAndRender();
+  }
   bindResumeRefreshHandlers();
   ensureNotificationPermission().catch(error => {
     console.warn('[yAp] notification permission request failed:', error);

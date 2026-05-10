@@ -1433,17 +1433,44 @@ async function getChatsForUser(userId) {
   const chatIds = uniqueMemberships.map(entry => entry.chat_id).filter(Boolean);
   if (!chatIds.length) return [];
 
-  const { data: participants, error: participantError } = await supabaseClient
-    .from('chat_participants')
-    .select('chat_id, user_id, role, invite_status')
-    .in('chat_id', chatIds)
-    .eq('invite_status', 'joined');
+  // Fetch participants, invitations, and messages in PARALLEL
+  const [participantsResult, invitationsResult, messagesResult] = await Promise.all([
+    supabaseClient
+      .from('chat_participants')
+      .select('chat_id, user_id, role, invite_status')
+      .in('chat_id', chatIds)
+      .eq('invite_status', 'joined'),
+    supabaseClient
+      .from('invitations')
+      .select('chat_id, invitee_name, phone_e164, invite_token')
+      .in('chat_id', chatIds)
+      .in('status', ['pending', 'sent']),
+    supabaseClient
+      .from('voice_messages')
+      .select('id, chat_id, author_id, status, sent_at, playback_progress(user_id, heard)')
+      .in('chat_id', chatIds)
+      .order('sent_at', { ascending: false })
+      .limit(YAP_SUPABASE_MAX_CHAT_PREVIEW_MESSAGES),
+  ]);
+
+  const { data: participants, error: participantError } = participantsResult;
+  const { data: pendingInvitations, error: inviteError } = invitationsResult;
+  const { data: voiceMessages, error: messagesError } = messagesResult;
 
   if (participantError) {
     console.error('[yAp] getChatsForUser participants failed:', participantError);
     return null;
   }
 
+  if (messagesError) {
+    console.warn('[yAp] getChatsForUser unread query failed:', messagesError);
+  }
+
+  if (inviteError) {
+    console.warn('[yAp] getChatsForUser invitations query failed:', inviteError);
+  }
+
+  // Now fetch users for participants (this depends on participants result)
   const participantUserIds = [...new Set(
     (participants || []).map(entry => entry?.user_id).filter(Boolean)
   )];
@@ -1464,28 +1491,6 @@ async function getChatsForUser(userId) {
       const normalized = registerUserRecord(user);
       if (normalized?.id) usersById.set(normalized.id, normalized);
     }
-  }
-
-  // Also fetch pending invitations so not-yet-registered invitees show as members.
-  const { data: pendingInvitations, error: inviteError } = await supabaseClient
-    .from('invitations')
-    .select('chat_id, invitee_name, phone_e164, invite_token')
-    .in('chat_id', chatIds)
-    .in('status', ['pending', 'sent']);
-
-  if (inviteError) {
-    console.warn('[yAp] getChatsForUser invitations query failed:', inviteError);
-  }
-
-  const { data: voiceMessages, error: messagesError } = await supabaseClient
-    .from('voice_messages')
-    .select('id, chat_id, author_id, status, sent_at, playback_progress(user_id, heard)')
-    .in('chat_id', chatIds)
-    .order('sent_at', { ascending: false })
-    .limit(YAP_SUPABASE_MAX_CHAT_PREVIEW_MESSAGES);
-
-  if (messagesError) {
-    console.warn('[yAp] getChatsForUser unread query failed:', messagesError);
   }
 
   const participantsByChat = new Map();

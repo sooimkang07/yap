@@ -8,3 +8,4 @@ public/
 tsconfig.tsbuildinfo
 *.xcuserstate
 xcuserdata/
+yap-native/build/

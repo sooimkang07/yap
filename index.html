@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png">
   <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png">
-  <meta name="theme-color" content="#f7f7fb">
+  <meta name="theme-color" content="#fdfbff">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="components/voice-visualizer/voice-visualizer.css">
@@ -175,7 +175,7 @@
         <div class="create-chat-picker">
           <div class="create-chat-picker__header">
             <div class="create-chat-picker__title">New chat</div>
-            <button class="glassNavButton chats-search__close" id="btn-create-group-back" type="button" aria-label="Close">
+            <button class="glassNavButton chats-search__close create-chat-picker__close" id="btn-create-group-back" type="button" aria-label="Close">
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                 <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
               </svg>
@@ -410,39 +410,30 @@
     <!-- Chat context menu (long-press) -->
     <div class="chat-context-menu" id="chat-context-menu" hidden>
       <div class="chat-context-menu__overlay"></div>
-      <div class="chat-context-menu__popover">
-        <button class="chat-context-menu__item" id="ctx-pin-chat">
-          <svg class="chat-context-menu__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 17V3M8 7h8M9 9h6"/>
-          </svg>
-          <span>Pin</span>
-        </button>
-        <button class="chat-context-menu__item" id="ctx-mark-unread">
-          <svg class="chat-context-menu__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M8 8h8M8 12h5"/>
-            <circle cx="12" cy="12" r="9" fill="currentColor" opacity="0.2"/>
-          </svg>
-          <span>Mark as Unread</span>
-        </button>
-        <button class="chat-context-menu__item" id="ctx-hide-alerts">
-          <svg class="chat-context-menu__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-            <polyline points="9 22 9 12 15 12 15 22"/>
-            <path d="M7 12h10" stroke="currentColor" stroke-width="2.5"/>
-          </svg>
-          <span>Hide Alerts</span>
-        </button>
-        <button class="chat-context-menu__item chat-context-menu__item--delete" id="ctx-delete-chat">
-          <svg class="chat-context-menu__icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-          </svg>
-          <span>Delete</span>
-        </button>
+      <div class="chat-context-menu__content" role="dialog" aria-modal="true" aria-label="Chat actions">
+        <div class="chat-context-menu__preview" id="chat-context-preview"></div>
+        <div class="chat-context-menu__popover">
+          <button class="chat-context-menu__item" id="ctx-pin-chat" type="button">
+            <span class="chat-context-menu__icon chat-context-menu__icon--pin" aria-hidden="true"></span>
+            <span>Pin</span>
+          </button>
+          <button class="chat-context-menu__item" id="ctx-mark-unread" type="button">
+            <span class="chat-context-menu__icon chat-context-menu__icon--unread" aria-hidden="true"></span>
+            <span>Mark as Unread</span>
+          </button>
+          <button class="chat-context-menu__item" id="ctx-hide-alerts" type="button">
+            <span class="chat-context-menu__icon chat-context-menu__icon--alerts" aria-hidden="true"></span>
+            <span>Hide Alerts</span>
+          </button>
+          <button class="chat-context-menu__item chat-context-menu__item--delete" id="ctx-delete-chat" type="button">
+            <span class="chat-context-menu__icon chat-context-menu__icon--delete" aria-hidden="true"></span>
+            <span>Delete</span>
+          </button>
+        </div>
       </div>
     </div>
-    <button class="chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
-      <img class="chats-empty-state__icon" src="assets/add-chat-button.svg" alt="" aria-hidden="true">
-      <span class="chats-empty-state__label">New chat</span>
+    <button class="glassNavButton icon-btn chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
+      <span class="chats-empty-state__icon" aria-hidden="true"></span>
     </button>
   </div>
 
@@ -525,9 +516,9 @@
 
         <!-- Top bar -->
         <div class="now-playing-topbar">
-          <button class="now-playing-topbar__close" id="btn-np-close" aria-label="Close now playing">
+          <button class="glassNavButton back-btn now-playing-topbar__close" id="btn-np-close" aria-label="Close now playing">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <path d="M4 7L10 13L16 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 7L10 13L16 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
           <span class="now-playing-topbar__label">Now Playing</span>
@@ -553,10 +544,10 @@
             </svg>
           </button>
           <button class="np-control-btn np-control-btn--play" id="btn-np-playpause" aria-label="Play or pause">
-            <svg class="np-icon-play" width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <svg class="np-icon-play" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M22.5 12C22.5006 12.2546 22.4353 12.5051 22.3105 12.7271C22.1856 12.949 22.0055 13.1349 21.7875 13.2666L8.28 21.5297C8.05227 21.6691 7.79144 21.7453 7.52445 21.7502C7.25746 21.7552 6.99399 21.6887 6.76125 21.5578C6.53073 21.4289 6.3387 21.241 6.2049 21.0132C6.07111 20.7855 6.00039 20.5263 6 20.2622V3.73781C6.00039 3.4737 6.07111 3.21447 6.2049 2.98675C6.3387 2.75904 6.53073 2.57108 6.76125 2.44219C6.99399 2.31126 7.25746 2.24484 7.52445 2.24979C7.79144 2.25473 8.05227 2.33086 8.28 2.47031L21.7875 10.7334C22.0055 10.8651 22.1856 11.051 22.3105 11.2729C22.4353 11.4949 22.5006 11.7453 22.5 12Z" fill="currentColor"/>
             </svg>
-            <svg class="np-icon-pause" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true" style="display:none">
+            <svg class="np-icon-pause" width="32" height="32" viewBox="0 0 28 28" fill="none" aria-hidden="true" style="display:none">
               <rect x="6" y="4" width="5" height="20" rx="2" fill="currentColor"/>
               <rect x="17" y="4" width="5" height="20" rx="2" fill="currentColor"/>
             </svg>

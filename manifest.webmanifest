@@ -4,9 +4,10 @@
   "description": "Voice-first group chat for real-life conversations.",
   "start_url": "/",
   "scope": "/",
-  "display": "standalone",
-  "background_color": "#f7f7fb",
-  "theme_color": "#f7f7fb",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "background_color": "#fdfbff",
+  "theme_color": "#fdfbff",
   "icons": [
     {
       "src": "/assets/icon-192.png",

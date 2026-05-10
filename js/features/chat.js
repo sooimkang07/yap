@@ -584,7 +584,7 @@ function _topicRowHTML(thread, message, replies) {
   return `
     <div class="topic-row" data-total-ms="${totalMs}">
       <div class="topic-row__header">
-        <button class="topic-row__play is-playable" type="button"
+        <button class="glassNavButton topic-row__play is-playable" type="button"
                 data-playable-id="${message.id}"
                 data-thread-playlist="${thread.id}"
                 data-voice-message-id="${message.voiceMessageId || message.id}"

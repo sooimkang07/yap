@@ -312,12 +312,12 @@ function cacheDOM() {
   DOM.btnNpPlaypause = document.getElementById('btn-np-playpause');
   DOM.btnNpNext     = document.getElementById('btn-np-next');
   DOM.btnChatMore    = document.getElementById('btn-chat-more');
-  DOM.floatingChloe = document.getElementById('floating-chloe');
-  DOM.floatingMaria = document.getElementById('floating-maria');
-  DOM.floatingChloeLabel = document.getElementById('floating-chloe-label');
-  DOM.floatingMariaLabel = document.getElementById('floating-maria-label');
-  DOM.floatingChloePhoto = document.querySelector('#floating-chloe .floating-avatar__photo');
-  DOM.floatingMariaPhoto = document.querySelector('#floating-maria .floating-avatar__photo');
+  DOM.floatingAvatarPrimary = document.getElementById('floating-avatar-primary');
+  DOM.floatingAvatarSecondary = document.getElementById('floating-avatar-secondary');
+  DOM.floatingAvatarPrimaryLabel = document.getElementById('floating-avatar-primary-label');
+  DOM.floatingAvatarSecondaryLabel = document.getElementById('floating-avatar-secondary-label');
+  DOM.floatingAvatarPrimaryPhoto = document.querySelector('#floating-avatar-primary .floating-avatar__photo');
+  DOM.floatingAvatarSecondaryPhoto = document.querySelector('#floating-avatar-secondary .floating-avatar__photo');
   DOM.chatImmersive = document.getElementById('chat-immersive');
 
   // Recording overlay
@@ -1752,10 +1752,10 @@ function renderActiveChatShell(chat) {
   const firstMember = featuredMembers[0];
   const secondMember = featuredMembers[1];
 
-  if (DOM.floatingChloe) DOM.floatingChloe.style.display = firstMember ? '' : 'none';
-  if (firstMember) renderFloatingProfile(DOM.floatingChloe, DOM.floatingChloeLabel, DOM.floatingChloePhoto, firstMember, '');
-  if (DOM.floatingMaria) DOM.floatingMaria.style.display = secondMember ? '' : 'none';
-  if (secondMember) renderFloatingProfile(DOM.floatingMaria, DOM.floatingMariaLabel, DOM.floatingMariaPhoto, secondMember, '');
+  if (DOM.floatingAvatarPrimary) DOM.floatingAvatarPrimary.style.display = firstMember ? '' : 'none';
+  if (firstMember) renderFloatingProfile(DOM.floatingAvatarPrimary, DOM.floatingAvatarPrimaryLabel, DOM.floatingAvatarPrimaryPhoto, firstMember, '');
+  if (DOM.floatingAvatarSecondary) DOM.floatingAvatarSecondary.style.display = secondMember ? '' : 'none';
+  if (secondMember) renderFloatingProfile(DOM.floatingAvatarSecondary, DOM.floatingAvatarSecondaryLabel, DOM.floatingAvatarSecondaryPhoto, secondMember, '');
 }
 
 // ── Open a chat ───────────────────────────────────────

@@ -597,9 +597,9 @@ function _topicRowHTML(thread, message, replies) {
         </span>
       </div>
       ${_renderSegmentTrack(segments)}
-      ${replies.length ? `<div class="topic-card__reply-summary">
+      <div class="topic-card__reply-summary">
         <span class="topic-card__avatars">${_replyAvatarHTML(message)}${replies.map(_replyAvatarHTML).join('')}</span>
-      </div>` : ''}
+      </div>
     </div>
   `;
 }

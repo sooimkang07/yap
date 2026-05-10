@@ -92,7 +92,8 @@ const AnalysisModal = {
       }, delay));
     });
 
-    const totalDelay = Math.min(3600, 2100 + (barEls.length * 160));
+    /* Dwell on the topic list so it’s readable before the sheet dismisses */
+    const totalDelay = Math.min(7200, 4200 + (barEls.length * 320));
     this._timeouts.push(setTimeout(() => {
       this.close();
       if (this._onComplete) this._onComplete();

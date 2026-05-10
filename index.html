@@ -91,7 +91,7 @@
   <div id="screen-auth-phone" class="screen" data-screen="auth-phone">
     <div class="entry-screen entry-screen--form">
       <div class="entry-screen__topbar">
-        <button class="glassNavButton back-btn compose-nav-btn" id="btn-auth-phone-back" type="button" aria-label="Back">
+        <button class="glassNavButton nav-back-btn back-btn" id="btn-auth-phone-back" type="button" aria-label="Back">
           <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
             <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -136,7 +136,7 @@
   <div id="screen-profile-setup" class="screen" data-screen="profile-setup">
     <div class="entry-screen entry-screen--form">
       <div class="entry-screen__topbar">
-        <button class="glassNavButton back-btn compose-nav-btn" id="btn-profile-setup-back" type="button" aria-label="Back">
+        <button class="glassNavButton nav-back-btn back-btn" id="btn-profile-setup-back" type="button" aria-label="Back">
           <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
             <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -192,7 +192,7 @@
             </div>
           </div>
 
-          <div class="create-chat-picker__helper-text" id="create-chat-helper-text">Start a chat with friends already on yAp or invite the number.</div>
+          <div class="create-chat-picker__helper-text" id="create-chat-helper-text">Start a chat with friends on yAp or invite someone new by phone number.</div>
 
           <div class="create-chat-picker__contacts" id="create-chat-contacts"></div>
 
@@ -216,7 +216,7 @@
   <div id="screen-contacts-hub" class="screen" data-screen="contacts-hub">
     <div class="entry-screen entry-screen--form entry-screen--compose">
       <div class="compose-header">
-        <button class="glassNavButton back-btn compose-nav-btn" id="btn-contacts-hub-back" type="button" aria-label="Back to new chat">
+        <button class="glassNavButton nav-back-btn back-btn" id="btn-contacts-hub-back" type="button" aria-label="Back to new chat">
           <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
             <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -270,7 +270,7 @@
   <div id="screen-profile" class="screen" data-screen="profile">
     <form class="ios-settings-screen" id="form-profile-manage" novalidate>
       <div class="ios-settings-nav">
-        <button class="glassNavButton back-btn ios-settings-nav__btn ios-settings-nav__btn--back" id="btn-profile-back" type="button" aria-label="Back">
+        <button class="glassNavButton nav-back-btn back-btn" id="btn-profile-back" type="button" aria-label="Back">
           <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
             <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -312,7 +312,7 @@
     <form class="ios-settings-screen" id="form-group-settings" novalidate>
       <div class="ios-settings-scroll">
         <div class="group-details-topbar">
-          <button class="glassNavButton back-btn group-details-topbar__round group-details-topbar__round--back" id="btn-group-settings-back" type="button" aria-label="Back to conversation">
+          <button class="glassNavButton nav-back-btn back-btn" id="btn-group-settings-back" type="button" aria-label="Back to conversation">
             <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
               <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -379,7 +379,7 @@
       <div class="top-bar__actions">
         <button class="glassNavButton icon-btn" id="btn-search" aria-label="Search">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.6"/>
+            <circle cx="8.5" cy="8.5" r="5.75" fill="none" stroke="currentColor" stroke-width="1.6"/>
             <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
         </button>
@@ -390,7 +390,7 @@
       <div class="chats-search__row">
         <div class="chats-search__field">
           <svg class="chats-search__icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.6"/>
+            <circle cx="8.5" cy="8.5" r="5.75" fill="none" stroke="currentColor" stroke-width="1.6"/>
             <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
           <input class="chats-search__input" id="input-chat-search" type="search" autocomplete="off" placeholder="Search chats">
@@ -433,7 +433,9 @@
       </div>
     </div>
     <button class="glassNavButton icon-btn chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
-      <span class="chats-empty-state__icon" aria-hidden="true"></span>
+      <svg width="20" height="20" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <path d="M18 9C18 9.19891 17.921 9.38968 17.7803 9.53033C17.6397 9.67098 17.4489 9.75 17.25 9.75H9.75V17.25C9.75 17.4489 9.67098 17.6397 9.53033 17.7803C9.38968 17.921 9.19891 18 9 18C8.80109 18 8.61032 17.921 8.46967 17.7803C8.32902 17.6397 8.25 17.4489 8.25 17.25V9.75H0.75C0.551088 9.75 0.360322 9.67098 0.21967 9.53033C0.0790178 9.38968 0 9.19891 0 9C0 8.80109 0.0790178 8.61032 0.21967 8.46967C0.360322 8.32902 0.551088 8.25 0.75 8.25H8.25V0.75C8.25 0.551088 8.32902 0.360322 8.46967 0.21967C8.61032 0.0790178 8.80109 0 9 0C9.19891 0 9.38968 0.0790178 9.53033 0.21967C9.67098 0.360322 9.75 0.551088 9.75 0.75V8.25H17.25C17.4489 8.25 17.6397 8.32902 17.7803 8.46967C17.921 8.61032 18 8.80109 18 9Z" fill="currentColor"/>
+      </svg>
     </button>
   </div>
 
@@ -444,7 +446,7 @@
 
     <!-- Chat header -->
     <div class="chat-header">
-      <button class="glassNavButton back-btn" id="btn-back" aria-label="Back">
+      <button class="glassNavButton nav-back-btn back-btn" id="btn-back" aria-label="Back">
         <svg width="9" height="15" viewBox="0 0 9 15" fill="none">
           <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -497,13 +499,15 @@
     <!-- Footer: mic button -->
     <div class="chat-footer">
       <div class="chat-presence" id="chat-presence"></div>
-      <button class="now-playing-btn" id="btn-now-playing" aria-label="Play all topics">
-        <svg class="now-playing-btn__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <button class="glassNavButton glassNavButton--secondary now-playing-btn" id="btn-now-playing" aria-label="Play all topics" type="button">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M22.5 12C22.5006 12.2546 22.4353 12.5051 22.3105 12.7271C22.1856 12.949 22.0055 13.1349 21.7875 13.2666L8.28 21.5297C8.05227 21.6691 7.79144 21.7453 7.52445 21.7502C7.25746 21.7552 6.99399 21.6887 6.76125 21.5578C6.53073 21.4289 6.3387 21.241 6.2049 21.0132C6.07111 20.7855 6.00039 20.5263 6 20.2622V3.73781C6.00039 3.4737 6.07111 3.21447 6.2049 2.98675C6.3387 2.75904 6.53073 2.57108 6.76125 2.44219C6.99399 2.31126 7.25746 2.24484 7.52445 2.24979C7.79144 2.25473 8.05227 2.33086 8.28 2.47031L21.7875 10.7334C22.0055 10.8651 22.1856 11.051 22.3105 11.2729C22.4353 11.4949 22.5006 11.7453 22.5 12Z" fill="currentColor"/>
         </svg>
       </button>
-      <button class="mic-btn" id="btn-mic" aria-label="Record voice memo">
-        <img class="mic-btn__icon" src="assets/record-button.svg" alt="" aria-hidden="true">
+      <button class="glassNavButton glassNavButton--primary mic-btn" id="btn-mic" type="button" aria-label="Record voice memo">
+        <svg viewBox="0 0 32 48" fill="none" aria-hidden="true">
+          <path d="M0 23.585V19.1159C0 18.7086 0.139662 18.3652 0.418981 18.0859C0.709938 17.8066 1.05909 17.6669 1.46643 17.6669C1.86213 17.6669 2.19964 17.8066 2.47896 18.0859C2.76992 18.3652 2.91539 18.7086 2.91539 19.1159V23.4803C2.91539 26.0174 3.44494 28.2462 4.50402 30.1665C5.56311 32.0752 7.04699 33.5649 8.95567 34.6356C10.876 35.7063 13.1338 36.2417 15.7292 36.2417C18.3245 36.2417 20.5823 35.7063 22.5026 34.6356C24.423 33.5649 25.9069 32.0752 26.9543 30.1665C28.0134 28.2462 28.5429 26.0174 28.5429 23.4803V19.1159C28.5429 18.7086 28.6826 18.3652 28.9619 18.0859C29.2529 17.8066 29.602 17.6669 30.0094 17.6669C30.4167 17.6669 30.76 17.8066 31.0393 18.0859C31.3187 18.3652 31.4583 18.7086 31.4583 19.1159V23.585C31.4583 25.7381 31.115 27.7166 30.4283 29.5205C29.7533 31.3245 28.7873 32.9015 27.5304 34.2515C26.2735 35.6016 24.7663 36.6781 23.0089 37.4811C21.2632 38.2842 19.3254 38.7672 17.1956 38.9301V44.7434H25.8021C26.1978 44.7434 26.5353 44.8831 26.8146 45.1624C27.1056 45.4417 27.2511 45.7851 27.2511 46.1924C27.2511 46.4601 27.1871 46.7045 27.059 46.9256C26.931 47.1467 26.7564 47.3213 26.5353 47.4493C26.3142 47.589 26.0698 47.6588 25.8021 47.6588H5.67367C5.39435 47.6588 5.14413 47.589 4.923 47.4493C4.71351 47.3213 4.53894 47.1467 4.39928 46.9256C4.27126 46.7045 4.20725 46.4601 4.20725 46.1924C4.20725 45.7851 4.3469 45.4417 4.62622 45.1624C4.91718 44.8831 5.26633 44.7434 5.67367 44.7434H14.2802V38.9301C12.1387 38.7672 10.1952 38.2842 8.44941 37.4811C6.70366 36.6781 5.1965 35.6016 3.92793 34.2515C2.67099 32.9015 1.69919 31.3245 1.01253 29.5205C0.337512 27.7166 0 25.7381 0 23.585ZM15.7292 31.0917C14.2511 31.0917 12.9592 30.7484 11.8536 30.0617C10.748 29.3751 9.88673 28.4324 9.2699 27.2336C8.66471 26.0232 8.36212 24.6383 8.36212 23.0787V8.01297C8.36212 6.45344 8.66471 5.0743 9.2699 3.87555C9.88673 2.66517 10.748 1.71665 11.8536 1.02999C12.9592 0.34333 14.2511 0 15.7292 0C17.2072 0 18.4991 0.34333 19.6047 1.02999C20.7104 1.71665 21.5658 2.66517 22.171 3.87555C22.7878 5.0743 23.0962 6.45344 23.0962 8.01297V23.0787C23.0962 24.6383 22.7878 26.0232 22.171 27.2336C21.5658 28.4324 20.7104 29.3751 19.6047 30.0617C18.4991 30.7484 17.2072 31.0917 15.7292 31.0917Z" fill="currentColor"/>
+        </svg>
       </button>
     </div>
 
@@ -516,9 +520,9 @@
 
         <!-- Top bar -->
         <div class="now-playing-topbar">
-          <button class="glassNavButton back-btn now-playing-topbar__close" id="btn-np-close" aria-label="Close now playing">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <path d="M4 7L10 13L16 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <button class="glassNavButton nav-back-btn back-btn now-playing-topbar__close" id="btn-np-close" aria-label="Close now playing">
+            <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true">
+              <path d="M7.5 1.5L1.5 7.5L7.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
           <span class="now-playing-topbar__label">Now Playing</span>
@@ -538,22 +542,22 @@
 
         <!-- Controls -->
         <div class="now-playing-controls">
-          <button class="np-control-btn np-control-btn--skip" id="btn-np-prev" aria-label="Previous topic">
-            <svg width="18" height="22" viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <button class="glassNavButton glassNavButton--secondary np-control-btn np-control-btn--skip" id="btn-np-prev" type="button" aria-label="Previous topic">
+            <svg viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <path d="M15 1.48875V16.5112C14.9972 16.7772 14.9237 17.0376 14.7872 17.2658C14.6506 17.494 14.4558 17.6818 14.2227 17.8099C13.9896 17.938 13.7267 18.0019 13.4608 17.9949C13.195 17.988 12.9357 17.9105 12.7097 17.7703L1.5 10.7597V17.25C1.5 17.4489 1.42098 17.6397 1.28033 17.7803C1.13968 17.921 0.948912 18 0.75 18C0.551088 18 0.360322 17.921 0.21967 17.7803C0.0790178 17.6397 0 17.4489 0 17.25V0.75C0 0.551088 0.0790178 0.360322 0.21967 0.21967C0.360322 0.0790178 0.551088 0 0.75 0C0.948912 0 1.13968 0.0790178 1.28033 0.21967C1.42098 0.360322 1.5 0.551088 1.5 0.75V7.24031L12.7097 0.229688C12.9354 0.0879731 13.195 0.0091765 13.4614 0.00145626C13.7278 -0.00626398 13.9915 0.0573728 14.2251 0.185778C14.4586 0.314183 14.6536 0.502688 14.7899 0.731776C14.9261 0.960865 14.9987 1.22221 15 1.48875Z" fill="currentColor"/>
             </svg>
           </button>
-          <button class="np-control-btn np-control-btn--play" id="btn-np-playpause" aria-label="Play or pause">
-            <svg class="np-icon-play" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <button class="glassNavButton glassNavButton--primary np-control-btn np-control-btn--play" id="btn-np-playpause" type="button" aria-label="Play or pause">
+            <svg class="np-icon-play" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M22.5 12C22.5006 12.2546 22.4353 12.5051 22.3105 12.7271C22.1856 12.949 22.0055 13.1349 21.7875 13.2666L8.28 21.5297C8.05227 21.6691 7.79144 21.7453 7.52445 21.7502C7.25746 21.7552 6.99399 21.6887 6.76125 21.5578C6.53073 21.4289 6.3387 21.241 6.2049 21.0132C6.07111 20.7855 6.00039 20.5263 6 20.2622V3.73781C6.00039 3.4737 6.07111 3.21447 6.2049 2.98675C6.3387 2.75904 6.53073 2.57108 6.76125 2.44219C6.99399 2.31126 7.25746 2.24484 7.52445 2.24979C7.79144 2.25473 8.05227 2.33086 8.28 2.47031L21.7875 10.7334C22.0055 10.8651 22.1856 11.051 22.3105 11.2729C22.4353 11.4949 22.5006 11.7453 22.5 12Z" fill="currentColor"/>
             </svg>
-            <svg class="np-icon-pause" width="32" height="32" viewBox="0 0 28 28" fill="none" aria-hidden="true" style="display:none">
+            <svg class="np-icon-pause" viewBox="0 0 28 28" fill="none" aria-hidden="true" style="display:none">
               <rect x="6" y="4" width="5" height="20" rx="2" fill="currentColor"/>
               <rect x="17" y="4" width="5" height="20" rx="2" fill="currentColor"/>
             </svg>
           </button>
-          <button class="np-control-btn np-control-btn--skip" id="btn-np-next" aria-label="Next topic">
-            <svg width="18" height="22" viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <button class="glassNavButton glassNavButton--secondary np-control-btn np-control-btn--skip" id="btn-np-next" type="button" aria-label="Next topic">
+            <svg viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <path d="M15 0.75V17.25C15 17.4489 14.921 17.6397 14.7803 17.7803C14.6397 17.921 14.4489 18 14.25 18C14.0511 18 13.8603 17.921 13.7197 17.7803C13.579 17.6397 13.5 17.4489 13.5 17.25V10.7597L2.29031 17.7703C2.06456 17.912 1.80504 17.9908 1.5386 17.9985C1.27217 18.0063 1.00852 17.9426 0.774943 17.8142C0.541366 17.6858 0.346358 17.4973 0.210107 17.2682C0.0738567 17.0391 0.00131754 16.7778 0 16.5112V1.48875C0.00131754 1.22221 0.0738567 0.960865 0.210107 0.731776C0.346358 0.502688 0.541366 0.314183 0.774943 0.185778C1.00852 0.0573728 1.27217 -0.00626398 1.5386 0.00145626C1.80504 0.0091765 2.06456 0.0879731 2.29031 0.229688L13.5 7.24031V0.75C13.5 0.551088 13.579 0.360322 13.7197 0.21967C13.8603 0.0790178 14.0511 0 14.25 0C14.4489 0 14.6397 0.0790178 14.7803 0.21967C14.921 0.360322 15 0.551088 15 0.75Z" fill="currentColor"/>
             </svg>
           </button>
@@ -573,9 +577,9 @@
       <!-- Floating sheet -->
       <div class="recording-sheet" id="recording-sheet">
         <div class="rec-row rec-row--top">
-          <button class="rec-icon-btn" id="btn-rec-cancel" aria-label="Cancel">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
-              <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <button class="glassNavButton chats-search__close" id="btn-rec-cancel" type="button" aria-label="Cancel">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </button>
           <div class="rec-timer" id="rec-timer">0:00</div>
@@ -589,25 +593,33 @@
         <div class="rec-live-transcript" id="rec-live-transcript">Listening…</div>
 
         <div class="rec-row rec-row--actions" id="rec-actions-recording">
-          <button class="rec-action-btn rec-action-btn--exit" id="btn-rec-exit" aria-label="Exit recording">
-            <img class="rec-action-btn__asset rec-action-btn__asset--close" src="assets/close-button.svg" alt="" aria-hidden="true">
-          </button>
-          <button class="stop-btn" id="btn-stop" aria-label="Stop recording">
-            <img class="rec-control-icon rec-control-icon--stop" src="assets/stop-button.svg" alt="" aria-hidden="true">
-          </button>
-        </div>
-
-        <div class="rec-row rec-row--actions hidden" id="rec-actions-stopped">
-          <button class="rec-action-btn rec-action-btn--discard" id="btn-discard" aria-label="Discard">
+          <button class="glassNavButton glassNavButton--secondary" id="btn-discard-recording" type="button" aria-label="Discard recording">
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
               <path d="M2 2L16 16M16 2L2 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
           </button>
-          <button class="rec-action-btn rec-action-btn--play" id="btn-play" aria-label="Play preview">
-            <img class="rec-control-icon rec-control-icon--play" src="assets/play-button.svg" alt="" aria-hidden="true">
+          <button class="glassNavButton glassNavButton--primary stop-btn" id="btn-stop" type="button" aria-label="Stop recording">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 4.5V19.5C21 19.8978 20.842 20.2794 20.5607 20.5607C20.2794 20.842 19.8978 21 19.5 21H4.5C4.10218 21 3.72064 20.842 3.43934 20.5607C3.15804 20.2794 3 19.8978 3 19.5V4.5C3 4.10218 3.15804 3.72064 3.43934 3.43934C3.72064 3.15804 4.10218 3 4.5 3H19.5C19.8978 3 20.2794 3.15804 20.5607 3.43934C20.842 3.72064 21 4.10218 21 4.5Z" fill="currentColor"/>
+            </svg>
           </button>
-          <button class="rec-action-btn rec-action-btn--send" id="btn-send" aria-label="Send memo">
-            <img class="rec-control-icon rec-control-icon--send" src="assets/send-button.svg" alt="" aria-hidden="true">
+        </div>
+
+        <div class="rec-row rec-row--actions hidden" id="rec-actions-stopped">
+          <button class="glassNavButton glassNavButton--secondary" id="btn-discard" type="button" aria-label="Discard">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M2 2L16 16M16 2L2 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="glassNavButton glassNavButton--primary" id="btn-play" type="button" aria-label="Play preview">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M22.5 12C22.5006 12.2546 22.4353 12.5051 22.3105 12.7271C22.1856 12.949 22.0055 13.1349 21.7875 13.2666L8.28 21.5297C8.05227 21.6691 7.79144 21.7453 7.52445 21.7502C7.25746 21.7552 6.99399 21.6887 6.76125 21.5578C6.53073 21.4289 6.3387 21.241 6.2049 21.0132C6.07111 20.7855 6.00039 20.5263 6 20.2622V3.73781C6.00039 3.4737 6.07111 3.21447 6.2049 2.98675C6.3387 2.75904 6.53073 2.57108 6.76125 2.44219C6.99399 2.31126 7.25746 2.24484 7.52445 2.24979C7.79144 2.25473 8.05227 2.33086 8.28 2.47031L21.7875 10.7334C22.0055 10.8651 22.1856 11.051 22.3105 11.2729C22.4353 11.4949 22.5006 11.7453 22.5 12Z" fill="currentColor"/>
+            </svg>
+          </button>
+          <button class="glassNavButton glassNavButton--primary glassNavButton--send" id="btn-send" type="button" aria-label="Send memo">
+            <svg viewBox="0 0 15 18" fill="none" aria-hidden="true">
+              <path d="M14.781 8.03122C14.7114 8.10095 14.6287 8.15627 14.5376 8.19401C14.4466 8.23175 14.349 8.25118 14.2504 8.25118C14.1519 8.25118 14.0543 8.23175 13.9632 8.19401C13.8722 8.15627 13.7894 8.10095 13.7198 8.03122L8.25042 2.5609V17.2506C8.25042 17.4495 8.1714 17.6403 8.03075 17.7809C7.8901 17.9216 7.69933 18.0006 7.50042 18.0006C7.3015 18.0006 7.11074 17.9216 6.97009 17.7809C6.82943 17.6403 6.75042 17.4495 6.75042 17.2506V2.5609L1.28104 8.03122C1.14031 8.17195 0.94944 8.25101 0.750417 8.25101C0.551394 8.25101 0.360523 8.17195 0.219792 8.03122C0.0790615 7.89048 1.48284e-09 7.69961 0 7.50059C-1.48284e-09 7.30157 0.0790615 7.1107 0.219792 6.96996L6.96979 0.219965C7.03945 0.150233 7.12216 0.0949134 7.21321 0.0571702C7.30426 0.019427 7.40186 0 7.50042 0C7.59898 0 7.69657 0.019427 7.78762 0.0571702C7.87867 0.0949134 7.96139 0.150233 8.03104 0.219965L14.781 6.96996C14.8508 7.03962 14.9061 7.12234 14.9438 7.21338C14.9816 7.30443 15.001 7.40203 15.001 7.50059C15.001 7.59915 14.9816 7.69675 14.9438 7.7878C14.9061 7.87884 14.8508 7.96156 14.781 8.03122Z" fill="currentColor"/>
+            </svg>
           </button>
         </div>
 
@@ -636,7 +648,7 @@
         <div class="recording-sheet__handle"></div>
 
         <div class="rec-row rec-row--top">
-          <button class="rec-icon-btn" id="btn-analysis-cancel" aria-label="Cancel analysis">
+          <button class="glassNavButton glassNavButton--secondary rec-icon-btn" id="btn-analysis-cancel" type="button" aria-label="Cancel analysis">
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
               <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>

@@ -7,6 +7,8 @@ let _expandedThreadId = null;
 
 let _presenceInitialized = false;
 
+const _TOPIC_PLAY_ICON_SVG = `<svg class="topic-row__play-icon" viewBox="0 0 10 12" fill="none" aria-hidden="true"><g class="topic-row__play-icon-play"><path d="M0 0L10 6L0 12Z" fill="currentColor"/></g><g class="topic-row__play-icon-pause" fill="currentColor"><rect x="1" y="1.5" width="2.5" height="9" rx="0.4"/><rect x="6.5" y="1.5" width="2.5" height="9" rx="0.4"/></g></svg>`;
+
 // Initialize presence tracking for the current chat
 function _initPresenceForChat(chatId) {
   if (!chatId || _presenceInitialized) return;
@@ -152,13 +154,13 @@ const PlaybackController = {
         itemId: this.activeItemId,
         src: this.audio.currentSrc || this.audio.src,
       });
-      this._syncActiveClass(true);
+      this._syncPlaybackRowPlayingState();
       _syncImmersivePlaybackState();
       _syncThreadPlaybackProgress();
     });
 
     this.audio.addEventListener('pause', () => {
-      if (!this.audio.ended) this._syncActiveClass(false);
+      this._syncPlaybackRowPlayingState();
       _syncImmersivePlaybackState();
       _syncThreadPlaybackProgress();
     });
@@ -186,8 +188,18 @@ const PlaybackController = {
     this.init();
     if (!item) return;
 
-    if (this.activeItemId === item.id && !this.audio.paused) {
-      this.stop();
+    const sameSingleSession =
+      this.activeItemId === item.id && this.activeMeta?.mode !== 'thread';
+    if (sameSingleSession) {
+      if (!this.audio.paused) {
+        this.audio.pause();
+        return;
+      }
+      try {
+        await this.audio.play();
+      } catch (error) {
+        console.warn('[yAp] audio.play() resume failed', error);
+      }
       return;
     }
 
@@ -206,6 +218,7 @@ const PlaybackController = {
 
     this.activeItemId = item.id;
     this.activeRowEl = rowEl;
+    rowEl?.closest('.topic-row, .reply-row')?.classList.add('is-playback-session');
     this.activeMeta = {
       playToken,
       voiceMessageId: item.voiceMessageId || item.id,
@@ -245,12 +258,16 @@ const PlaybackController = {
       return;
     }
 
-    if (
-      this.activeMeta?.mode === 'thread' &&
-      this.activeMeta?.threadId === thread.id &&
-      !this.audio.paused
-    ) {
-      this.stop();
+    if (this.activeMeta?.mode === 'thread' && this.activeMeta?.threadId === thread.id) {
+      if (!this.audio.paused) {
+        this.audio.pause();
+        return;
+      }
+      try {
+        await this.audio.play();
+      } catch (error) {
+        console.warn('[yAp] thread audio.play() resume failed', error);
+      }
       return;
     }
 
@@ -273,7 +290,10 @@ const PlaybackController = {
 
   stop() {
     _resetThreadPlaybackProgress(this.activeRowEl);
-    if (this.activeRowEl) this.activeRowEl.classList.remove('is-playing');
+    if (this.activeRowEl) {
+      this.activeRowEl.classList.remove('is-playing');
+      this.activeRowEl.closest('.topic-row, .reply-row')?.classList.remove('is-playback-session');
+    }
     this._playToken += 1;
     try {
       this.audio.pause();
@@ -326,7 +346,10 @@ const PlaybackController = {
       return;
     }
 
-    if (completedRow) completedRow.classList.remove('is-playing');
+    if (completedRow) {
+      completedRow.classList.remove('is-playing');
+      completedRow.closest('.topic-row, .reply-row')?.classList.remove('is-playback-session');
+    }
     this.audio.pause();
     this.activeItemId = null;
     this.activeRowEl = null;
@@ -342,9 +365,10 @@ const PlaybackController = {
     window.onThreadPlaybackComplete?.();
   },
 
-  _syncActiveClass(isPlaying) {
+  _syncPlaybackRowPlayingState() {
     if (!this.activeRowEl) return;
-    this.activeRowEl.classList.toggle('is-playing', !!isPlaying);
+    const live = !this.audio.paused && !this.audio.ended;
+    this.activeRowEl.classList.toggle('is-playing', live);
   },
 
   async _playThreadIndex(thread, sequence, index, rowEl) {
@@ -366,6 +390,7 @@ const PlaybackController = {
     const playToken = ++this._playToken;
     this.activeItemId = item.id;
     this.activeRowEl = rowEl;
+    rowEl?.closest('.topic-row, .reply-row')?.classList.add('is-playback-session');
     this.activeMeta = {
       mode: 'thread',
       threadId: thread?.id || item.threadId,
@@ -549,9 +574,20 @@ function _topicCardInner(thread) {
   const topicMessage = orderedMessages[0] || _topicPrimaryMessage(thread);
   const replies = orderedMessages.slice(1);
   const othersRecording = _renderOtherUsersRecording(thread);
+  const canExpand = replies.length > 0;
+  const seedText = topicMessage?.transcript || topicMessage?.label || '';
+  const seedHtml = canExpand && seedText
+    ? `
+      <div class="topic-thread__seed">
+        <div class="topic-thread__seed-label">Original</div>
+        <div class="topic-thread__seed-text">${escapeHtml(seedText)}</div>
+      </div>
+    `
+    : '';
   const expanded = _expandedThreadId === thread.id
     ? `
       <div class="topic-thread">
+        ${seedHtml}
         <div class="topic-thread__replies">
           ${replies.map(_replyRowHTML).join('')}
         </div>
@@ -561,25 +597,23 @@ function _topicCardInner(thread) {
     : '';
 
   return `
-    <div class="topic-card__surface${_expandedThreadId === thread.id ? ' is-expanded' : ''}" data-expand-thread="${thread.id}">
-      ${_topicRowHTML(thread, topicMessage, replies)}
-      ${expanded}
+    <div class="topic-card__surface${_expandedThreadId === thread.id ? ' is-expanded' : ''}" ${canExpand ? `data-expand-thread="${thread.id}"` : ''}>
+      ${_topicRowHTML(thread, topicMessage, replies, { canExpand })}
+      ${canExpand ? expanded : ''}
     </div>
   `;
 }
 
-function _topicRowHTML(thread, message, replies) {
-  const segments = [
-    {
-      duration: Number(message.durationMs) || 0,
-      speaker: message.authorId === getCurrentUserId() ? 'you' : (message.author?.name?.toLowerCase() || 'reply'),
-    },
-    ...replies.map(reply => ({
-      duration: Number(reply.durationMs) || 0,
-      speaker: reply.author?.name?.toLowerCase() || 'reply',
-    })),
-  ].filter(segment => segment.duration > 0);
+function _topicRowHTML(thread, message, replies, options = {}) {
+  const sequenceForTrack = _threadPlaybackSequence(thread);
+  const segments = sequenceForTrack
+    .map(item => ({
+      duration: Number(item.durationMs) || 0,
+      color: item.author?.color || '',
+    }))
+    .filter(segment => segment.duration > 0);
   const totalMs = segments.reduce((sum, segment) => sum + Math.max(0, Number(segment.duration) || 0), 0) || 0;
+  const canExpand = options?.canExpand ?? (replies?.length > 0);
 
   return `
     <div class="topic-row" data-total-ms="${totalMs}">
@@ -589,7 +623,7 @@ function _topicRowHTML(thread, message, replies) {
                 data-thread-playlist="${thread.id}"
                 data-voice-message-id="${message.voiceMessageId || message.id}"
                 aria-label="Play topic thread">
-          <span class="topic-row__play-icon"></span>
+          ${_TOPIC_PLAY_ICON_SVG}
         </button>
         <span class="topic-row__title">${escapeHtml(thread.label)}</span>
         <span class="topic-row__meta">
@@ -597,9 +631,9 @@ function _topicRowHTML(thread, message, replies) {
         </span>
       </div>
       ${_renderSegmentTrack(segments)}
-      <div class="topic-card__reply-summary">
-        <span class="topic-card__avatars">${_replyAvatarHTML(message)}${replies.map(_replyAvatarHTML).join('')}</span>
-      </div>
+      ${canExpand ? `<div class="topic-card__reply-summary">
+        <span class="topic-card__avatars">${_uniqueTopicParticipantAvatarsHTML(message, replies)}</span>
+      </div>` : ''}
     </div>
   `;
 }
@@ -615,30 +649,37 @@ function _replyRowHTML(message) {
             data-playable-id="${message.id}"
             data-voice-message-id="${message.voiceMessageId || message.id}">
       <div class="reply-row__header">
-        <span class="reply-row__play"><span class="topic-row__play-icon"></span></span>
+        <span class="reply-row__play">${_TOPIC_PLAY_ICON_SVG}</span>
         <span class="reply-row__title">${escapeHtml(replyTitle)}</span>
         <span class="reply-row__meta">
           <span class="reply-row__time">${_formatClockTime(message.sentAt)}</span>
           <span class="reply-row__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>
         </span>
       </div>
-      ${_renderSegmentTrack([{ duration: Number(message.durationMs) || 0, speaker: message.author?.name?.toLowerCase() || 'reply' }])}
+      ${_renderSegmentTrack([{
+    duration: Number(message.durationMs) || 0,
+    color: message.author?.color || '',
+  }])}
     </button>
   `;
 }
 
 function _renderSegmentTrack(segments) {
-  const safeSegments = Array.isArray(segments) && segments.length ? segments : [{ duration: 1, speaker: 'you' }];
+  const safeSegments = Array.isArray(segments) && segments.length ? segments : [{ duration: 1, color: '' }];
   const totalMs = safeSegments.reduce((sum, segment) => sum + Math.max(0, Number(segment.duration) || 0), 0) || 1;
 
   return `
     <div class="topic-row__trackline">
       <span class="topic-row__tick" data-track-elapsed>0:00</span>
       <span class="topic-row__track">
-        <span class="topic-row__progress-fill" style="transform:scaleX(0)"></span>
-        ${safeSegments.map(segment => `
-          <span class="topic-row__segment topic-row__segment--${segment.speaker}" style="width:${(Math.max(0, Number(segment.duration) || 0) / totalMs) * 100}%"></span>
-        `).join('')}
+        ${safeSegments.map((segment, index) => {
+    const grow = Math.max(0, Number(segment.duration) || 0) || 0.001;
+    return `
+          <span class="topic-row__segment-cell" style="flex:${grow} 1 0" data-segment-index="${index}">
+            <span class="topic-row__segment-progress" style="transform:scaleX(0)"></span>
+          </span>
+        `;
+  }).join('')}
       </span>
       <span class="topic-row__tick" data-track-remaining>-${formatDurationClock(totalMs)}</span>
     </div>
@@ -647,6 +688,24 @@ function _renderSegmentTrack(segments) {
 
 function _replyAvatarHTML(message) {
   return `<span class="topic-card__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>`;
+}
+
+function _authorDedupeKey(message) {
+  if (!message) return '';
+  return String(message.authorId || message.author?.id || message.author?.name || message.id || '').trim();
+}
+
+function _uniqueTopicParticipantAvatarsHTML(primaryMessage, replies) {
+  const seen = new Set();
+  const parts = [];
+  for (const m of [primaryMessage, ...(Array.isArray(replies) ? replies : [])]) {
+    if (!m?.author) continue;
+    const key = _authorDedupeKey(m);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    parts.push(_replyAvatarHTML(m));
+  }
+  return parts.join('');
 }
 
 function _topicPrimaryMessage(thread) {
@@ -712,17 +771,25 @@ function _restorePlaybackStateClass() {
   if (PlaybackController.activeMeta?.mode === 'thread' && PlaybackController.activeMeta?.threadId) {
     const row = DOM.chatTopics.querySelector(`[data-thread-playlist="${PlaybackController.activeMeta.threadId}"]`);
     if (row) {
-      row.classList.add('is-playing');
       PlaybackController.activeRowEl = row;
+      row.closest('.topic-row, .reply-row')?.classList.add('is-playback-session');
+      const live = !PlaybackController.audio.paused && !PlaybackController.audio.ended;
+      row.classList.toggle('is-playing', live);
     }
+    _syncThreadPlaybackProgress();
     return;
   }
 
-  if (!PlaybackController.activeItemId) return;
+  if (!PlaybackController.activeItemId) {
+    _syncThreadPlaybackProgress();
+    return;
+  }
   const row = DOM.chatTopics.querySelector(`[data-playable-id="${PlaybackController.activeItemId}"]`);
   if (row) {
-    row.classList.add('is-playing');
     PlaybackController.activeRowEl = row;
+    row.closest('.topic-row, .reply-row')?.classList.add('is-playback-session');
+    const live = !PlaybackController.audio.paused && !PlaybackController.audio.ended;
+    row.classList.toggle('is-playing', live);
   }
 
   _syncThreadPlaybackProgress();
@@ -859,63 +926,189 @@ function _formatRemainingClock(ms) {
   return `-${formatDurationClock(Math.max(0, Number(ms) || 0))}`;
 }
 
+function _segmentProgressFillCss(accent) {
+  const raw = accent && String(accent).trim() ? String(accent).trim() : '';
+  if (raw) {
+    return `linear-gradient(90deg, color-mix(in srgb, ${raw} 82%, white 18%), ${raw})`;
+  }
+  return 'linear-gradient(90deg, rgba(184, 216, 255, 0.92), rgba(143, 191, 255, 0.96))';
+}
+
+function _defaultTopicTrackGlowColor() {
+  return 'rgb(184, 216, 255)';
+}
+
 function _resetThreadPlaybackProgress(rowEl) {
   const container = rowEl?.closest?.('.topic-row, .reply-row');
   if (!container) return;
 
   const totalMs = Number(container.dataset.totalMs || 0);
-  const fill = container.querySelector('.topic-row__progress-fill');
   const elapsedLabel = container.querySelector('[data-track-elapsed]');
   const remainingLabel = container.querySelector('[data-track-remaining]');
 
-  if (fill) fill.style.transform = 'scaleX(0)';
+  container.querySelector('.topic-row__track')?.style.removeProperty('--topic-track-glow');
+  container.querySelectorAll('.topic-row__segment-progress').forEach(fill => {
+    fill.style.transform = 'scaleX(0)';
+    fill.style.removeProperty('--segment-fill');
+  });
   if (elapsedLabel) elapsedLabel.textContent = '0:00';
   if (remainingLabel) remainingLabel.textContent = _formatRemainingClock(totalMs);
 }
 
 function _syncThreadPlaybackProgress() {
+  const activeContainer =
+    PlaybackController.activeRowEl && PlaybackController.activeMeta
+      ? PlaybackController.activeRowEl.closest?.('.topic-row, .reply-row')
+      : null;
+
   DOM.chatTopics?.querySelectorAll('.topic-row, .reply-row').forEach(container => {
-    const fill = container.querySelector('.topic-row__progress-fill');
+    if (container === activeContainer) return;
+    container.classList.remove('is-playback-session');
     const elapsedLabel = container.querySelector('[data-track-elapsed]');
     const remainingLabel = container.querySelector('[data-track-remaining]');
     const totalMs = Number(container.dataset.totalMs || 0);
 
-    if (fill) fill.style.transform = 'scaleX(0)';
+    container.querySelector('.topic-row__track')?.style.removeProperty('--topic-track-glow');
+    container.querySelectorAll('.topic-row__segment-progress').forEach(fill => {
+      fill.style.transform = 'scaleX(0)';
+      fill.style.removeProperty('--segment-fill');
+    });
     if (elapsedLabel) elapsedLabel.textContent = '0:00';
     if (remainingLabel) remainingLabel.textContent = _formatRemainingClock(totalMs);
   });
 
-  if (!PlaybackController.activeRowEl || !PlaybackController.activeMeta) return;
+  if (!activeContainer || !PlaybackController.activeMeta) return;
 
-  const container = PlaybackController.activeRowEl.closest?.('.topic-row, .reply-row');
-  if (!container) return;
-
-  const fill = container.querySelector('.topic-row__progress-fill');
-  const elapsedLabel = container.querySelector('[data-track-elapsed]');
-  const remainingLabel = container.querySelector('[data-track-remaining]');
+  const segmentFills = activeContainer.querySelectorAll('.topic-row__segment-progress');
+  const elapsedLabel = activeContainer.querySelector('[data-track-elapsed]');
+  const remainingLabel = activeContainer.querySelector('[data-track-remaining]');
   const meta = PlaybackController.activeMeta;
 
-  let totalMs = Number(container.dataset.totalMs || 0);
+  let totalMs = Number(activeContainer.dataset.totalMs || 0);
   let elapsedMs = 0;
 
   if (meta.mode === 'thread' && Array.isArray(meta.sequence)) {
+    // Keep the currently playing reply-row in sync when a topic card is expanded.
+    const idx = Math.max(0, Number(meta.sequenceIndex) || 0);
+    const curItem = meta.sequence[idx] || null;
+    const curItemId = curItem?.id != null ? String(curItem.id) : '';
+    const curVoiceId = curItem?.voiceMessageId != null ? String(curItem.voiceMessageId) : '';
+    const threadCard = DOM.chatTopics?.querySelector(`.topic-card[data-thread-id="${CSS.escape(String(meta.threadId || ''))}"]`);
+    const activeReplyRow = threadCard
+      ? threadCard.querySelector(`.reply-row[data-playable-id="${CSS.escape(curItemId)}"], .reply-row[data-playable-id="${CSS.escape(curVoiceId)}"]`)
+      : null;
+    if (threadCard) {
+      threadCard.querySelectorAll('.reply-row').forEach(btn => {
+        if (btn === activeReplyRow) return;
+        btn.classList.remove('is-playback-session', 'is-playing');
+        btn.querySelector('.topic-row__track')?.style.removeProperty('--topic-track-glow');
+        btn.querySelectorAll('.topic-row__segment-progress').forEach(fill => {
+          fill.style.transform = 'scaleX(0)';
+          fill.style.removeProperty('--segment-fill');
+        });
+        const e = btn.querySelector('[data-track-elapsed]');
+        const r = btn.querySelector('[data-track-remaining]');
+        const t = Number(btn.dataset.totalMs || 0);
+        if (e) e.textContent = '0:00';
+        if (r) r.textContent = _formatRemainingClock(t);
+      });
+    }
+    if (activeReplyRow) {
+      const live = !PlaybackController.audio.paused && !PlaybackController.audio.ended;
+      activeReplyRow.classList.add('is-playback-session');
+      activeReplyRow.classList.toggle('is-playing', live);
+    }
+
     totalMs = meta.sequence.reduce((sum, item) => sum + Math.max(0, Number(item.durationMs) || 0), 0) || totalMs;
     const priorMs = meta.sequence
-      .slice(0, Math.max(0, Number(meta.sequenceIndex) || 0))
+      .slice(0, idx)
       .reduce((sum, item) => sum + Math.max(0, Number(item.durationMs) || 0), 0);
     const segmentElapsedMs = Math.max(0, (PlaybackController.audio.currentTime - Number(meta.startAt || 0)) * 1000);
     elapsedMs = priorMs + segmentElapsedMs;
+
+    segmentFills.forEach((progEl, i) => {
+      const item = meta.sequence[i];
+      if (!item) {
+        progEl.style.transform = 'scaleX(0)';
+        progEl.style.removeProperty('--segment-fill');
+        return;
+      }
+      const durMs = Math.max(0.001, Number(item.durationMs) || 0);
+      let p = 0;
+      if (i < idx) p = 1;
+      else if (i === idx) p = Math.min(1, segmentElapsedMs / durMs);
+      progEl.style.transform = `scaleX(${p})`;
+      const accent = item.author?.color || '';
+      if (p > 0) {
+        progEl.style.setProperty('--segment-fill', _segmentProgressFillCss(accent));
+      } else {
+        progEl.style.removeProperty('--segment-fill');
+      }
+    });
+
+    // Mirror progress on the active reply-row's single-segment track.
+    if (activeReplyRow && curItem) {
+      const durMs = Math.max(0.001, Number(curItem.durationMs) || 0);
+      const p = Math.min(1, Math.max(0, segmentElapsedMs / durMs));
+      const replyFill = activeReplyRow.querySelector('.topic-row__segment-progress');
+      if (replyFill) {
+        replyFill.style.transform = `scaleX(${p})`;
+        const accent = curItem.author?.color || '';
+        if (p > 0) replyFill.style.setProperty('--segment-fill', _segmentProgressFillCss(accent));
+        else replyFill.style.removeProperty('--segment-fill');
+      }
+      const e = activeReplyRow.querySelector('[data-track-elapsed]');
+      const r = activeReplyRow.querySelector('[data-track-remaining]');
+      const totalReplyMs = Math.max(0, Number(curItem.durationMs) || Number(activeReplyRow.dataset.totalMs || 0));
+      const elapsedReplyMs = Math.max(0, Math.min(totalReplyMs, Math.round(p * totalReplyMs)));
+      if (e) e.textContent = formatDurationClock(elapsedReplyMs);
+      if (r) r.textContent = _formatRemainingClock(totalReplyMs - elapsedReplyMs);
+      const track = activeReplyRow.querySelector('.topic-row__track');
+      if (track) {
+        const raw = curItem?.author?.color && String(curItem.author.color).trim();
+        track.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+      }
+    }
   } else {
     totalMs = Math.max(totalMs, Math.round((Number(meta.durationSeconds) || 0) * 1000));
     elapsedMs = Math.max(0, (PlaybackController.audio.currentTime - Number(meta.startAt || 0)) * 1000);
+    const item = Store.findPlayableItem(PlaybackController.activeItemId)?.item || null;
+    const durMs = Math.max(0.001, Number(item?.durationMs) || totalMs || 1);
+    const p = Math.min(1, elapsedMs / durMs);
+
+    segmentFills.forEach((progEl, i) => {
+      if (i === 0) {
+        progEl.style.transform = `scaleX(${p})`;
+        const accent = item?.author?.color || '';
+        if (p > 0) {
+          progEl.style.setProperty('--segment-fill', _segmentProgressFillCss(accent));
+        } else {
+          progEl.style.removeProperty('--segment-fill');
+        }
+      } else {
+        progEl.style.transform = 'scaleX(0)';
+        progEl.style.removeProperty('--segment-fill');
+      }
+    });
   }
 
   const clampedElapsedMs = Math.max(0, Math.min(totalMs, elapsedMs));
-  const progress = totalMs > 0 ? clampedElapsedMs / totalMs : 0;
-
-  if (fill) fill.style.transform = `scaleX(${progress})`;
   if (elapsedLabel) elapsedLabel.textContent = formatDurationClock(clampedElapsedMs);
   if (remainingLabel) remainingLabel.textContent = _formatRemainingClock(totalMs - clampedElapsedMs);
+
+  const trackEl = activeContainer.querySelector('.topic-row__track');
+  if (trackEl) {
+    if (meta.mode === 'thread' && Array.isArray(meta.sequence)) {
+      const idx = Math.max(0, Number(meta.sequenceIndex) || 0);
+      const cur = meta.sequence[idx];
+      const raw = cur?.author?.color && String(cur.author.color).trim();
+      trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+    } else {
+      const item = Store.findPlayableItem(PlaybackController.activeItemId)?.item || null;
+      const raw = item?.author?.color && String(item.author.color).trim();
+      trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+    }
+  }
 }
 
 async function _markMessageHeard(messageId, voiceMessageId, durationSeconds) {

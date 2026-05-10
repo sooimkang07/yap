@@ -87,8 +87,10 @@ const AppState = {
 // ── DOM refs ──────────────────────────────────────────
 const DOM = {};
 const PLAY_BUTTON_ICONS = {
-  play: '<img class="rec-control-icon rec-control-icon--play" src="assets/play-button.svg" alt="" aria-hidden="true">',
-  pause: '<img class="rec-control-icon rec-control-icon--pause" src="assets/pause-button.svg" alt="" aria-hidden="true">',
+  play:
+    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M22.5 12C22.5006 12.2546 22.4353 12.5051 22.3105 12.7271C22.1856 12.949 22.0055 13.1349 21.7875 13.2666L8.28 21.5297C8.05227 21.6691 7.79144 21.7453 7.52445 21.7502C7.25746 21.7552 6.99399 21.6887 6.76125 21.5578C6.53073 21.4289 6.3387 21.241 6.2049 21.0132C6.07111 20.7855 6.00039 20.5263 6 20.2622V3.73781C6.00039 3.4737 6.07111 3.21447 6.2049 2.98675C6.3387 2.75904 6.53073 2.57108 6.76125 2.44219C6.99399 2.31126 7.25746 2.24484 7.52445 2.24979C7.79144 2.25473 8.05227 2.33086 8.28 2.47031L21.7875 10.7334C22.0055 10.8651 22.1856 11.051 22.3105 11.2729C22.4353 11.4949 22.5006 11.7453 22.5 12Z" fill="currentColor"/></svg>',
+  pause:
+    '<svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="6" y="4" width="5" height="20" rx="2" fill="currentColor"/><rect x="17" y="4" width="5" height="20" rx="2" fill="currentColor"/></svg>',
 };
 const APP_NOTIFICATION_PERMISSION_KEY = 'yap.notifications.permission.requested';
 
@@ -331,7 +333,7 @@ function cacheDOM() {
   DOM.recActionsSending   = document.getElementById('rec-actions-sending');
   DOM.btnPlay           = document.getElementById('btn-play');
   DOM.btnRecCancel      = document.getElementById('btn-rec-cancel');
-  DOM.btnRecExit        = document.getElementById('btn-rec-exit');
+  DOM.btnDiscardRecording = document.getElementById('btn-discard-recording');
   DOM.btnStop           = document.getElementById('btn-stop');
   DOM.btnDiscard        = document.getElementById('btn-discard');
   DOM.btnSend           = document.getElementById('btn-send');
@@ -352,7 +354,12 @@ function cacheDOM() {
 }
 
 const SCREEN_TRANSITION_MS = 150;
+const PROFILE_SCREEN_TRANSITION_MS = 440;
 const SHEET_TRANSITION_MS = 220;
+/** Left-edge interactive back — same threshold across all stack screens */
+const IOS_STACK_EDGE_PX = 28;
+/** Full-width sheet slide over chats — single curve, no CSS `ease` keyword */
+const PROFILE_PUSH_EASING = 'cubic-bezier(0.33, 0.86, 0.2, 1)';
 
 function isSheetScreen(screenId) {
   return screenId === 'create-group';
@@ -362,16 +369,44 @@ function isOnboardingFlowScreen(screenId) {
   return ['welcome', 'auth-phone', 'auth-verify', 'profile-setup'].includes(screenId);
 }
 
-function isOpaquePushScreen(screenId) {
-  return screenId === 'profile';
-}
-
 function resetScreenTransitionState(screen) {
   if (!screen) return;
   screen.classList.remove('screen-sheet-closing');
   screen.style.transform = '';
   screen.style.opacity = '';
   screen.style.transition = '';
+  screen.style.zIndex = '';
+}
+
+function screenIdToElement(screenId) {
+  if (!screenId) return null;
+  const keyMap = {
+    splash: 'splash',
+    welcome: 'welcome',
+    'auth-phone': 'authPhone',
+    'auth-verify': 'authVerify',
+    'profile-setup': 'profileSetup',
+    'create-group': 'createGroup',
+    'contacts-hub': 'contactsHub',
+    profile: 'profile',
+    'group-settings': 'groupSettings',
+    chats: 'chats',
+    chat: 'chat',
+  };
+  const key = keyMap[screenId];
+  const mapped = key ? DOM.screens?.[key] : null;
+  return mapped || document.getElementById(`screen-${screenId}`);
+}
+
+function resetIosStackEdgeSwipeVisuals(activeEl, underEl) {
+  if (activeEl) {
+    activeEl.classList.remove('is-ios-stack-dragging');
+    resetScreenTransitionState(activeEl);
+  }
+  if (underEl) {
+    underEl.classList.remove('ios-stack-interactive-under');
+    resetScreenTransitionState(underEl);
+  }
 }
 
 function isTextEntryElement(element) {
@@ -468,7 +503,7 @@ function wireViewportHandlers() {
  * Navigate between top-level screens.
  * direction: 'forward' | 'back' | 'fade'
  */
-function navigate(toId, direction = 'forward', { replace = false } = {}) {
+function navigate(toId, direction = 'forward', { replace = false, skipTransition = false } = {}) {
   const from = document.querySelector('.screen.active');
   const to   = DOM.screens[toId] || document.getElementById(`screen-${toId}`);
 
@@ -497,7 +532,12 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
   }
 
   Object.values(DOM.screens || {}).forEach(resetScreenTransitionState);
-
+  document.querySelectorAll('.ios-stack-interactive-under').forEach(el => {
+    el.classList.remove('ios-stack-interactive-under');
+  });
+  document.querySelectorAll('.is-ios-stack-dragging').forEach(el => {
+    el.classList.remove('is-ios-stack-dragging');
+  });
   if (!from) {
     to.classList.add('active');
     return;
@@ -506,8 +546,7 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
   const openingSheet = isSheetScreen(toId) && direction !== 'back';
   const closingSheet = isSheetScreen(fromId) && direction === 'back';
   const onboardingFlowTransition = isOnboardingFlowScreen(toId) || isOnboardingFlowScreen(fromId);
-  const opaquePushTransition = isOpaquePushScreen(toId) || isOpaquePushScreen(fromId);
-  const screenTransitionMs = onboardingFlowTransition ? 220 : SCREEN_TRANSITION_MS;
+  const profileTransition = toId === 'profile' || fromId === 'profile';
 
   if (openingSheet) {
     to.classList.add('active');
@@ -532,55 +571,225 @@ function navigate(toId, direction = 'forward', { replace = false } = {}) {
 
   to.classList.add('active');
 
+  if (skipTransition) {
+    from.classList.remove('active');
+    resetScreenTransitionState(from);
+    resetScreenTransitionState(to);
+    syncLocalPresence();
+    return;
+  }
+
   if (direction === 'fade') {
+    const fadeMs = onboardingFlowTransition
+      ? 220
+      : profileTransition
+        ? PROFILE_SCREEN_TRANSITION_MS
+        : SCREEN_TRANSITION_MS;
     to.style.opacity = '0';
     to.style.transform = 'scale(0.985)';
     requestAnimationFrame(() => {
-      to.style.transition = `opacity ${screenTransitionMs}ms ease, transform ${screenTransitionMs}ms ease`;
-      from.style.transition = `opacity ${screenTransitionMs}ms ease, transform ${screenTransitionMs}ms ease`;
+      to.style.transition = `opacity ${fadeMs}ms ease, transform ${fadeMs}ms ease`;
+      from.style.transition = `opacity ${fadeMs}ms ease, transform ${fadeMs}ms ease`;
       to.style.opacity = '1';
       to.style.transform = 'scale(1)';
       from.style.opacity = '0';
       from.style.transform = 'scale(1.01)';
     });
-  } else if (direction === 'back') {
-    to.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.92';
-    to.style.transform = onboardingFlowTransition ? 'translate3d(-14px, 0, 0)' : 'translate3d(-18px, 0, 0)';
-    requestAnimationFrame(() => {
-      to.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
-      from.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
-      to.style.opacity = '1';
-      to.style.transform = 'translate3d(0, 0, 0)';
-      from.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.96';
-      from.style.transform = 'translate3d(28px, 0, 0)';
-    });
+    AppState.navTimer = setTimeout(() => {
+      from.classList.remove('active');
+      resetScreenTransitionState(from);
+      resetScreenTransitionState(to);
+      AppState.navTimer = null;
+    }, fadeMs);
   } else {
-    to.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.96';
-    to.style.transform = 'translate3d(28px, 0, 0)';
-    requestAnimationFrame(() => {
-      to.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
-      from.style.transition = `transform ${screenTransitionMs}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${screenTransitionMs}ms ease`;
+    const stackMs = PROFILE_SCREEN_TRANSITION_MS;
+    if (direction === 'back') {
       to.style.opacity = '1';
       to.style.transform = 'translate3d(0, 0, 0)';
-      from.style.opacity = onboardingFlowTransition || opaquePushTransition ? '1' : '0.9';
-      from.style.transform = onboardingFlowTransition ? 'translate3d(-14px, 0, 0)' : 'translate3d(-18px, 0, 0)';
-    });
+      from.style.opacity = '1';
+      from.style.transform = 'translate3d(0, 0, 0)';
+      to.style.zIndex = '2';
+      from.style.zIndex = '3';
+      requestAnimationFrame(() => {
+        to.style.transition = 'none';
+        from.style.transition = `transform ${stackMs}ms ${PROFILE_PUSH_EASING}`;
+        from.style.transform = 'translate3d(100%, 0, 0)';
+      });
+    } else {
+      to.style.opacity = '1';
+      to.style.transform = 'translate3d(100%, 0, 0)';
+      from.style.opacity = '1';
+      from.style.transform = 'translate3d(0, 0, 0)';
+      from.style.zIndex = '2';
+      to.style.zIndex = '3';
+      requestAnimationFrame(() => {
+        to.style.transition = `transform ${stackMs}ms ${PROFILE_PUSH_EASING}`;
+        from.style.transition = 'none';
+        to.style.transform = 'translate3d(0, 0, 0)';
+      });
+    }
+    AppState.navTimer = setTimeout(() => {
+      from.classList.remove('active');
+      resetScreenTransitionState(from);
+      resetScreenTransitionState(to);
+      AppState.navTimer = null;
+    }, stackMs);
   }
-
-  AppState.navTimer = setTimeout(() => {
-    from.classList.remove('active');
-    resetScreenTransitionState(from);
-    resetScreenTransitionState(to);
-    AppState.navTimer = null;
-  }, screenTransitionMs);
 
   syncLocalPresence();
 }
 
-function goBack(fallback = 'welcome') {
+function goBack(fallback = 'welcome', { instant = false } = {}) {
   const previous = AppState.screenHistory.pop() || fallback;
-  navigate(previous, 'back', { replace: true });
+  navigate(previous, 'back', { replace: true, skipTransition: instant });
   return previous;
+}
+
+function wireIosStackEdgeSwipe() {
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  let tracking = null;
+
+  app.addEventListener('touchstart', e => {
+    if (AppState.navTimer) return;
+    const activeScreen = document.querySelector('.screen.active');
+    if (!activeScreen) return;
+    const screenId = activeScreen.dataset.screen;
+    if (!screenId || screenId === 'splash') return;
+    if (isSheetScreen(screenId)) return;
+
+    const prevId = AppState.screenHistory.length
+      ? AppState.screenHistory[AppState.screenHistory.length - 1]
+      : null;
+    if (!prevId) return;
+
+    const underEl = screenIdToElement(prevId);
+    if (!underEl || underEl === activeScreen) return;
+
+    const t = e.changedTouches[0];
+    if (!t || t.clientX > IOS_STACK_EDGE_PX) return;
+    if (!activeScreen.contains(e.target)) return;
+    if (e.target.closest('button, a, input, textarea, select, label[for], [role="button"]')) return;
+
+    tracking = {
+      activeEl: activeScreen,
+      underEl,
+      fromScreenId: screenId,
+      startX: t.clientX,
+      startY: t.clientY,
+      lastX: t.clientX,
+      lastT: e.timeStamp,
+      vx: 0,
+      id: t.identifier,
+    };
+  }, { passive: true, capture: true });
+
+  app.addEventListener('touchmove', e => {
+    if (!tracking) return;
+    if (!tracking.activeEl.classList.contains('active')) {
+      tracking = null;
+      return;
+    }
+    const t = Array.from(e.changedTouches).find(x => x.identifier === tracking.id);
+    if (!t) return;
+
+    const dx = t.clientX - tracking.startX;
+    const dy = t.clientY - tracking.startY;
+
+    if (dx < 10 && Math.abs(dy) > 16) {
+      const snap = tracking;
+      tracking = null;
+      resetIosStackEdgeSwipeVisuals(snap.activeEl, snap.underEl);
+      return;
+    }
+
+    if (dx <= 0) return;
+
+    if (Math.abs(dy) > Math.abs(dx) + 12) {
+      const snap = tracking;
+      tracking = null;
+      resetIosStackEdgeSwipeVisuals(snap.activeEl, snap.underEl);
+      return;
+    }
+
+    e.preventDefault();
+
+    const dt = Math.max(1, e.timeStamp - tracking.lastT);
+    tracking.vx = (t.clientX - tracking.lastX) / dt;
+    tracking.lastX = t.clientX;
+    tracking.lastT = e.timeStamp;
+
+    const w = window.innerWidth;
+    const drag = Math.min(Math.max(0, dx), w);
+
+    tracking.activeEl.classList.add('is-ios-stack-dragging');
+    tracking.underEl.classList.add('ios-stack-interactive-under');
+    tracking.activeEl.style.transition = 'none';
+    tracking.underEl.style.transition = 'none';
+    tracking.activeEl.style.transform = `translate3d(${drag}px, 0, 0)`;
+    tracking.underEl.style.opacity = '1';
+    tracking.underEl.style.transform = 'translate3d(0, 0, 0)';
+  }, { passive: false, capture: true });
+
+  function endSwipe(e) {
+    if (!tracking) return;
+    const t = Array.from(e.changedTouches).find(x => x.identifier === tracking.id);
+    const dx = t
+      ? t.clientX - tracking.startX
+      : tracking.lastX - tracking.startX;
+    const w = window.innerWidth;
+    const commit = dx > w * 0.28 || (tracking.vx > 0.45 && dx > 36);
+    const activeEl = tracking.activeEl;
+    const underEl = tracking.underEl;
+    const fromScreenId = tracking.fromScreenId;
+    tracking = null;
+
+    if (commit) {
+      const ms = 320;
+      activeEl.style.transition = `transform ${ms}ms ${PROFILE_PUSH_EASING}`;
+      underEl.style.transition = `transform ${ms}ms ${PROFILE_PUSH_EASING}`;
+      activeEl.style.transform = 'translate3d(100%, 0, 0)';
+      underEl.style.transform = 'translate3d(0, 0, 0)';
+      activeEl.classList.remove('is-ios-stack-dragging');
+      if (AppState.navTimer) {
+        clearTimeout(AppState.navTimer);
+        AppState.navTimer = null;
+      }
+      AppState.navTimer = setTimeout(() => {
+        underEl.classList.remove('ios-stack-interactive-under');
+        resetScreenTransitionState(activeEl);
+        resetScreenTransitionState(underEl);
+        AppState.navTimer = null;
+        if (fromScreenId === 'chat') {
+          void closeActiveChatAndNavigateToList({ skipTransition: true });
+        } else {
+          const target = goBack('welcome', { instant: true });
+          if (target === 'chats') renderChatsList();
+        }
+      }, ms);
+    } else {
+      const ms = 280;
+      activeEl.style.transition = `transform ${ms}ms ${PROFILE_PUSH_EASING}`;
+      underEl.style.transition = `transform ${ms}ms ${PROFILE_PUSH_EASING}`;
+      activeEl.style.transform = 'translate3d(0, 0, 0)';
+      underEl.style.transform = 'translate3d(0, 0, 0)';
+      setTimeout(() => {
+        activeEl.classList.remove('is-ios-stack-dragging');
+        underEl.classList.remove('ios-stack-interactive-under');
+        resetScreenTransitionState(activeEl);
+        resetScreenTransitionState(underEl);
+      }, ms);
+    }
+  }
+
+  app.addEventListener('touchend', endSwipe, { passive: true, capture: true });
+  app.addEventListener('touchcancel', () => {
+    if (!tracking) return;
+    const snap = tracking;
+    tracking = null;
+    resetIosStackEdgeSwipeVisuals(snap.activeEl, snap.underEl);
+  }, { passive: true, capture: true });
 }
 
 function clearScreenHistory() {
@@ -1516,9 +1725,10 @@ function cssUrl(value = '') {
 function buildAvatarStyle(member) {
   const resolvedMember = resolveAvatarMember(member);
   const accent = resolvedMember?.color || pickUserColor(resolvedMember?.name || resolvedMember?.phoneE164 || resolvedMember?.id || '');
+  const glow = `--chat-avatar-accent:${accent}`;
   return resolvedMember?.avatarUrl
-    ? `background-image:${cssUrl(resolvedMember.avatarUrl)};background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent`
-    : `--avatar-accent:${accent}`;
+    ? `background-image:${cssUrl(resolvedMember.avatarUrl)};background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent;${glow}`
+    : `--avatar-accent:${accent};${glow}`;
 }
 
 function buildAvatarContent(member, fallbackSeed = 'Y') {
@@ -1608,7 +1818,7 @@ function renderChatPresence(chat = AppState.activeChat) {
   DOM.chatPresence.innerHTML = liveMembers
     .map(member => `
       <div class="${buildAvatarClass(`chat-presence__avatar is-live is-${member.presenceState}`, member)}"
-           style="${buildAvatarStyle(member)};--presence-accent:${member.color || pickUserColor(member.name || member.phoneE164 || member.id || '')};">
+           style="${buildAvatarStyle(member)}">
         ${buildAvatarContent(member)}
         <span class="chat-presence__status" aria-hidden="true"></span>
       </div>
@@ -1801,6 +2011,18 @@ async function markChatMessagesAsHeard(chatId) {
       chat.unread = 0;
       refreshChats();
     }
+  }
+}
+
+async function closeActiveChatAndNavigateToList({ skipTransition = false } = {}) {
+  if (AppState.activeChat) {
+    pinChatInLocalLists(AppState.activeChat);
+  }
+  try {
+    await refreshChatsAndRender();
+  } finally {
+    AppState.activeChat = null;
+    navigate('chats', 'back', { replace: true, skipTransition });
   }
 }
 
@@ -2082,6 +2304,7 @@ function _buildNowPlayingAvatars(thread) {
   if (!DOM.npAvatars) return;
   const people = [];
   const durationByKey = new Map();
+  const seen = new Set();
   const messages = (thread.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
   messages.forEach(msg => {
     const key = msg.authorId || msg.author?.name;
@@ -2113,7 +2336,7 @@ function _buildNowPlayingAvatars(thread) {
       ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
       : '';
     return `
-      <div class="np-avatar ${positions[i]}" data-author-id="${escapeHtml(person.id)}" style="--np-accent:${accent}">
+      <div class="np-avatar ${positions[i]}" data-author-id="${escapeHtml(person.id)}" style="--chat-avatar-accent:${accent}">
         <div class="np-avatar__label">${escapeHtml(person.name)}</div>
         <div class="np-avatar__ring-wrap">
           <div class="np-avatar__ring np-avatar__ring--progress"></div>
@@ -2196,6 +2419,11 @@ function _syncNowPlayingSpeaker() {
         break;
       }
     }
+  }
+  const threadMeta = PlaybackController.activeMeta;
+  if (!speakingId && threadMeta?.mode === 'thread' && String(threadMeta.threadId || '') === String(thread.id || '')) {
+    const cur = threadMeta.sequence?.[Math.max(0, Number(threadMeta.sequenceIndex) || 0)];
+    speakingId = cur?.authorId || cur?.author?.name || null;
   }
 
   // Rebuild avatars if speaker changed
@@ -2324,7 +2552,6 @@ function _buildNowPlayingAvatarsNew(thread, currentSpeakerId) {
       : '';
     html += _buildNowPlayingAvatar(currentSpeaker, 'np-avatar--current is-speaking', {
       durationLabel: timestamp,
-      ringProgress: _getSpeakerTimelineProgress(thread, currentSpeaker.id),
     });
   }
 
@@ -2341,6 +2568,7 @@ function _buildNowPlayingAvatarsNew(thread, currentSpeakerId) {
   DOM.npAvatars.innerHTML = html;
   DOM.npAvatars.setAttribute('data-count', people.length);
   _animateNowPlayingAvatarSwap(previousRects);
+  _syncNowPlayingAvatarProgress();
 }
 
 function _getNowPlayingAvatarRects() {
@@ -2404,14 +2632,14 @@ function _animateNowPlayingAvatarSwap(previousRects) {
 
 function _buildNowPlayingAvatar(person, className, options = {}) {
   const initials = buildUserInitials(person.name);
+  const accent = person.color || pickUserColor(person.name || person.phoneE164 || person.id || '');
   const photoStyle = person.avatarUrl
     ? `background-image:url('${escapeHtml(person.avatarUrl)}');background-size:cover;background-position:center;background-repeat:no-repeat`
-    : `--avatar-accent:${person.color};`;
+    : `--avatar-accent:${accent};`;
   const photoClass = person.avatarUrl ? '' : 'avatar-fallback';
-  const ringProgress = Math.max(0, Math.min(100, Number(options.ringProgress) || 0));
 
   return `
-    <div class="np-avatar ${className}" data-author-id="${escapeHtml(person.id)}" style="--np-accent:${person.color};--np-ring-progress:${ringProgress};--np-ring-deg:${ringProgress * 3.6}deg;${options.styleVars || ''}">
+    <div class="np-avatar ${className}" data-author-id="${escapeHtml(person.id)}" style="--chat-avatar-accent:${accent};${options.styleVars || ''}">
       <div class="np-avatar__label">${escapeHtml(person.name)}</div>
       <div class="np-avatar__ring-wrap">
         <div class="np-avatar__ring np-avatar__ring--progress"></div>
@@ -2451,44 +2679,138 @@ function _getInitialNowPlayingSpeakerId(thread) {
   return firstMsg?.authorId || firstMsg?.author?.name || null;
 }
 
-function _getSpeakerTimelineProgress(thread, speakerId) {
-  if (!speakerId) return 0;
-  const activeItemId = PlaybackController.activeItemId;
-  const messages = (thread?.messages || []).slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
-  let speakerTotal = 0;
-  let speakerElapsed = 0;
+function _npRingGradientSafeColor(raw) {
+  const s = raw != null ? String(raw).trim() : '';
+  if (/^#[0-9A-Fa-f]{3,8}$/.test(s)) return s;
+  if (/^rgba?\(/i.test(s)) return s;
+  return '#DFFFB8';
+}
 
-  messages.forEach(msg => {
-    const key = msg.authorId || msg.author?.name;
-    const durationMs = Number(msg.durationMs) || 0;
-    if (key !== speakerId) return;
-    speakerTotal += durationMs;
-    if (msg.id === activeItemId || msg.voiceMessageId === activeItemId) {
-      const startSeconds = Math.max(0, Number(PlaybackController.activeMeta?.startAt) || 0);
-      const elapsedMs = Math.max(0, (PlaybackController.audio.currentTime - startSeconds) * 1000);
-      speakerElapsed += Math.min(durationMs, elapsedMs);
-    } else if (PlaybackController.activeMeta?.sequenceIndex != null) {
-      const sequence = PlaybackController.activeMeta.sequence || [];
-      const activeIndex = PlaybackController.activeMeta.sequenceIndex;
-      const msgIndex = sequence.findIndex(item => item.id === msg.id || item.voiceMessageId === msg.voiceMessageId);
-      if (msgIndex >= 0 && msgIndex < activeIndex) speakerElapsed += durationMs;
+function _playbackRingItemMatch(a, b) {
+  if (!a || !b) return false;
+  const pairs = [
+    [a.id, b.id],
+    [a.voiceMessageId, b.voiceMessageId],
+    [a.id, b.voiceMessageId],
+    [a.voiceMessageId, b.id],
+  ];
+  for (const [x, y] of pairs) {
+    if (x != null && y != null && String(x) === String(y)) return true;
+  }
+  return false;
+}
+
+/** Prefer the live playlist on the player so the ring matches stitched playback order/length. */
+function _resolveNowPlayingRingSequence(thread) {
+  const meta = PlaybackController.activeMeta;
+  if (
+    meta?.mode === 'thread' &&
+    thread &&
+    String(meta.threadId || '') === String(thread.id || '') &&
+    Array.isArray(meta.sequence) &&
+    meta.sequence.length
+  ) {
+    return meta.sequence;
+  }
+  return _threadPlaybackSequence(thread) || [];
+}
+
+/** Progress only when the ring uses the exact sequence array the audio element is advancing. */
+function _nowPlayingRingPlaybackState(thread, sequence) {
+  const meta = PlaybackController.activeMeta;
+  if (meta?.mode !== 'thread' || !Array.isArray(meta.sequence)) {
+    return { sync: false, idx: -1, segmentElapsedMs: 0 };
+  }
+  if (String(meta.threadId || '') !== String(thread?.id || '')) {
+    return { sync: false, idx: -1, segmentElapsedMs: 0 };
+  }
+  if (sequence !== meta.sequence) {
+    return { sync: false, idx: -1, segmentElapsedMs: 0 };
+  }
+  const idx = Math.max(0, Number(meta.sequenceIndex) || 0);
+  const audio = PlaybackController.audio;
+  const segmentElapsedMs = audio
+    ? Math.max(0, (audio.currentTime - Number(meta.startAt || 0)) * 1000)
+    : 0;
+  return { sync: true, idx, segmentElapsedMs };
+}
+
+/**
+ * Full-ring conic: gaps between memos + per-memo arc (duration-weighted), each arc split played / unplayed.
+ * Played = speaker accent; unplayed = muted mix so each reply stays visually distinct.
+ */
+function _buildNowPlayingSegmentedRingBackground(thread) {
+  const sequence = _resolveNowPlayingRingSequence(thread);
+  const n = sequence.length;
+  if (!n) return null;
+
+  const durations = sequence.map(item => Math.max(1, Number(item.durationMs) || 0));
+  const totalMs = durations.reduce((a, b) => a + b, 0);
+  if (totalMs <= 0) return null;
+
+  const gapDeg = n <= 1 ? 0 : 4;
+  const gapColor = '#9A9AA8';
+  const usable = 360 - n * gapDeg;
+  const { sync, idx, segmentElapsedMs } = _nowPlayingRingPlaybackState(thread, sequence);
+
+  const stops = [];
+  let cursor = 0;
+
+  for (let i = 0; i < n; i++) {
+    if (gapDeg > 0) {
+      stops.push(`${gapColor} ${cursor}deg`, `${cursor + gapDeg}deg`);
+      cursor += gapDeg;
     }
-  });
+    const arc = (durations[i] / totalMs) * usable;
+    const item = sequence[i];
+    const playedColor = _npRingGradientSafeColor(
+      item?.author?.color || pickUserColor(item?.author?.name || item?.authorId || '')
+    );
+    const unplayedWedge = `color-mix(in srgb, ${playedColor} 34%, #D4D6DE 66%)`;
 
-  return speakerTotal > 0 ? (speakerElapsed / speakerTotal) * 100 : 0;
+    let p = 0;
+    if (sync) {
+      const durMs = Math.max(0.001, durations[i]);
+      if (i < idx) p = 1;
+      else if (i === idx) p = Math.min(1, segmentElapsedMs / durMs);
+    }
+
+    const playedArc = arc * p;
+    const unplayedArc = arc - playedArc;
+
+    if (playedArc > 0.0005) {
+      stops.push(`${playedColor} ${cursor}deg`, `${cursor + playedArc}deg`);
+      cursor += playedArc;
+    }
+    if (unplayedArc > 0.0005) {
+      stops.push(`${unplayedWedge} ${cursor}deg`, `${cursor + unplayedArc}deg`);
+      cursor += unplayedArc;
+    }
+  }
+
+  if (cursor < 359.99) {
+    stops.push(`${gapColor} ${cursor}deg`, `360deg`);
+  }
+
+  return `conic-gradient(from 0deg, ${stops.join(', ')})`;
+}
+
+function _syncNowPlayingSegmentedRing() {
+  const ringEl = DOM.npAvatars?.querySelector('.np-avatar--current .np-avatar__ring--progress');
+  if (!ringEl) return;
+  const threads = Store.getThreads();
+  const thread = threads[AppState.nowPlaying.topicIndex];
+  if (!thread) {
+    ringEl.style.removeProperty('background');
+    return;
+  }
+  const gradient = _buildNowPlayingSegmentedRingBackground(thread);
+  if (gradient) ringEl.style.background = gradient;
+  else ringEl.style.removeProperty('background');
 }
 
 function _syncNowPlayingAvatarProgress() {
-  if (!PlaybackController.audio) return;
-  const threads = Store.getThreads();
-  const thread = threads[AppState.nowPlaying.topicIndex];
-  const currentAvatar = DOM.npAvatars?.querySelector('.np-avatar--current');
-  const currentSpeakerId = currentAvatar?.getAttribute('data-author-id');
-  if (thread && currentAvatar && currentSpeakerId) {
-    const speakerProgress = Math.max(0, Math.min(100, _getSpeakerTimelineProgress(thread, currentSpeakerId)));
-    currentAvatar.style.setProperty('--np-ring-progress', `${speakerProgress}`);
-    currentAvatar.style.setProperty('--np-ring-deg', `${speakerProgress * 3.6}deg`);
-  }
+  _syncNowPlayingSegmentedRing();
 }
 function _showRecRow(which) {
   // which: 'recording' | 'stopped' | 'sending'
@@ -4603,17 +4925,8 @@ function wireEvents() {
   document.getElementById('ctx-hide-alerts')?.addEventListener('click', () => handleChatContextAction('hide-alerts'));
   document.getElementById('ctx-delete-chat')?.addEventListener('click', () => handleChatContextAction('delete'));
 
-  DOM.btnBack.addEventListener('click', async () => {
-    if (AppState.activeChat) {
-      pinChatInLocalLists(AppState.activeChat);
-    }
-
-    try {
-      await refreshChatsAndRender();
-    } finally {
-      AppState.activeChat = null;
-      navigate('chats', 'back', { replace: true });
-    }
+  DOM.btnBack.addEventListener('click', () => {
+    void closeActiveChatAndNavigateToList();
   });
   DOM.btnChatMore?.addEventListener('click', openGroupSettingsScreen);
   DOM.btnGroupSettingsBack?.addEventListener('click', () => {
@@ -4757,7 +5070,6 @@ function wireEvents() {
       _syncNowPlayingPauseIcon(false);
       AppState.nowPlaying.isPlaying = false;
       _syncNowPlayingTopicProgress({ completeAll: true });
-      setTimeout(() => closeNowPlaying(), 600);
     }
   };
 
@@ -4768,7 +5080,7 @@ function wireEvents() {
   });
 
   DOM.btnRecCancel.addEventListener('click', cancelRecording);
-  DOM.btnRecExit.addEventListener('click', cancelRecording);
+  DOM.btnDiscardRecording?.addEventListener('click', cancelRecording);
   DOM.btnStop.addEventListener('click', stopRecording);
   DOM.btnDiscard.addEventListener('click', discardRecording);
 
@@ -4803,6 +5115,8 @@ function wireEvents() {
   DOM.iosAlertOverlay?.addEventListener('click', event => {
     if (event.target === DOM.iosAlertOverlay) dismissIOSAlert();
   });
+
+  wireIosStackEdgeSwipe();
 }
 
 // ── Pipeline event listeners ──────────────────────────

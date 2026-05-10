@@ -100,7 +100,7 @@ export const ribbonVertexShader = `
     pos.x += sin((uv.y * 3.14159265 + uTime * 0.22 + uLayerOffset) * 2.0) * 0.04 * centerFalloff;
 
     float ribbonBody = 1.0 - abs(uv.y - 0.5) * 2.0;
-    pos.z += ribbonBody * uThickness * (0.45 + audioShape * 0.5);
+    pos.z += ribbonBody * uThickness * 0.65;
 
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;

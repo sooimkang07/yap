@@ -87,18 +87,16 @@ if (mountEl) {
     const spine = sampleRibbonPoints(width, height, time, config, audio);
     ctx.save();
 
-    const thickness =
-      config.thickness * (0.82 + audio.envelope * 1.35 + audio.bass * 0.35) +
-      audio.attack * 18;
+    const thickness = config.thickness;
 
-    const top = spine.map((point, index) => {
-      const taper = 0.72 + Math.sin((index / Math.max(1, spine.length - 1)) * Math.PI) * 0.28;
-      return { x: point.x, y: point.y - (thickness * taper * config.depth) };
-    });
-    const bottom = spine.map((point, index) => {
-      const taper = 0.68 + Math.sin((index / Math.max(1, spine.length - 1)) * Math.PI) * 0.32;
-      return { x: point.x, y: point.y + (thickness * taper * config.depth) };
-    });
+    const top = spine.map(point => ({
+      x: point.x,
+      y: point.y - thickness * config.depth,
+    }));
+    const bottom = spine.map(point => ({
+      x: point.x,
+      y: point.y + thickness * config.depth,
+    }));
 
     const fillGradient = ctx.createLinearGradient(0, height * config.baseY, width, height * (config.baseY + 0.06));
     fillGradient.addColorStop(0, config.colors[0]);
@@ -109,7 +107,7 @@ if (mountEl) {
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = fillGradient;
     ctx.globalAlpha = config.alpha * (0.42 + smooth.wake * 0.55);
-    ctx.shadowBlur = 30 + audio.envelope * 56;
+    ctx.shadowBlur = 42;
     ctx.shadowColor = config.shadow;
 
     ctx.beginPath();
@@ -146,7 +144,7 @@ if (mountEl) {
     ctx.lineWidth = Math.max(1.4, thickness * config.edgeWidth);
     ctx.strokeStyle = strokeGradient;
     ctx.globalAlpha = 0.78;
-    ctx.shadowBlur = 12 + audio.high * 20;
+    ctx.shadowBlur = 18;
     ctx.shadowColor = config.edgeShadow;
 
     ctx.beginPath();
@@ -160,7 +158,7 @@ if (mountEl) {
     ctx.lineTo(last.x, last.y);
     ctx.stroke();
 
-    ctx.lineWidth = Math.max(0.8, thickness * 0.1);
+    ctx.lineWidth = Math.max(1, thickness * 0.08);
     ctx.strokeStyle = 'rgba(255,255,255,0.58)';
     ctx.globalAlpha = 0.42;
     ctx.shadowBlur = 0;
@@ -230,7 +228,7 @@ if (mountEl) {
           frequency: 5.8,
           speed: 0.00115,
           phase: 0,
-          thickness: 24,
+          thickness: 20,
           bassLift: 24,
           midLift: 18,
           highLift: 10,
@@ -238,7 +236,7 @@ if (mountEl) {
           rippleLift: 0.84,
           shimmerLift: 0.18,
           depth: 0.72,
-          edgeWidth: 0.16,
+          edgeWidth: 0.14,
           alpha: 0.74,
           shadow: 'rgba(255, 132, 215, 0.28)',
           edgeShadow: 'rgba(180, 120, 255, 0.2)',
@@ -250,7 +248,7 @@ if (mountEl) {
           frequency: 7.6,
           speed: 0.00145,
           phase: 1.45,
-          thickness: 16,
+          thickness: 20,
           bassLift: 18,
           midLift: 22,
           highLift: 18,
@@ -258,7 +256,7 @@ if (mountEl) {
           rippleLift: 0.92,
           shimmerLift: 0.22,
           depth: 0.52,
-          edgeWidth: 0.13,
+          edgeWidth: 0.14,
           alpha: 0.6,
           shadow: 'rgba(122, 234, 255, 0.26)',
           edgeShadow: 'rgba(130, 238, 255, 0.22)',
@@ -270,7 +268,7 @@ if (mountEl) {
           frequency: 4.4,
           speed: 0.00088,
           phase: 3.1,
-          thickness: 32,
+          thickness: 20,
           bassLift: 28,
           midLift: 12,
           highLift: 10,
@@ -278,7 +276,7 @@ if (mountEl) {
           rippleLift: 0.62,
           shimmerLift: 0.12,
           depth: 0.88,
-          edgeWidth: 0.1,
+          edgeWidth: 0.14,
           alpha: 0.36,
           shadow: 'rgba(255, 214, 132, 0.16)',
           edgeShadow: 'rgba(255, 225, 164, 0.16)',
@@ -290,7 +288,7 @@ if (mountEl) {
           frequency: 9.8,
           speed: 0.00185,
           phase: 2.15,
-          thickness: 8,
+          thickness: 20,
           bassLift: 10,
           midLift: 20,
           highLift: 26,
@@ -298,7 +296,7 @@ if (mountEl) {
           rippleLift: 1.02,
           shimmerLift: 0.28,
           depth: 0.28,
-          edgeWidth: 0.18,
+          edgeWidth: 0.14,
           alpha: 0.54,
           shadow: 'rgba(190, 244, 255, 0.24)',
           edgeShadow: 'rgba(255,255,255,0.16)',

@@ -8224,10 +8224,10 @@ select,
 }
 
 /* ═══════════════════════════════════════════════════════ */
-/* Presence & Live Status Indicators */
+/* Recording Indicator - Floating Avatar Above Mic Button */
 /* ═══════════════════════════════════════════════════════ */
 
-/* Avatar glow animation when user is live */
+/* Avatar glow animation when recording */
 @keyframes avatar-glow {
   0%, 100% {
     box-shadow: 0 0 0 2px currentColor;
@@ -8239,97 +8239,43 @@ select,
   }
 }
 
-.avatar--live {
-  animation: avatar-glow 2s ease-in-out infinite;
-  position: relative;
+/* Floating avatar above mic button */
+.recording-indicator-float {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 0.5rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-out;
 }
 
-/* Typing/Recording bubbles */
-.typing-bubbles {
-  display: flex;
-  gap: 0.25rem;
-  align-items: flex-end;
-  height: 0.75rem;
-  margin-top: 0.5rem;
+.recording-indicator-float.is-visible {
+  opacity: 1;
 }
 
-.typing-bubble {
-  width: 0.5rem;
-  height: 0.5rem;
+.recording-indicator-float.is-active {
+  opacity: 1;
+}
+
+.recording-indicator-float__avatar {
+  width: 2rem;
+  height: 2rem;
   border-radius: 50%;
-  animation: bubble-bounce 1.4s infinite;
-}
-
-@keyframes bubble-bounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.6;
-  }
-  30% {
-    transform: translateY(-0.5rem);
-    opacity: 1;
-  }
-}
-
-.typing-bubble:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.typing-bubble:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-bubble:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-/* Recording indicator container at bottom of thread */
-.thread-recording-indicators {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  font-size: 0.813rem;
-  color: rgba(0, 0, 0, 0.6);
-}
-
-.recording-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.recording-indicator__avatar {
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 62.438rem;
   background-size: cover;
   background-position: center;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 2px currentColor;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-.recording-indicator__bubbles {
-  display: flex;
-  gap: 0.2rem;
+.recording-indicator-float.is-active .recording-indicator-float__avatar {
+  animation: avatar-glow 1.5s ease-in-out infinite;
 }
 
-.recording-bubble {
-  width: 0.35rem;
-  height: 0.35rem;
-  border-radius: 50%;
-  animation: bubble-bounce 1.4s infinite;
+.recording-indicator-float[data-state="recording"] .recording-indicator-float__avatar {
+  animation: avatar-glow 1.5s ease-in-out infinite;
 }
 
-.recording-bubble:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.recording-bubble:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.recording-bubble:nth-child(3) {
-  animation-delay: 0.4s;
+.recording-indicator-float[data-state="sending"] .recording-indicator-float__avatar {
+  animation: avatar-glow 1s ease-in-out infinite;
 }

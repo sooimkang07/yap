@@ -2511,6 +2511,7 @@ function _showRecRow(which) {
 function _setRecordingIdleState() {
   AppState.recording.manager = null;
   AppState.recording.phase = 'idle';
+  RecordingIndicator.updateState('idle');
   PresenceManager.setRecordingState('idle').catch(e => console.warn('[yAp] Presence update failed:', e));
   window.__yapVoiceVisualizerBridge?.reset?.();
   window.__yapVoiceVisualizerBridge?.setRecording?.(false);
@@ -2835,6 +2836,7 @@ async function startRecording() {
   try {
     await mgr.start();
     AppState.recording.phase = 'recording';
+    RecordingIndicator.updateState('recording');
     PresenceManager.setRecordingState('recording').catch(e => console.warn('[yAp] Presence update failed:', e));
     window.__yapVoiceVisualizerBridge?.setRecording?.(true);
     DOM.btnMic.classList.add('recording');
@@ -2858,6 +2860,7 @@ async function stopRecording() {
   if (!result) return;
 
   AppState.recording.phase = 'stopped';
+  RecordingIndicator.updateState('stopped');
   PresenceManager.setRecordingState('recording').catch(e => console.warn('[yAp] Presence update failed:', e));
   window.__yapVoiceVisualizerBridge?.setRecording?.(false);
   _showRecRow('stopped');
@@ -2882,6 +2885,7 @@ async function sendRecording() {
   }
 
   AppState.recording.phase = 'sending';
+  RecordingIndicator.updateState('sending');
   PresenceManager.setRecordingState('sending').catch(e => console.warn('[yAp] Presence update failed:', e));
   _showRecRow('sending');
   syncLocalPresence();

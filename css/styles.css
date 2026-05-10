@@ -95,7 +95,8 @@
 html {
   height: 100%;
   background: var(--screen-background);
-  font-size: clamp(14px, 3vw, 16px);
+  /* Keep base UI comfortably readable on iPhone/PWA (rem drives most sizing). */
+  font-size: clamp(16px, 2.6vw, 18px);
 }
 
 body {
@@ -1372,7 +1373,7 @@ button {
 }
 
 .chat-card__name {
-  font-size: 0.875rem;
+  font-size: 0.938rem;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.25;
@@ -2622,12 +2623,13 @@ html, body {
 }
 
 .splash-logo {
-  width: 11.375rem;
+  /* Keep splash hero large on iPhone (avoid shrinking with root rem clamp) */
+  width: clamp(220px, 62vw, 270px);
   margin-bottom: 0.5rem;
 }
 
 .splash-tagline {
-  font-size: 1.125rem;
+  font-size: clamp(17px, 4.6vw, 20px);
   line-height: 1.18;
   font-weight: 400;
   color: var(--text-primary);
@@ -2978,7 +2980,7 @@ html, body {
 }
 
 .chat-card__name {
-  font-size: 1rem;
+  font-size: 1.125rem;
   font-weight: 600;
   letter-spacing: -0.03em;
   text-align: center;
@@ -6549,7 +6551,8 @@ select,
 
 @media (max-width: 480px) {
   html, body {
-    background: #fff;
+    /* iOS PWA safe-area uses page background; keep the universal gradient */
+    background: var(--screen-background);
   }
 
   #app {
@@ -6586,7 +6589,7 @@ select,
   }
 
   .chat-card__name {
-    font-size: 0.938rem;
+    font-size: 1.062rem;
     line-height: 1.2;
   }
 

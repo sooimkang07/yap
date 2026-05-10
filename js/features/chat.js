@@ -983,6 +983,7 @@ function _syncThreadPlaybackProgress() {
   const elapsedLabel = activeContainer.querySelector('[data-track-elapsed]');
   const remainingLabel = activeContainer.querySelector('[data-track-remaining]');
   const meta = PlaybackController.activeMeta;
+  const isPlaying = !PlaybackController.audio.paused && !PlaybackController.audio.ended;
 
   let totalMs = Number(activeContainer.dataset.totalMs || 0);
   let elapsedMs = 0;
@@ -1066,7 +1067,8 @@ function _syncThreadPlaybackProgress() {
       const track = activeReplyRow.querySelector('.topic-row__track');
       if (track) {
         const raw = curItem?.author?.color && String(curItem.author.color).trim();
-        track.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+        if (isPlaying) track.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+        else track.style.removeProperty('--topic-track-glow');
       }
     }
   } else {
@@ -1102,11 +1104,13 @@ function _syncThreadPlaybackProgress() {
       const idx = Math.max(0, Number(meta.sequenceIndex) || 0);
       const cur = meta.sequence[idx];
       const raw = cur?.author?.color && String(cur.author.color).trim();
-      trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+      if (isPlaying) trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+      else trackEl.style.removeProperty('--topic-track-glow');
     } else {
       const item = Store.findPlayableItem(PlaybackController.activeItemId)?.item || null;
       const raw = item?.author?.color && String(item.author.color).trim();
-      trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+      if (isPlaying) trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
+      else trackEl.style.removeProperty('--topic-track-glow');
     }
   }
 }

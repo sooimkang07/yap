@@ -1825,7 +1825,7 @@ async function openChat(chat) {
     DOM.chatMemberPips.style.visibility = 'hidden';
     setDisplay(DOM.chatEmpty, false);
     setDisplay(DOM.chatTopics, false);
-    setDisplay(DOM.chatProcessing, true, 'flex');
+    // Load in background without showing processing screen
   }
 
   navigate('chat', 'forward');
@@ -3607,7 +3607,7 @@ function renderProfileSettings() {
   setFeedback(DOM.profileManageFeedback, '');
 }
 
-async function persistManagedProfile({ showSuccess = false } = {}) {
+async function persistManagedProfile() {
   const nextName = DOM.inputManageProfileName?.value?.trim() || 'You';
   const nextAvatar = DOM.inputManageProfileAvatar?.value?.trim() || '';
 
@@ -3625,9 +3625,6 @@ async function persistManagedProfile({ showSuccess = false } = {}) {
   if (AppState.activeChat?.members?.some(member => member.id === savedUser.id)) {
     AppState.activeChat = AppState.chats.find(chat => chat.id === AppState.activeChat.id) || AppState.activeChat;
   }
-  if (showSuccess) {
-    setFeedback(DOM.profileManageFeedback, 'Profile updated.', 'success');
-  }
   return savedUser;
 }
 
@@ -3643,7 +3640,7 @@ async function saveManagedProfileNameFromEditor() {
   DOM.inputManageProfileName.dataset.saving = 'true';
   setFeedback(DOM.profileManageFeedback, '');
   try {
-    await persistManagedProfile({ showSuccess: true });
+    await persistManagedProfile();
   } catch (error) {
     setFeedback(DOM.profileManageFeedback, error.message || 'We could not save your profile yet.', 'error');
   } finally {
@@ -4514,7 +4511,7 @@ function wireEvents() {
     await handleProfileAvatarPicked(file, 'manage');
     if (file) {
       try {
-        await persistManagedProfile({ showSuccess: true });
+        await persistManagedProfile();
       } catch (error) {
         setFeedback(DOM.profileManageFeedback, error.message || 'We could not save your profile yet.', 'error');
       }
@@ -4526,7 +4523,7 @@ function wireEvents() {
     if (!validateFormWithIOSAlert(DOM.formProfileManage)) return;
     setFeedback(DOM.profileManageFeedback, '');
     try {
-      await persistManagedProfile({ showSuccess: true });
+      await persistManagedProfile();
     } catch (error) {
       setFeedback(DOM.profileManageFeedback, error.message || 'We could not save your profile yet.', 'error');
     }

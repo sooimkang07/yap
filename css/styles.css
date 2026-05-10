@@ -8212,3 +8212,24 @@ select,
   flex-shrink: 0;
   color: var(--text-secondary);
 }
+
+/* ── Date Headers ─────────────────────────────────────── */
+.topics-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.topics-date-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(34, 34, 34, 0.58);
+  text-transform: none;
+  padding: 16px 0 0 0;
+  margin-bottom: 4px;
+  letter-spacing: 0;
+}
+
+.topics-section:first-child .topics-date-header {
+  padding-top: 0;
+}

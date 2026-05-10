@@ -5,6 +5,68 @@
 
 let _expandedThreadId = null;
 
+function _getThreadDate(thread) {
+  const messages = _threadMessagesChronological(thread);
+  return messages[0]?.sentAt || thread.createdAt || Date.now();
+}
+
+function _formatDateHeader(timestamp) {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const isToday = date.toDateString() === today.toDateString();
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+  
+  if (isToday) return 'Today';
+  if (isYesterday) return 'Yesterday';
+  
+  const dayDiff = Math.floor((today - date) / (1000 * 60 * 60 * 24));
+  if (dayDiff > 0 && dayDiff < 7) {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return dayNames[date.getDay()];
+  }
+  
+  const dayAbbr = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+  const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][date.getMonth()];
+  const day = date.getDate();
+  return `${dayAbbr}, ${monthAbbr} ${day}`;
+}
+
+function _groupThreadsByDay(threads) {
+  const groups = [];
+  let currentDateKey = null;
+  let currentGroup = null;
+  
+  const sortedThreads = [...threads].sort((a, b) => {
+    const aDate = _getThreadDate(a);
+    const bDate = _getThreadDate(b);
+    return bDate - aDate;
+  });
+  
+  sortedThreads.forEach(thread => {
+    const threadDate = _getThreadDate(thread);
+    const dateKey = new Date(threadDate).toDateString();
+    
+    if (dateKey !== currentDateKey) {
+      if (currentGroup) groups.push(currentGroup);
+      currentDateKey = dateKey;
+      currentGroup = {
+        dateKey,
+        timestamp: threadDate,
+        label: _formatDateHeader(threadDate),
+        threads: []
+      };
+    }
+    
+    currentGroup.threads.push(thread);
+  });
+  
+  if (currentGroup) groups.push(currentGroup);
+  return groups;
+}
+
 function _syncChatViewToggle(threads = []) {
   const hasThreads = Array.isArray(threads) && threads.length > 0;
   if (DOM.btnNowPlaying) DOM.btnNowPlaying.style.visibility = hasThreads ? 'visible' : 'hidden';
@@ -299,10 +361,16 @@ function renderTopics() {
 
   if (!threads.length) return;
 
-  DOM.chatTopics.innerHTML = threads.map(thread => `
-    <section class="topic-card${_expandedThreadId === thread.id ? ' expanded' : ''}" data-thread-id="${thread.id}">
-      ${_topicCardInner(thread)}
-    </section>
+  const groups = _groupThreadsByDay(threads);
+  DOM.chatTopics.innerHTML = groups.map(group => `
+    <div class="topics-section">
+      <div class="topics-date-header">${escapeHtml(group.label)}</div>
+      ${group.threads.map(thread => `
+        <section class="topic-card${_expandedThreadId === thread.id ? ' expanded' : ''}" data-thread-id="${thread.id}">
+          ${_topicCardInner(thread)}
+        </section>
+      `).join('')}
+    </div>
   `).join('');
 
   if (!DOM.chatTopics._interactionWired) {

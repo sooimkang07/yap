@@ -2948,8 +2948,7 @@ async function sendRecording() {
         return;
       }
 
-      // Open analysis modal immediately so user sees feedback
-      AnalysisModal.open();
+      // Process in background with no loading screen
       await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err || 'Something went wrong');
@@ -4817,15 +4816,10 @@ function wireEvents() {
 
 // ── Pipeline event listeners ──────────────────────────
 function wirePipelineEvents() {
-  // Segments arrive from API → animate in analysis modal, then render chat
+  // Segments arrive from API → render immediately with no animation
   document.addEventListener('yap:pipeline:segments', e => {
     renderTopics();
     scrollChatToLatest();
-    AnalysisModal.animateSegments(e.detail.segments, () => {
-      // Animation complete → render topic cards
-      renderTopics();
-      scrollChatToLatest();
-    });
   });
 
   document.addEventListener('yap:pipeline:done', () => {

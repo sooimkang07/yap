@@ -4884,10 +4884,8 @@ async function boot() {
     });
   }
 
-  // Splash auto-advance
-  setTimeout(() => {
-    safeResolveInitialRoute();
-  }, 950);
+  // Splash auto-advance - resolve immediately for instant loading
+  safeResolveInitialRoute();
 }
 
 if (document.readyState === 'loading') {

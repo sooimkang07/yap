@@ -25,11 +25,7 @@ end or be hidden until they do.
 - Support real groups, real users, real memberships, real invites, and real
   notification delivery.
 - Keep the public demo usable through the web/PWA app plus SMS notifications.
-- Continue native iPhone exploration in Swift, but do not assume Apple Developer,
-  TestFlight, App Store distribution, or native push will be available.
-- Treat the web app as the UI north star. The Swift app should replicate the
-  web app's screens, visual language, interaction model, pacing, and product
-  feel as closely as SwiftUI allows.
+- Optimize the web app to feel native through responsive design, mobile interactions, and PWA capabilities.
 - Keep the implementation clean, efficient, testable, and understandable enough
   that future LLMs can safely continue the work.
 
@@ -66,20 +62,7 @@ end or be hidden until they do.
   - `assets/`
 - The web app is the primary shareable demo surface because it can be opened by
   other people without App Store/TestFlight distribution.
-- The web app is also the canonical UI/design reference. Do not redesign the
-  product in Swift just because iOS has different default components.
-
-### Native iOS Client
-
-- Active native app: `yAp-native/`
-- Xcode project: `yAp-native/yAp.xcodeproj`
-- SwiftUI app source: `yAp-native/yAp/`
-- Current native stack:
-  - SwiftUI for screens and navigation
-  - `URLSession` for backend calls
-  - `Contacts.framework` for contact import
-  - `AVFoundation` for recording/playback
-  - OneSignal iOS SDK for push notification registration
+- The web app is the primary and sole distribution channel.
 
 ### Backend
 

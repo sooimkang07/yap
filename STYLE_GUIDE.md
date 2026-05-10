@@ -13,8 +13,7 @@ The web app is the canonical UI. The primary reference files are:
 - `components/voice-visualizer/`
 - interaction behavior in `js/app.js` and `js/features/`
 
-SwiftUI screens must replicate the web app's visual language, not replace it
-with generic iOS defaults.
+The web app is the design focus and primary distribution channel.
 
 ## Visual Personality
 
@@ -30,7 +29,6 @@ yAp should feel:
 Avoid:
 
 - generic SaaS dashboards
-- plain iOS settings/list screens as the main product language
 - heavy dark UI unless explicitly requested
 - harsh borders or dense enterprise layouts
 - marketing-page hero sections inside the app
@@ -112,18 +110,13 @@ introduce one-off solid screen backgrounds for new screens.
   - `#DFFFB8`
 - User glows must come from that four-color palette only.
 - Use coral/red `#F97878` for active recording/waveform emphasis.
-- Use iOS blue `#007AFF` only where the web UI already uses link/action blue.
-- Avoid introducing a new dominant color family without updating the whole
-  system intentionally.
+- Avoid introducing a new dominant color family without updating the whole system intentionally.
 
 ## Control Rules
 
-- Voice recording and playback controls are core brand moments. Match the web
-  app's rounded, glassy, tactile controls.
+- Voice recording and playback controls are core brand moments. Make them rounded, glassy, and tactile.
 - All navigation and playback buttons must use the glass effect.
-- The glass effect should be created with CSS/SwiftUI styling: translucent fills,
-  radial highlights, blur/saturation, soft borders, inset highlights, and subtle
-  shadows. Do not rely on `glass-bg.png` as a button background.
+- The glass effect should be created with CSS styling: translucent fills, radial highlights, blur/saturation, soft borders, inset highlights, and subtle shadows. Do not rely on `glass-bg.png` as a button background.
 - Prefer icon/image controls for record, play, pause, stop, close, send, add, and
   back actions when the web app uses them.
 - Use existing assets in `assets/` before drawing new icons.
@@ -152,26 +145,6 @@ introduce one-off solid screen backgrounds for new screens.
   iPhones, large iPhones, browser mode, installed PWA mode, Safari browser
   chrome, keyboard-open states, and safe-area insets. No UI element may overlap,
   clip, become unreachable, or require horizontal scrolling.
-
-## Native Swift Parity Rules
-
-Before editing Swift UI:
-
-1. Find the equivalent web screen in `index.html`.
-2. Find its styles in `css/styles.css`.
-3. Check the assets it uses in `assets/`.
-4. Check the interaction behavior in `js/app.js` or `js/features/`.
-5. Replicate the result in SwiftUI as closely as possible.
-
-Swift should not:
-
-- replace custom web visuals with default `List`/`Form` styling
-- use generic navigation bars when the web screen has custom headers
-- ignore yAp assets
-- alter the product personality to look like a stock iOS sample app
-
-If SwiftUI cannot match the web exactly, choose the closest faithful version and
-document the compromise.
 
 ## Web Edit Rules
 
@@ -208,5 +181,4 @@ Before finishing any UI task, check:
 - Does it fit on mobile without clipping or overlap?
 - Does it work across small/large mobile widths, safe areas, browser chrome,
   PWA mode, and keyboard-open states?
-- Did I avoid generic Swift/iOS defaults where yAp has a custom web pattern?
 - Did I preserve the no-fake-flow rule?

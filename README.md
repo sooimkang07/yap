@@ -1,18 +1,17 @@
 # yAp
 
-Voice-first group chat prototype with a shareable web/PWA client, serverless API routes, Supabase persistence, and an in-progress native iOS concept build.
+Voice-first group chat web app with a shareable PWA client, serverless API routes, and Supabase persistence.
 
 ## Repo Structure
 
-- `index.html`, `css/`, `js/`: primary shareable demo app
+- `index.html`, `css/`, `js/`: web app client
 - `api/`: Vercel/serverless endpoints for auth, invites, audio processing, and replies
 - `assets/`: app images and icons used by the web client
 - `components/voice-visualizer/`: isolated visualizer code
 - `supabase/`: schema, migration, and seed SQL
-- `docs/`: product and migration notes
-- `yAp-native/`: native iOS Xcode project for local concept development
+- `docs/`: product and technical notes
 - `AGENTS.md`: project rules for LLM/coding agents
-- `STYLE_GUIDE.md`: universal UI styling contract for web and Swift work
+- `STYLE_GUIDE.md`: UI styling guide
 - `SKILLS.md`: repeatable workflows for common agent tasks
 
 ### Web App Layout
@@ -23,9 +22,6 @@ Voice-first group chat prototype with a shareable web/PWA client, serverless API
 
 ## Notes
 
-- The public demo path is the web app plus SMS links/notifications.
-- The web app is the UI north star for the project.
-- The active iOS concept project lives in `yAp-native/`, but it is not the distribution path unless Apple Developer setup exists.
-- The Swift app should replicate the web app UI and interactions as closely as possible, not reinterpret yAp with generic native defaults.
-- `yAp-native/` keeps the current capitalization because it matches the app/Xcode naming already in use.
-- Generated artifacts and local machine files are intentionally not part of the clean repo layout.
+- The web app is the primary distribution and development focus.
+- SMS links and push notifications provide discovery and engagement.
+- The web app is optimized to feel native through responsive design and platform-aware interactions.

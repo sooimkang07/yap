@@ -1187,6 +1187,45 @@ button {
   background: var(--screen-background);
 }
 
+/* Same chrome layering as #screen-chat .chat-header: overlay + scroll under for backdrop blur */
+#screen-chats .top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: var(--chat-chrome-gradient);
+}
+
+.chats-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chats-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-top: var(--chats-header-reserved);
+  scroll-padding-top: var(--chats-header-reserved);
+}
+
+#screen-chats .chats-scroll .chats-grid {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
 .top-bar {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1377,25 +1416,22 @@ button {
 }
 
 .chat-card__name {
-  font-size: 0.938rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
-  line-height: 1.25;
-  letter-spacing: -0.013rem;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
-/* Three equal tracks: middle cell’s center matches the card (and art) center; trailing icons sit on the row’s right edge */
+/* Name stays centered on the card (same axis as .chat-card__art / besties avatars); trailing is absolutely positioned and does not shift the title */
 .chat-card__title-row {
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  display: flex;
   align-items: center;
+  justify-content: center;
   width: 100%;
   min-width: 0;
-}
-
-.chat-card__title-row:has(.chat-card__title-trailing) {
-  padding-inline-end: 2.375rem;
+  min-height: 1.875rem;
 }
 
 .chat-card__title-trailing {
@@ -1433,12 +1469,13 @@ button {
 }
 
 .chat-card__name-anchor {
-  position: relative;
-  grid-column: 2;
-  justify-self: center;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   min-width: 0;
   width: max-content;
-  max-width: 100%;
+  max-width: min(100%, calc(100% - 2.75rem));
 }
 
 .chat-card__title-row .chat-card__name-anchor .chat-badge {
@@ -2430,8 +2467,12 @@ button {
   box-shadow: 0 -0.25rem 2.5rem rgba(0,0,0,0.14);
   transform: translateY(100%);
   transition: transform 0.38s cubic-bezier(0.34, 1.1, 0.64, 1);
-  overflow-y: auto;
+  /* Never exceed viewport; keep sheet pinned to bottom without page scrolling. */
+  max-height: calc(100dvh - env(safe-area-inset-top, 0rem));
+  overflow: hidden;
   overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
 }
 
 .recording-overlay.visible .recording-sheet {
@@ -2595,11 +2636,13 @@ button {
    SCROLLBAR SUPPRESSION
    ═══════════════════════════════════════════════════════ */
 .chats-grid::-webkit-scrollbar,
+.chats-scroll::-webkit-scrollbar,
 .chat-topics::-webkit-scrollbar {
   display: none;
 }
 
 .chats-grid,
+.chats-scroll,
 .chat-topics {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -2665,6 +2708,12 @@ button {
   --radius-shell: 2.125rem;
   --radius-pill: 62.438rem;
   --size-control-md: 2.625rem;
+  /* Matches .top-bar row: safe-area top pad + max(controls, title line) + bottom pad */
+  --chats-header-reserved: calc(
+    max(0.75rem, calc(env(safe-area-inset-top) + 0.25rem))
+    + max(var(--size-control-md), calc(clamp(2rem, 7vw, 2.45rem) * 0.96))
+    + 0.625rem
+  );
   --size-control-lg: 2.75rem;
   --size-avatar-md: 2.625rem;
   --surface-glass-soft: rgba(255, 255, 255, 0.48);
@@ -2829,31 +2878,10 @@ html, body {
   color: var(--text-primary);
 }
 
-.top-bar {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 1rem;
-  padding: max(0.75rem, calc(env(safe-area-inset-top) + 0.25rem)) 1rem 0.625rem;
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  isolation: isolate;
-  background: var(--chat-chrome-gradient);
-  border-bottom: none;
-}
-
 .top-bar--permission {
   position: absolute;
   inset: 0 0 auto 0;
   z-index: 0;
-}
-
-.top-bar__title {
-  font-size: clamp(2rem, 7vw, 2.45rem);
-  font-weight: 700;
-  letter-spacing: -0.06em;
-  line-height: 0.96;
 }
 
 .icon-btn,
@@ -2912,9 +2940,15 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: calc(var(--size-control-md) * 2.2);
-  height: calc(var(--size-control-md) * 2.2);
+  width: calc(var(--size-control-md) * 2.05);
+  height: calc(var(--size-control-md) * 2.05);
   z-index: 3;
+}
+
+/* Same hit target as .chats-empty-state__cta (was half-size; doubled per product request) */
+#btn-start-chat.chats-empty-state__cta {
+  width: calc(var(--size-control-md) * 2.05);
+  height: calc(var(--size-control-md) * 2.05);
 }
 
 .chats-empty-state__cta.glassNavButton {
@@ -2924,6 +2958,11 @@ html, body {
 .chats-empty-state__cta.glassNavButton > svg {
   width: calc(var(--glass-nav-icon-secondary) * 5);
   height: calc(var(--glass-nav-icon-secondary) * 5);
+}
+
+#btn-start-chat.chats-empty-state__cta.glassNavButton > svg {
+  width: 26px;
+  height: 26px;
 }
 
 #screen-chats.has-chats .chats-empty-state__cta {
@@ -2946,7 +2985,7 @@ html, body {
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, calc(-50% + 5.25rem));
+  transform: translate(-50%, calc(-50% + 4.5rem));
   font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -2957,6 +2996,7 @@ html, body {
 
 #screen-chats:not(.has-chats) .chats-empty-state__cta-label {
   opacity: 1;
+  transform: translate(-50%, calc(-50% + 6.625rem));
 }
 
 .self-avatar--static {
@@ -3000,6 +3040,21 @@ html, body {
   box-shadow:
     inset 0 0.062rem 0 rgba(255,255,255,0.82),
     0 0.875rem 2.125rem rgba(220, 221, 230, 0.18);
+}
+
+.chat-art-besties--bare {
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.chat-art-besties--pips {
+  --chat-art-size: 3.25rem;
+}
+
+.chat-art-besties--hero {
+  --chat-art-size: 5.75rem;
 }
 
 .chat-art-besties__avatar {
@@ -3115,11 +3170,11 @@ html, body {
 }
 
 .chat-card__name {
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   text-align: center;
-  line-height: 1.875rem;
+  line-height: 1.3;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3128,20 +3183,22 @@ html, body {
 
 .chat-card__title-row {
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  display: flex;
   align-items: center;
+  justify-content: center;
   width: 100%;
   min-width: 0;
+  min-height: 1.875rem;
 }
 
 .chat-card__name-anchor {
-  position: relative;
-  grid-column: 2;
-  justify-self: center;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   min-width: 0;
   width: max-content;
-  max-width: 100%;
+  max-width: min(100%, calc(100% - 2.75rem));
 }
 
 .chat-card__title-row .chat-card__name-anchor .chat-badge {
@@ -3525,9 +3582,10 @@ html, body {
 
 @keyframes besties-float-single {
   0%, 100% { transform: translate3d(-50%, -50%, 0); }
-  25% { transform: translate3d(calc(-50% + 0.375rem), calc(-50% - 0.5rem), 0); }
-  50% { transform: translate3d(calc(-50% + 0.625rem), calc(-50% + 0.25rem), 0); }
-  75% { transform: translate3d(calc(-50% - 0.25rem), calc(-50% + 0.625rem), 0); }
+  20% { transform: translate3d(calc(-50% + 0.28rem), calc(-50% - 0.36rem), 0); }
+  40% { transform: translate3d(calc(-50% + 0.52rem), calc(-50% - 0.06rem), 0); }
+  60% { transform: translate3d(calc(-50% + 0.4rem), calc(-50% + 0.32rem), 0); }
+  80% { transform: translate3d(calc(-50% - 0.18rem), calc(-50% + 0.48rem), 0); }
 }
 
 .recording-backdrop {
@@ -4860,6 +4918,7 @@ html, body {
 
 .reply-row__title {
   font-weight: 700;
+  letter-spacing: 0;
 }
 
 .topic-row__meta,
@@ -5781,6 +5840,15 @@ select,
   width: 100%;
 }
 
+.group-details-hero__name-wrap[for="input-group-settings-name"] {
+  color: #000;
+}
+
+.group-details-hero__name-wrap[for="input-group-settings-name"] .group-details-hero__name {
+  color: #000;
+  -webkit-text-fill-color: #000;
+}
+
 .group-details-hero__name {
   width: 100%;
   border: 0;
@@ -6534,9 +6602,9 @@ select,
 
 #analysis-overlay .recording-sheet--analysis {
   gap: 0;
-  padding: 1.25rem 1.125rem 1.625rem;
+  padding: 1.25rem 1.125rem var(--analysis-sheet-bottom, 1rem);
   overflow-x: visible;
-  overflow-y: auto;
+  overflow-y: hidden;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.985) 0%, rgba(250,251,255,0.96) 48%, rgba(244,248,252,0.98) 100%);
 }
@@ -6552,6 +6620,24 @@ select,
     radial-gradient(circle at 52% 60%, rgba(255, 230, 201, 0.62), transparent 28%);
   opacity: 0.94;
   pointer-events: none;
+  z-index: 0;
+}
+
+.recording-sheet--analysis > * {
+  position: relative;
+  z-index: 1;
+}
+
+#analysis-overlay .rec-row--top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: transparent;
+}
+
+.analysis-heading,
+#analysis-label {
+  color: var(--text-primary);
 }
 
 .analysis-hero,
@@ -6581,7 +6667,8 @@ select,
   max-width: none;
   margin-left: -1.125rem;
   margin-right: -1.125rem;
-  min-height: 18.125rem;
+  min-height: 0;
+  height: clamp(10.5rem, 24vh, 16.25rem);
   position: relative;
   margin-top: 0.25rem;
   margin-bottom: 0.125rem;
@@ -6593,24 +6680,48 @@ select,
   overflow: visible;
 }
 
+/* Short mobile heights: keep sheet fully on-screen with no internal scrolling. */
+@media (max-height: 740px) {
+  .analysis-visual-field {
+    height: clamp(9rem, 22vh, 13.75rem);
+  }
+  .analysis-hero {
+    gap: 0.75rem;
+  }
+}
+
 .analysis-waveform-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  display: block;
+  opacity: 1;
   pointer-events: none;
   border-radius: 0;
-  z-index: 2;
+  z-index: 5;
+  mix-blend-mode: normal;
 }
 
-/* Replace orbital swirls with waveform canvas (kept in DOM for rollback) */
-.analysis-ribbon,
+/* Orbital ribbons are still in DOM for rollback/experiments. Keep hidden by default. */
+.analysis-ribbon {
+  display: none;
+}
+
+/* Opt-in: show legacy orbital ribbons if the visual field requests it. */
+.analysis-visual-field.analysis-visual-field--orbital .analysis-ribbon {
+  display: block;
+}
+
+/* The older wave cluster is kept for rollback but stays off. */
 .analysis-wave-cluster {
   display: none;
 }
 
 #analysis-overlay[data-phase='segments'] .analysis-visual-field {
-  display: none;
+  display: flex;
+  min-height: 12.5rem;
+  opacity: 0.92;
 }
 
 .analysis-visual-field__glow,
@@ -7182,8 +7293,8 @@ select,
   }
 
   .chat-card__name {
-    font-size: 1.062rem;
-    line-height: 1.2;
+    font-size: 0.9375rem;
+    line-height: 1.25;
   }
 
   .chat-badge {
@@ -8710,10 +8821,14 @@ select,
   gap: 0.75rem;
   padding: max(5.75rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
   pointer-events: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chat-context-menu__preview {
+  align-self: stretch;
   width: 100%;
+  max-width: 100%;
   min-height: 26rem;
   max-height: min(44rem, 74vh);
   padding: 1rem;
@@ -8727,7 +8842,7 @@ select,
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
   overflow: hidden;
   pointer-events: auto;
-  animation: chatContextPreviewIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: chatContextPreviewIn 0.52s cubic-bezier(0.22, 1, 0.36, 1);
   display: flex;
   flex-direction: column;
 }
@@ -8868,7 +8983,10 @@ select,
   right: auto;
   bottom: auto;
   margin: 0;
-  animation: besties-float-single 4.2s ease-in-out infinite;
+  /* Match chat empty-state motion: slower + smoother to avoid jitter. */
+  animation: besties-float-single 8.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .chat-context-preview-empty__photo {
@@ -8887,7 +9005,10 @@ select,
 }
 
 .chat-context-menu__popover {
-  width: min(15.625rem, calc(100vw - 3rem));
+  position: relative;
+  flex: 0 0 auto;
+  width: min(15.625rem, 100%);
+  /* Left edge flush with preview (column cross-start); width capped to column */
   align-self: flex-start;
   padding-block: 0.375rem;
   overflow: hidden;
@@ -8900,13 +9021,13 @@ select,
     0 1.25rem 2.75rem rgba(32, 37, 50, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.64);
   pointer-events: auto;
-  animation: popoverIn 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  animation: popoverIn 0.48s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes chatContextPreviewIn {
   from {
     opacity: 0;
-    transform: translateY(0.375rem) scale(0.98);
+    transform: translateY(0.75rem) scale(0.95);
   }
   to {
     opacity: 1;
@@ -8917,7 +9038,7 @@ select,
 @keyframes popoverIn {
   from {
     opacity: 0;
-    transform: translateY(0.375rem) scale(0.96);
+    transform: translateY(0.75rem) scale(0.93);
   }
   to {
     opacity: 1;
@@ -8964,17 +9085,21 @@ select,
   -webkit-mask-size: contain;
 }
 
-.chat-context-menu__icon--pin {
-  mask-image: url("../assets/pin.svg");
-  -webkit-mask-image: url("../assets/pin.svg");
+.chat-context-menu__icon-img {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
 }
 
-.chat-context-menu__icon--unread {
+.chat-context-menu__icon.chat-context-menu__icon--unread {
   mask-image: url("../assets/mark-as-unread.svg");
   -webkit-mask-image: url("../assets/mark-as-unread.svg");
 }
 
-.chat-context-menu__icon--alerts {
+.chat-context-menu__icon.chat-context-menu__icon--alerts {
   mask-image: url("../assets/hide-alerts.svg");
   -webkit-mask-image: url("../assets/hide-alerts.svg");
 }
@@ -8984,119 +9109,94 @@ select,
   -webkit-mask-image: url("../assets/delete.svg");
 }
 
-/* unpin.svg only for the pin row — scoped so no other menu icon can pick this mask up */
-#ctx-pin-chat .chat-context-menu__icon--unpin {
-  mask-image: url("../assets/unpin.svg");
-  -webkit-mask-image: url("../assets/unpin.svg");
-}
-
-.chat-context-menu__icon--read {
+.chat-context-menu__icon.chat-context-menu__icon--read {
   mask-image: url("../assets/mark-as-read.svg");
   -webkit-mask-image: url("../assets/mark-as-read.svg");
 }
 
-.chat-context-menu__icon--show-alerts {
+.chat-context-menu__icon.chat-context-menu__icon--show-alerts {
   mask-image: url("../assets/show-alerts.svg");
   -webkit-mask-image: url("../assets/show-alerts.svg");
 }
 
-.chat-context-delete-confirm {
+/* Delete sheet: white card (not glass popover chrome) */
+.chat-context-delete-confirm.chat-context-menu__popover {
   display: none;
   flex-direction: column;
-  align-items: center;
-  gap: 1.25rem;
-  width: 100%;
-  max-width: 19.5rem;
-  pointer-events: auto;
-  flex: 1 1 auto;
-  justify-content: center;
-  min-height: 0;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  background: #ffffff;
+  border: none;
+  border-radius: 1.75rem;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 0.375rem 1.25rem rgba(0, 122, 255, 0.12);
 }
 
-.chat-context-menu--delete-confirm .chat-context-delete-confirm {
-  display: flex;
-}
-
-.chat-context-menu--delete-confirm .chat-context-menu__preview,
-.chat-context-menu--delete-confirm .chat-context-menu__popover {
+.chat-context-delete-confirm[hidden],
+.chat-context-delete-confirm[hidden].chat-context-menu__popover {
   display: none !important;
 }
 
-.chat-context-menu--delete-confirm .chat-context-menu__content {
-  justify-content: center;
-  gap: 1rem;
+/* Swap: hide only the actions popover; preview + overlay stay as-is */
+.chat-context-menu--delete-confirm .chat-context-menu__actions {
+  display: none !important;
 }
 
-.chat-context-delete-confirm__hero {
+.chat-context-menu--delete-confirm .chat-context-delete-confirm:not([hidden]) {
+  display: flex !important;
+}
+
+.chat-context-delete-confirm__inner {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.625rem;
-  text-align: center;
-  filter: drop-shadow(0 0.25rem 1.25rem rgba(0, 0, 0, 0.12));
-}
-
-.chat-context-delete-confirm__art {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  --chat-art-size: 7.25rem;
-}
-
-.chat-context-delete-confirm__art .chat-art-besties,
-.chat-context-delete-confirm__art .chat-art-circle {
-  box-shadow:
-    inset 0 0.062rem 0 rgba(255, 255, 255, 0.82),
-    0 0.875rem 2.125rem rgba(220, 221, 230, 0.22);
-}
-
-.chat-context-delete-confirm__name {
-  font-size: 1.125rem;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--text-primary);
-  max-width: 100%;
-  padding-inline: 0.5rem;
-}
-
-.chat-context-delete-confirm__sheet {
-  width: 100%;
-  padding: 1.125rem 1rem 1rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 251, 255, 0.96));
-  box-shadow:
-    0 1.25rem 2.75rem rgba(32, 37, 50, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  align-items: stretch;
+  gap: 0;
+  padding: 1.25rem 1.125rem 1.125rem;
 }
 
 .chat-context-delete-confirm__message {
-  margin: 0 0 1rem;
-  text-align: center;
-  font-size: 0.9375rem;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  font-size: 1rem;
   font-weight: 400;
-  line-height: 1.35;
-  color: var(--text-primary);
+  line-height: 1.4;
+  color: #000000;
+}
+
+.chat-context-delete-confirm__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 
 .chat-context-delete-confirm__btn {
   display: block;
   width: 100%;
-  padding: 0.6875rem 1rem;
+  margin: 0;
+  padding: 0.75rem 1rem;
   border: none;
-  border-radius: 999px;
-  background: rgba(235, 237, 242, 0.95);
+  border-radius: 62.438rem;
+  background: #e8e8ed;
   color: #ff3b30;
   font-family: var(--font);
   font-size: 1rem;
   font-weight: 500;
   text-align: center;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
 .chat-context-delete-confirm__btn:active {
-  background-color: rgba(220, 223, 232, 0.98);
+  opacity: 0.92;
+  background: #dcdce3;
+}
+
+#ctx-delete-cancel-btn.chat-context-delete-confirm__btn {
+  color: var(--text-primary);
 }
 
 @media (max-height: 43rem) {

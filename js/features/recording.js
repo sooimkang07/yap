@@ -332,7 +332,17 @@ class RecordingManager {
 
   _startSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      // Web Speech API is not supported in many browsers (notably iOS Safari).
+      // Keep the UI honest instead of silently doing nothing.
+      this._renderTranscript('Live transcription unavailable on this device');
+      return;
+    }
+    if (typeof window.isSecureContext === 'boolean' && !window.isSecureContext) {
+      // SpeechRecognition generally requires a secure context (https).
+      this._renderTranscript('Live transcription requires https');
+      return;
+    }
 
     try {
       this.recognition = new SpeechRecognition();
@@ -352,15 +362,38 @@ class RecordingManager {
         this._renderTranscript(combined || APP_COPY.listening);
       };
 
-      this.recognition.onerror = () => {};
+      this.recognition.onerror = event => {
+        // Don’t spin/restart forever on hard failures (permission / network / not-allowed).
+        const code = String(event?.error || '').toLowerCase();
+        if (code === 'not-allowed' || code === 'service-not-allowed') {
+          this._renderTranscript('Live transcription permission blocked');
+          this._stopSpeechRecognition();
+          return;
+        }
+        // Keep the UI neutral for transient/service errors (don’t claim “offline”).
+        if (code === 'network') {
+          this._renderTranscript(APP_COPY.listening);
+        }
+        console.warn('[yAp] SpeechRecognition error:', event?.error || event);
+      };
       this.recognition.onend = () => {
         if (this.phase === 'recording') {
-          try { this.recognition.start(); } catch {}
+          try { this.recognition.start(); } catch (err) {
+            console.warn('[yAp] SpeechRecognition restart failed:', err);
+          }
         }
       };
 
-      this.recognition.start();
-    } catch {
+      try {
+        this.recognition.start();
+      } catch (err) {
+        console.warn('[yAp] SpeechRecognition start failed:', err);
+        this._renderTranscript('Live transcription failed to start');
+        this._stopSpeechRecognition();
+      }
+    } catch (err) {
+      console.warn('[yAp] SpeechRecognition init failed:', err);
+      this._renderTranscript('Live transcription unavailable');
       this.recognition = null;
     }
   }

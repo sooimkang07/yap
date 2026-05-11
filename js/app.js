@@ -270,6 +270,7 @@ function cacheDOM() {
   DOM.btnLeaveGroup = document.getElementById('btn-leave-group');
   DOM.groupSettingsFeedback = document.getElementById('group-settings-feedback');
   DOM.groupSettingsHeroAvatars = document.getElementById('group-settings-hero-avatars');
+  DOM.btnGroupSettingsEdit = document.getElementById('btn-group-settings-edit');
   DOM.groupSettingsContactCard = document.getElementById('group-settings-contact-card');
   DOM.groupSettingsContactPhone = document.getElementById('group-settings-contact-phone');
   DOM.groupSettingsSummaryPeople = document.getElementById('group-settings-summary-people');
@@ -1023,14 +1024,14 @@ function renderChatsList() {
       ? `<span class="chat-badge" aria-label="${chat.unread} unread message${chat.unread === 1 ? '' : 's'}"></span>`
       : '';
 
-    const unreadAlertsIconHTML = chat.unread > 0
+    const hideAlertsIconHTML = chat.hideAlerts
       ? `<span class="chat-card__unread-alerts-icon" aria-hidden="true"></span>`
       : '';
     const pinHTML = chat.pinned
       ? `<span class="chat-card__pin" aria-hidden="true"></span>`
       : '';
-    const trailingHTML = unreadAlertsIconHTML || pinHTML
-      ? `<div class="chat-card__title-trailing">${unreadAlertsIconHTML}${pinHTML}</div>`
+    const trailingHTML = hideAlertsIconHTML || pinHTML
+      ? `<div class="chat-card__title-trailing">${hideAlertsIconHTML}${pinHTML}</div>`
       : '';
 
     return `
@@ -1218,8 +1219,10 @@ function syncChatContextMenuLabels(chat) {
   const pinLabel = pinBtn?.querySelector('.ctx-menu-label');
   if (pinIcon && pinLabel) {
     pinLabel.textContent = chat.pinned ? 'Unpin' : 'Pin';
-    pinIcon.classList.toggle('chat-context-menu__icon--pin', !chat.pinned);
-    pinIcon.classList.toggle('chat-context-menu__icon--unpin', !!chat.pinned);
+    const nextSrc = chat.pinned ? 'assets/unpin.svg' : 'assets/pin.svg';
+    if (pinIcon instanceof HTMLImageElement) {
+      pinIcon.src = nextSrc;
+    }
   }
 
   const unreadBtn = document.getElementById('ctx-mark-unread');
@@ -1228,8 +1231,8 @@ function syncChatContextMenuLabels(chat) {
   const hasUnread = Number(chat.unread || 0) > 0;
   if (unreadIcon && unreadLabel) {
     unreadLabel.textContent = hasUnread ? 'Mark as Read' : 'Mark as Unread';
-    unreadIcon.classList.toggle('chat-context-menu__icon--unread', !hasUnread);
-    unreadIcon.classList.toggle('chat-context-menu__icon--read', hasUnread);
+    unreadIcon.classList.remove('chat-context-menu__icon--unread', 'chat-context-menu__icon--read');
+    unreadIcon.classList.add(hasUnread ? 'chat-context-menu__icon--read' : 'chat-context-menu__icon--unread');
   }
 
   const alertsBtn = document.getElementById('ctx-hide-alerts');
@@ -1238,24 +1241,26 @@ function syncChatContextMenuLabels(chat) {
   const muted = !!chat.hideAlerts;
   if (alertsIcon && alertsLabel) {
     alertsLabel.textContent = muted ? 'Show Alerts' : 'Hide Alerts';
-    alertsIcon.classList.toggle('chat-context-menu__icon--alerts', !muted);
-    alertsIcon.classList.toggle('chat-context-menu__icon--show-alerts', muted);
+    alertsIcon.classList.remove('chat-context-menu__icon--alerts', 'chat-context-menu__icon--show-alerts');
+    alertsIcon.classList.add(muted ? 'chat-context-menu__icon--show-alerts' : 'chat-context-menu__icon--alerts');
   }
 }
 
 function enterChatContextDeleteConfirm() {
   const chatId = AppState.contextMenuChatId;
   if (!chatId || !DOM.chatContextMenu) return;
-  const chat = AppState.chats.find(c => c.id === chatId);
-  if (!chat) return;
+  if (!AppState.chats.some(c => c.id === chatId)) return;
 
-  const art = document.getElementById('chat-context-delete-art');
-  const nameEl = document.getElementById('chat-context-delete-name');
   const confirmEl = document.getElementById('chat-context-delete-confirm');
-  if (art) art.innerHTML = _chatArtHTML(chat);
-  if (nameEl) nameEl.textContent = getChatDisplayName(chat);
   if (confirmEl) confirmEl.removeAttribute('hidden');
   DOM.chatContextMenu.classList.add('chat-context-menu--delete-confirm');
+}
+
+function exitChatContextDeleteConfirm() {
+  if (!DOM.chatContextMenu) return;
+  const confirmEl = document.getElementById('chat-context-delete-confirm');
+  if (confirmEl) confirmEl.setAttribute('hidden', '');
+  DOM.chatContextMenu.classList.remove('chat-context-menu--delete-confirm');
 }
 
 async function executeLeaveAndRemoveChat(chatId) {
@@ -1281,10 +1286,9 @@ function showChatContextMenu(chatId) {
   const confirmEl = document.getElementById('chat-context-delete-confirm');
   if (confirmEl) confirmEl.setAttribute('hidden', '');
 
-  const card = document.querySelector(`[data-chat-id="${chatId}"]`);
-  const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
+  const actionsEl = document.getElementById('chat-context-menu-actions');
   const preview = document.getElementById('chat-context-preview');
-  if (!card || !popover) return;
+  if (!actionsEl) return;
 
   if (preview) {
     const threads = Store.getCachedThreads(chatId) || [];
@@ -1379,28 +1383,6 @@ function showChatContextMenu(chatId) {
     }
   }
 
-  const cardRect = card.getBoundingClientRect();
-  const popoverRect = popover.getBoundingClientRect();
-
-  let top = cardRect.bottom + 12;
-  let left = cardRect.left + (cardRect.width / 2) - (popoverRect.width / 2);
-
-  // Prevent popover from going off-screen horizontally
-  const padding = 16;
-  if (left < padding) {
-    left = padding;
-  } else if (left + popoverRect.width > window.innerWidth - padding) {
-    left = window.innerWidth - popoverRect.width - padding;
-  }
-
-  // Prevent popover from going off-screen vertically
-  if (top + popoverRect.height > window.innerHeight - padding) {
-    top = cardRect.top - popoverRect.height - 12;
-  }
-
-  popover.style.top = Math.max(padding, top) + 'px';
-  popover.style.left = left + 'px';
-
   AppState.contextMenuChatId = chatId;
   updateChatsUnreadCounts();
   const menuChat = AppState.chats.find(c => c.id === chatId) || null;
@@ -1414,11 +1396,6 @@ function hideChatContextMenu() {
   DOM.chatContextMenu.classList.remove('chat-context-menu--delete-confirm');
   const confirmEl = document.getElementById('chat-context-delete-confirm');
   if (confirmEl) confirmEl.setAttribute('hidden', '');
-  const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
-  if (popover) {
-    popover.style.top = '';
-    popover.style.left = '';
-  }
   DOM.chatContextMenu.classList.remove('active');
   DOM.chatContextMenu.setAttribute('hidden', '');
   AppState.contextMenuChatId = null;
@@ -2410,16 +2387,30 @@ function renderActiveChatShell(chat) {
   DOM.chatTitle.textContent = getChatDisplayName(chat);
 
   const currentUserId = getCurrentUserId();
-  DOM.chatMemberPips.innerHTML = (chat.members || [])
-    .filter(member => member.id !== currentUserId)
-    .map(member => {
-      const avatarUrl = member.avatarUrl ? `url('${member.avatarUrl}')` : 'none';
-      const bgColor = member.color || pickUserColor(member.name || member.phoneE164 || member.id || '');
-      return `<div class="member-pip" style="background-image:${avatarUrl}; background-color:${bgColor}; background-size:cover; background-position:center;"></div>`;
-    })
-    .join('');
-
   const otherMembers = getChatOtherMembers(chat);
+  if (DOM.chatMemberPips) {
+    if (otherMembers.length > 1) {
+      const pipMembers = otherMembers.slice(0, 2);
+      DOM.chatMemberPips.innerHTML = `
+        <div class="chat-art-besties chat-art-besties--pips">
+          ${pipMembers.map((member, index) => buildMemberAvatarMarkup(
+            member,
+            `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
+          )).join('')}
+        </div>
+      `;
+    } else {
+      DOM.chatMemberPips.innerHTML = (chat.members || [])
+        .filter(member => member.id !== currentUserId)
+        .map(member => {
+          const avatarUrl = member.avatarUrl ? `url('${member.avatarUrl}')` : 'none';
+          const bgColor = member.color || pickUserColor(member.name || member.phoneE164 || member.id || '');
+          return `<div class="member-pip" style="background-image:${avatarUrl}; background-color:${bgColor}; background-size:cover; background-position:center;"></div>`;
+        })
+        .join('');
+    }
+  }
+
   renderChatPresence(chat);
   DOM.chatEmpty?.classList.toggle('is-single-member', otherMembers.length === 1);
 
@@ -3618,7 +3609,7 @@ function updateContactsHubChrome() {
 
 // ── Recording flow ────────────────────────────────────
 // Debug helpers for animation iteration (do not ship enabled).
-const YAP_DEBUG_HOLD_ANALYSIS_AFTER_SEND = true;
+const YAP_DEBUG_HOLD_ANALYSIS_AFTER_SEND = false;
 const YAP_DEBUG_SEND_TRANSITION_MS = 2400;
 
 async function startRecording() {
@@ -3689,6 +3680,7 @@ async function sendRecording() {
   const durationMs = mgr.durationMs || 0;
   // Independent URL that survives mgr.discard()
   const audioUrl   = URL.createObjectURL(blob);
+  const seedMessageId = `local-${Date.now()}`;
   const replyTargetThreadId = AppState.replyTargetThreadId;
   const chatId = AppState.activeChat?.id || ACTIVE_CHAT_ID;
   const authorId = getCurrentUserId();
@@ -3759,7 +3751,47 @@ async function sendRecording() {
       }
 
       // Process in background with no loading screen
-      await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl);
+      // If Supabase isn't ready, create a deterministic optimistic placeholder so the memo
+      // appears immediately and is replaced/deduped when segments arrive.
+      if (!isSupabaseReady()) {
+        const threadId = `thread-${seedMessageId}-0`;
+        const currentAuthor = getUserById(authorId) || getCurrentUser();
+        if (!Store.getThread(threadId)) {
+          Store.addThread({
+            id: threadId,
+            chatId,
+            label: 'Voice memo',
+            excerpt: 'Analyzing…',
+            createdAt: Date.now(),
+            lastActivityAt: Date.now(),
+            messages: [],
+          });
+        }
+        Store.addMessage(threadId, {
+          id: `${seedMessageId}-seg-0`,
+          voiceMessageId: seedMessageId,
+          threadId,
+          authorId,
+          author: currentAuthor,
+          audioUrl,
+          audioBlob: blob,
+          durationMs,
+          label: 'Voice memo',
+          transcript: 'Analyzing…',
+          excerpt: 'Analyzing…',
+          startMs: 0,
+          endMs: durationMs,
+          sentAt: Date.now(),
+          parentMemoId: seedMessageId,
+          heardByCurrentUser: true,
+          optimistic: true,
+          status: 'sending',
+        });
+        renderTopics();
+        scrollChatToLatest();
+      }
+
+      await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl, seedMessageId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err || 'Something went wrong');
       console.error('[yAp] Pipeline error:', {
@@ -4603,15 +4635,48 @@ function renderGroupSettings(invites = []) {
     DOM.btnSaveGroupSettings.textContent = editing ? 'Done' : 'Edit';
     DOM.btnSaveGroupSettings.classList.toggle('is-disabled', !canManage);
   }
+  if (DOM.btnGroupSettingsEdit) {
+    const showEdit = canManage && !isDirectChat;
+    DOM.btnGroupSettingsEdit.hidden = !showEdit;
+    const isTopbarEditing = DOM.btnGroupSettingsEdit.dataset.editing === 'true';
+    if (editing && !isTopbarEditing) {
+      DOM.btnGroupSettingsEdit.dataset.editing = 'true';
+      DOM.btnGroupSettingsEdit.innerHTML = '<img src="assets/done.svg" alt="" aria-hidden="true">';
+      DOM.btnGroupSettingsEdit.classList.add('is-icon-only');
+      DOM.btnGroupSettingsEdit.setAttribute('aria-label', 'Done editing group');
+    }
+    if (!editing && isTopbarEditing) {
+      delete DOM.btnGroupSettingsEdit.dataset.editing;
+      DOM.btnGroupSettingsEdit.classList.remove('is-icon-only');
+      DOM.btnGroupSettingsEdit.textContent = 'Edit';
+      DOM.btnGroupSettingsEdit.setAttribute('aria-label', 'Edit group');
+    }
+  }
   DOM.groupSettingsInviteCard?.classList.toggle('is-hidden', !editing || isDirectChat);
   if (DOM.toggleGroupHideAlerts) DOM.toggleGroupHideAlerts.checked = !!AppState.groupSettingsPrefs.hideAlerts;
 
   if (DOM.groupSettingsHeroAvatars) {
-    DOM.groupSettingsHeroAvatars.innerHTML = members.filter(member => member.id !== currentUserId).slice(0, 3).map(member => `
-      <div class="${buildAvatarClass('group-details-hero__avatar', member)}" style="${buildAvatarStyle(member)}">
-        ${buildAvatarContent(member)}
-      </div>
-    `).join('');
+    if (otherMembers.length > 1) {
+      const heroMembers = otherMembers.slice(0, 2);
+      DOM.groupSettingsHeroAvatars.innerHTML = `
+        <div class="chat-art-besties chat-art-besties--hero">
+          ${heroMembers.map((member, index) => buildMemberAvatarMarkup(
+            member,
+            `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
+          )).join('')}
+        </div>
+      `;
+    } else {
+      DOM.groupSettingsHeroAvatars.innerHTML = members
+        .filter(member => member.id !== currentUserId)
+        .slice(0, 3)
+        .map(member => `
+          <div class="${buildAvatarClass('group-details-hero__avatar', member)}" style="${buildAvatarStyle(member)}">
+            ${buildAvatarContent(member)}
+          </div>
+        `)
+        .join('');
+    }
   }
 
   if (DOM.groupSettingsPeopleStrip) {
@@ -5449,7 +5514,7 @@ function wireEvents() {
     pressTimer = setTimeout(() => {
       showChatContextMenu(card.dataset.chatId);
       pressTimer = null;
-    }, 500);
+    }, 720);
   });
   DOM.chatsGrid.addEventListener('pointerup', () => {
     if (pressTarget) pressTarget.classList.remove('chat-card--pressing');
@@ -5471,9 +5536,10 @@ function wireEvents() {
     event.preventDefault();
   });
 
-  // Chat context menu handlers
+  // Chat context menu handlers — overlay tap dismisses (including delete-confirm → back to chats)
   DOM.chatContextMenu?.addEventListener('click', event => {
-    if (event.target === DOM.chatContextMenu || event.target === DOM.chatContextMenu.querySelector('.chat-context-menu__overlay')) {
+    const overlay = DOM.chatContextMenu.querySelector('.chat-context-menu__overlay');
+    if (event.target === DOM.chatContextMenu || event.target === overlay) {
       hideChatContextMenu();
     }
   });
@@ -5501,6 +5567,10 @@ function wireEvents() {
       hideChatContextMenu();
     }
   });
+  document.getElementById('ctx-delete-cancel-btn')?.addEventListener('click', event => {
+    event.stopPropagation();
+    exitChatContextDeleteConfirm();
+  });
 
   DOM.btnBack.addEventListener('click', () => {
     void closeActiveChatAndNavigateToList();
@@ -5509,6 +5579,20 @@ function wireEvents() {
   DOM.btnGroupSettingsBack?.addEventListener('click', () => {
     AppState.groupSettingsEditing = false;
     goBack('chat');
+  });
+  DOM.btnGroupSettingsEdit?.addEventListener('click', async () => {
+    // Mirror profile settings: topbar Edit toggles into Done (icon-only).
+    if (!AppState.activeChat) return;
+    if (!canManageActiveChat()) return;
+
+    if (!AppState.groupSettingsEditing) {
+      AppState.groupSettingsEditing = true;
+      renderGroupSettings(AppState.supabaseOk ? await getInvitationsForChat(AppState.activeChat.id) : []);
+      DOM.inputGroupSettingsName?.focus();
+      DOM.inputGroupSettingsName?.select();
+      return;
+    }
+    await saveGroupSettingsNameFromEditor();
   });
   DOM.btnSaveGroupSettings?.addEventListener('click', async () => {
     if (!AppState.activeChat) return;

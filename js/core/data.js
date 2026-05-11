@@ -1054,7 +1054,31 @@ async function getNotificationRecipients(chatId, excludeUserId) {
       phone_e164: normalizePhoneNumber(user.phone_e164 || ''),
     }));
 
-  return dedupeNotificationRecipients([...joinedRecipients, ...fallbackRecipients]);
+  // Also notify pending invitees (phone-number members who haven't accepted yet).
+  // This is critical for the demo: a phone-only recipient still needs SMS nudges
+  // for new messages and for the original invite link to be usable.
+  const { data: inviteRows, error: inviteError } = await supabaseClient
+    .from('invitations')
+    .select('id, invite_token, invitee_name, phone_e164, status')
+    .eq('chat_id', chatId)
+    .in('status', ['pending', 'sent']);
+
+  if (inviteError) {
+    console.warn('[yAp] getNotificationRecipients invitations lookup failed:', inviteError);
+    return dedupeNotificationRecipients([...joinedRecipients, ...fallbackRecipients]);
+  }
+
+  const pendingInviteRecipients = (inviteRows || [])
+    .filter(invite => invite?.id && invite?.invite_token && invite?.phone_e164)
+    .map(invite => ({
+      id: `pending-${invite.id}`,
+      invitation_id: invite.id,
+      invite_token: invite.invite_token,
+      name: invite.invitee_name || '',
+      phone_e164: normalizePhoneNumber(invite.phone_e164 || ''),
+    }));
+
+  return dedupeNotificationRecipients([...joinedRecipients, ...pendingInviteRecipients, ...fallbackRecipients]);
 }
 
 function dedupeNotificationRecipients(recipients = []) {
@@ -1185,7 +1209,9 @@ async function sendMessageNotifications({ chatId, chatName, senderName, recipien
       kind: notificationKind === 'chat_invite' ? 'chat_invite' : (isReply ? 'reply' : 'message'),
       thread_label: threadLabel || null,
       transcript: transcript || null,
-      target_url: targetUrl,
+      // If this recipient is still a pending invitee, send them to the invite deep link
+      // so the SMS is actionable even before they join.
+      target_url: recipient.invite_token ? buildInviteDeepLinkForNotification(recipient.invite_token) : targetUrl,
       channel: 'sms',
       status: 'pending',
     }))
@@ -1218,6 +1244,12 @@ async function sendMessageNotifications({ chatId, chatName, senderName, recipien
 function buildChatDeepLinkForNotification(chatId) {
   const url = new URL(window.location.origin + window.location.pathname);
   if (chatId) url.searchParams.set('chat', chatId);
+  return url.toString();
+}
+
+function buildInviteDeepLinkForNotification(inviteToken) {
+  const url = new URL(window.location.origin + window.location.pathname);
+  if (inviteToken) url.searchParams.set('invite', inviteToken);
   return url.toString();
 }
 
@@ -2257,7 +2289,9 @@ const Store = {
   addMessage(threadId, message) {
     const t = this.threads.find(t => t.id === threadId);
     if (t) {
-      t.messages.push(this._normalizeMessage(message));
+      const normalized = this._normalizeMessage(message);
+      if (t.messages.some(existing => existing.id === normalized.id)) return;
+      t.messages.push(normalized);
       t.lastActivityAt = message.sentAt || Date.now();
       this._recalculateThreadState(t);
       this._syncActiveChatCache();

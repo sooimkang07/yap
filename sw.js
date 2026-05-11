@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'yap-shell-v4';
+const SHELL_CACHE = 'yap-shell-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

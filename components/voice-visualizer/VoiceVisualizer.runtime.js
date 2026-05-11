@@ -10,6 +10,10 @@ import {
 
 const h = React.createElement;
 
+const YAP_RIBBON_STROKE_HEX = ['#b8d8ff', '#dec0f8', '#ffdeb8', '#dfffb8'];
+
+const monoRibbonColors = hex => [hex, hex, hex, hex];
+
 const BACKDROP_UNIFORMS = () => ({
   uTime: { value: 0 },
   uEnvelope: { value: 0 },
@@ -17,10 +21,13 @@ const BACKDROP_UNIFORMS = () => ({
   uMid: { value: 0 },
   uHigh: { value: 0 },
   uWake: { value: 0 },
-  uGlowA: { value: new Color('#ffcc7f') },
-  uGlowB: { value: new Color('#d88cff') },
-  uGlowC: { value: new Color('#86e8ff') },
+  uGlowA: { value: new Color('#ffdeb8') },
+  uGlowB: { value: new Color('#dec0f8') },
+  uGlowC: { value: new Color('#b8d8ff') },
 });
+
+const RIBBON_THICKNESS = 0.34;
+const RIBBON_OPACITY = 0.68;
 
 const RIBBONS = [
   {
@@ -30,10 +37,10 @@ const RIBBONS = [
     scale: [4.8, 1.45, 1],
     amplitudeMultiplier: 1.12,
     frequencyMultiplier: 0.18,
-    thickness: 0.24,
-    opacity: 0.72,
+    thickness: RIBBON_THICKNESS,
+    opacity: RIBBON_OPACITY,
     layerOffset: 0.16,
-    colors: ['#ffe08e', '#ff9d70', '#cd72ff', '#f9f6ff'],
+    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[0]),
   },
   {
     offsetY: 0.0,
@@ -42,10 +49,10 @@ const RIBBONS = [
     scale: [5.0, 1.25, 1],
     amplitudeMultiplier: 0.88,
     frequencyMultiplier: 0.42,
-    thickness: 0.24,
-    opacity: 0.58,
+    thickness: RIBBON_THICKNESS,
+    opacity: RIBBON_OPACITY,
     layerOffset: 0.48,
-    colors: ['#eafaff', '#72dfff', '#f6b4ff', '#fff2c4'],
+    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[1]),
   },
   {
     offsetY: -0.16,
@@ -54,10 +61,22 @@ const RIBBONS = [
     scale: [5.2, 1.0, 1],
     amplitudeMultiplier: 0.66,
     frequencyMultiplier: 0.82,
-    thickness: 0.24,
-    opacity: 0.46,
+    thickness: RIBBON_THICKNESS,
+    opacity: RIBBON_OPACITY,
     layerOffset: 0.84,
-    colors: ['#ffffff', '#d9eeff', '#ffddf6', '#a9f7ff'],
+    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[2]),
+  },
+  {
+    offsetY: -0.22,
+    offsetZ: 0.55,
+    rotationZ: 0.14,
+    scale: [5.0, 1.05, 1],
+    amplitudeMultiplier: 0.62,
+    frequencyMultiplier: 0.95,
+    thickness: RIBBON_THICKNESS,
+    opacity: RIBBON_OPACITY,
+    layerOffset: 1.02,
+    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[3]),
   },
 ];
 
@@ -74,7 +93,7 @@ const createRibbonUniforms = config => ({
   uAmplitudeMultiplier: { value: config.amplitudeMultiplier },
   uFrequencyMultiplier: { value: config.frequencyMultiplier },
   uThickness: { value: config.thickness },
-  uEdgePx: { value: 6.0 },
+  uEdgePx: { value: 14.0 },
   uOpacity: { value: config.opacity },
   uColorA: { value: new Color(config.colors[0]) },
   uColorB: { value: new Color(config.colors[1]) },

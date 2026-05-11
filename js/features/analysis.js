@@ -9,14 +9,18 @@
 // v1 — Canvas: symmetric “Siri-like” vertical blob waveform + center line
 //      (kept as _drawSymmetricBlobWaveform).
 // v2 — Canvas: “segmenting” — one continuous mount.js ribbon (2× amplitude) merged left of the
-//      shell-centered split (#app / layout), smoothstep fan into four threads to the right; hub is .analysis-core in DOM.
+//      viewport-centered split, smoothstep fan into four threads to the right; hub is .analysis-core in DOM.
 //      Current mode: set ANALYSIS_VISUAL_MODE below ('segmenting' | 'symmetric-blob').
 //
 const ANALYSIS_VISUAL_MODE = 'segmenting';
+// Legacy orbital ribbons (CSS-only). Keep off so the newest canvas visual reads clearly.
+const ANALYSIS_SHOW_ORBITAL_RIBBONS = false;
+// Debug: prove the canvas draw loop is running (small non-UI heartbeat).
+const ANALYSIS_DEBUG_DRAW_LOOP = false;
 
 const ANALYSIS_COPY = {
   idleLabel: 'Analyzing',
-  idleTitle: 'Breaking your memo into topics',
+  idleTitle: 'Breaking your yap into topics',
   idleStatus: 'Unraveling the plot',
 };
 
@@ -30,7 +34,7 @@ const ANALYSIS_STATUS_STEPS = [
 const ANALYSIS_STATUS_STEP_MS = 3400;
 
 // Temporary tuning knobs for visual iteration.
-const ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING = true;
+const ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING = false;
 
 /**
  * Same wave stack as `components/voice-visualizer/mount.js` (canvas fallback
@@ -87,24 +91,21 @@ function smoothstep01(t) {
 }
 
 /**
- * Horizontal center of the visible yAp surface in client (CSS) pixels.
- * Prefer `#app` (letterboxed shell on desktop) over raw `visualViewport`, which can
- * skew the anchor and push the fork too far right on some browsers / embeds.
+ * Horizontal center of the device viewport in client (CSS) pixels — same space as
+ * `getBoundingClientRect()`, so the four threads fork from true screen center (not
+ * the letterboxed `#app` box).
  */
 function segmentingSplitAnchorClientX() {
-  const app = document.getElementById('app');
-  if (app) {
-    const r = app.getBoundingClientRect();
-    if (r.width > 1) {
-      return r.left + r.width * 0.5;
-    }
+  const vv = window.visualViewport;
+  if (vv && vv.width > 1) {
+    return vv.left + vv.width * 0.5;
   }
   return window.innerWidth * 0.5;
 }
 
 /**
- * Canvas-space x where merged ribbon becomes four threads: aligned to the yAp shell
- * center (or layout viewport), mapped into canvas pixels (not merely canvas box center).
+ * Canvas-space x where merged ribbon becomes four threads: aligned to the viewport
+ * center, mapped into canvas pixels (not merely canvas box center).
  */
 function segmentingSplitCenterCanvasPx(canvas, w) {
   if (!canvas || !w) return w * 0.5;
@@ -173,6 +174,10 @@ const AnalysisModal = {
   _canvasW: 0,
   _canvasH: 0,
   _visualPreviewRaf: 0,
+  _debugFrame: 0,
+  _debugLoggedStart: false,
+  _debugLoggedPreviewTick: false,
+  _debugLoggedAudioTick: false,
 
   _setAnalysisStatusStrip(text, showDots = true) {
     const line = DOM.analysisStatusLine;
@@ -191,6 +196,9 @@ const AnalysisModal = {
     DOM.analysisOverlay.setAttribute('aria-hidden', 'false');
     DOM.analysisBars.innerHTML = '';
     DOM.analysisOverlay.dataset.phase = 'loading';
+    if (DOM.analysisVisualField) {
+      DOM.analysisVisualField.classList.toggle('analysis-visual-field--orbital', ANALYSIS_SHOW_ORBITAL_RIBBONS);
+    }
     DOM.analysisLabel.textContent = ANALYSIS_COPY.idleLabel;
     DOM.analysisTitle.textContent = ANALYSIS_COPY.idleTitle;
     this._setAnalysisStatusStrip(ANALYSIS_COPY.idleStatus, true);
@@ -199,10 +207,15 @@ const AnalysisModal = {
     this._vizLastNow = 0;
     this._vizAudio = { envelope: 0.18, bass: 0, mid: 0, high: 0, attack: 0 };
     this._initCanvas();
+    if (ANALYSIS_DEBUG_DRAW_LOOP && !this._debugLoggedStart) {
+      this._debugLoggedStart = true;
+      console.log('[yAp][analysis] visual open; starting draw loop');
+    }
+    // Always start a preview loop immediately so the sheet never goes blank.
+    // If audio-reactive mode becomes available, it will replace the preview loop.
+    this._startVisualPreviewLoop();
     if (audioBlob && audioBlob.size) {
       void this._startReactiveAudio(audioBlob);
-    } else {
-      this._startVisualPreviewLoop();
     }
     let stepIndex = 0;
     this._statusInterval = setInterval(() => {
@@ -371,7 +384,9 @@ const AnalysisModal = {
     const canvas = DOM.analysisWaveformCanvas;
     if (!canvas) return;
     this._canvas = canvas;
-    this._ctx2d = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    // iOS Safari may return null for unsupported context attributes (notably `desynchronized`).
+    // Fall back to a plain 2D context so the visual always renders.
+    this._ctx2d = canvas.getContext('2d', { alpha: true, desynchronized: true }) || canvas.getContext('2d');
     this._resizeCanvas();
   },
 
@@ -395,28 +410,66 @@ const AnalysisModal = {
   _startVisualPreviewLoop() {
     this._stopVisualPreviewLoop();
     const tick = () => {
-      if (!DOM.analysisOverlay?.classList.contains('visible') || DOM.analysisOverlay.dataset.phase !== 'loading') {
-        this._stopVisualPreviewLoop();
-        return;
+      try {
+        if (ANALYSIS_DEBUG_DRAW_LOOP && !this._debugLoggedPreviewTick) {
+          this._debugLoggedPreviewTick = true;
+          console.log('[yAp][analysis] preview tick running');
+        }
+
+        if (!this._ctx2d || !this._canvas) {
+          this._initCanvas();
+        }
+        this._resizeCanvas();
+
+        const phase = DOM.analysisOverlay?.dataset?.phase;
+        const allow = phase === 'loading' || phase === 'segments';
+        if (!DOM.analysisOverlay?.classList.contains('visible') || !allow) {
+          if (ANALYSIS_DEBUG_DRAW_LOOP) {
+            console.log('[yAp][analysis] preview tick stopped', {
+              visible: DOM.analysisOverlay?.classList?.contains?.('visible'),
+              phase,
+              allow,
+            });
+          }
+          this._stopVisualPreviewLoop();
+          return;
+        }
+
+        const t = performance.now() / 1000;
+        const fake = 0.38 + 0.22 * Math.sin(t * 1.15) + 0.08 * Math.sin(t * 2.7);
+        const fakeGlow = 0.38 + 0.22 * Math.sin(t * 0.2) + 0.08 * Math.sin(t * 0.38);
+        const bands = {
+          bass: fake * 0.75,
+          mids: fake,
+          treble: fake * 0.85,
+          master: fake,
+        };
+        const field = DOM.analysisVisualField;
+        if (field) {
+          const L = Math.min(1, Math.max(0.1, fakeGlow));
+          field.style.setProperty('--analysis-level', L.toFixed(4));
+          field.style.setProperty('--analysis-glow-mul', (0.9 + L * 0.22).toFixed(4));
+        }
+        this._drawAnalysisVisual(bands, t);
+
+        if (ANALYSIS_DEBUG_DRAW_LOOP && this._ctx2d && this._canvasW && this._canvasH) {
+          // Heartbeat pixel: draw AFTER main render (otherwise clearRect wipes it).
+          this._debugFrame += 1;
+          this._ctx2d.save();
+          this._ctx2d.setTransform(1, 0, 0, 1, 0, 0);
+          this._ctx2d.globalCompositeOperation = 'source-over';
+          this._ctx2d.globalAlpha = 1;
+          this._ctx2d.filter = 'none';
+          this._ctx2d.shadowBlur = 0;
+          this._ctx2d.fillStyle = (this._debugFrame % 2) ? 'rgba(255,0,0,0.95)' : 'rgba(0,0,255,0.95)';
+          this._ctx2d.fillRect(2, 2, 6, 6);
+          this._ctx2d.restore();
+        }
+      } catch (err) {
+        console.error('[yAp][analysis] preview tick error:', err);
+      } finally {
+        this._visualPreviewRaf = requestAnimationFrame(tick);
       }
-      this._resizeCanvas();
-      const t = performance.now() / 1000;
-      const fake = 0.38 + 0.22 * Math.sin(t * 1.15) + 0.08 * Math.sin(t * 2.7);
-      const fakeGlow = 0.38 + 0.22 * Math.sin(t * 0.2) + 0.08 * Math.sin(t * 0.38);
-      const bands = {
-        bass: fake * 0.75,
-        mids: fake,
-        treble: fake * 0.85,
-        master: fake,
-      };
-      const field = DOM.analysisVisualField;
-      if (field) {
-        const L = Math.min(1, Math.max(0.1, fakeGlow));
-        field.style.setProperty('--analysis-level', L.toFixed(4));
-        field.style.setProperty('--analysis-glow-mul', (0.9 + L * 0.22).toFixed(4));
-      }
-      this._drawAnalysisVisual(bands, t);
-      this._visualPreviewRaf = requestAnimationFrame(tick);
     };
     this._visualPreviewRaf = requestAnimationFrame(tick);
   },
@@ -446,6 +499,14 @@ const AnalysisModal = {
     const t = performance.now() / 1000;
     const cx = w / 2;
     const cy = h / 2;
+
+    // Reset context state each frame (Safari can retain state across draws unexpectedly).
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
 
     ctx.clearRect(0, 0, w, h);
 
@@ -496,7 +557,8 @@ const AnalysisModal = {
 
     // Outer glow layer
     ctx.save();
-    ctx.globalCompositeOperation = 'screen';
+    // On the (light) analysis sheet background, `screen` can wash out to invisible.
+    ctx.globalCompositeOperation = 'source-over';
     ctx.filter = `blur(${(10 + level * 14) * this._canvasDpr}px)`;
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -550,11 +612,12 @@ const AnalysisModal = {
 
     // Center line with glow (pink->blue)
     ctx.save();
-    ctx.globalCompositeOperation = 'screen';
+    ctx.globalCompositeOperation = 'source-over';
     const lineGrad = ctx.createLinearGradient(0, 0, w, 0);
-    lineGrad.addColorStop(0, 'rgba(255, 120, 212, 0.75)');
-    lineGrad.addColorStop(0.5, 'rgba(255, 210, 238, 0.9)');
-    lineGrad.addColorStop(1, 'rgba(120, 210, 255, 0.75)');
+    lineGrad.addColorStop(0, 'rgba(184, 216, 255, 0.82)');
+    lineGrad.addColorStop(0.33, 'rgba(222, 192, 248, 0.85)');
+    lineGrad.addColorStop(0.66, 'rgba(255, 222, 184, 0.82)');
+    lineGrad.addColorStop(1, 'rgba(223, 255, 184, 0.8)');
     ctx.strokeStyle = lineGrad;
     ctx.lineWidth = Math.max(1.2 * this._canvasDpr, 2.2 * this._canvasDpr);
     ctx.filter = `blur(${(0.6 + level * 0.8) * this._canvasDpr}px)`;
@@ -583,10 +646,22 @@ const AnalysisModal = {
     const heightScale = h / 400;
     const audio = this._vizAudio;
     const spineStep = Math.max(1.25 * dpr, 1);
-    const waveStroke = 9.5 * dpr;
+    const waveStroke = 14 * dpr;
     const AMP = ANALYSIS_WAVE_AMPLITUDE_MULT;
 
+    // Reset context state each frame so no stale filter/shadow/composite can "hide" strokes.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+
     ctx.clearRect(0, 0, w, h);
+    // Safety: if anything upstream zeros the canvas size, this makes it obvious.
+    // (Kept extremely subtle so it won't read as UI.)
+    ctx.fillStyle = 'rgba(0,0,0,0.001)';
+    ctx.fillRect(0, 0, 1, 1);
 
     const split01 = 0.5 - 0.5 * Math.cos(motionMs * ANALYSIS_SPLIT_ANGULAR_MS);
     const split = (0.18 + 0.82 * split01) * (0.48 + 0.52 * level);
@@ -610,68 +685,58 @@ const AnalysisModal = {
       return cy + AMP * waveDu(x, uJ) + spreadRight(x, i);
     };
 
-    const branchRgb = [
-      [184, 216, 255],
-      [222, 192, 248],
-      [255, 222, 184],
-      [223, 255, 184],
+    const threadRibbon = [
+      { stroke: 'rgba(184, 216, 255, 0.98)', glow: 'rgba(184, 216, 255, 0.42)' },
+      { stroke: 'rgba(222, 192, 248, 0.98)', glow: 'rgba(222, 192, 248, 0.42)' },
+      { stroke: 'rgba(255, 222, 184, 0.98)', glow: 'rgba(255, 222, 184, 0.40)' },
+      { stroke: 'rgba(223, 255, 184, 0.98)', glow: 'rgba(223, 255, 184, 0.38)' },
     ];
-
-    const makeThreadGradient = (i) => {
-      const [r, g, b] = branchRgb[i];
-      const g1 = ctx.createLinearGradient(0, 0, w, 0);
-      g1.addColorStop(0, 'rgba(255,255,255,0.92)');
-      g1.addColorStop(0.42, `rgba(${r},${g},${b},0.9)`);
-      g1.addColorStop(0.88, `rgba(${r},${g},${b},0.32)`);
-      g1.addColorStop(1, 'rgba(255,255,255,0)');
-      return g1;
-    };
-
-    const baseSpine = buildWaveSpine(0, w, spineStep, x => cy + AMP * waveDu(x, 0));
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    ctx.strokeStyle = 'rgba(255,255,255,0.78)';
-    ctx.lineWidth = waveStroke;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.shadowColor = 'rgba(200, 235, 255, 0.88)';
-    ctx.shadowBlur = 30 * dpr;
-    strokeSpineQuadratic(ctx, baseSpine);
-    ctx.shadowBlur = 0;
-    ctx.restore();
 
     const THREADS_PER_BRANCH = 2;
     ctx.save();
-    ctx.globalCompositeOperation = 'screen';
+    // On the (light) analysis sheet background, `screen` can wash out to invisible.
+    ctx.globalCompositeOperation = 'source-over';
     for (let i = 0; i < 4; i++) {
-      const grad = makeThreadGradient(i);
+      const { stroke, glow } = threadRibbon[i];
       for (let k = 0; k < THREADS_PER_BRANCH; k++) {
         const jitter = (k - (THREADS_PER_BRANCH - 1) / 2) * 0.55;
         const spine = buildWaveSpine(0, w, spineStep, x => threadY(x, i, jitter));
-        ctx.strokeStyle = grad;
+        // Glow pass (no filter blur; rely on shadow only for stability across browsers).
+        ctx.strokeStyle = stroke;
         ctx.lineWidth = waveStroke;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.filter = `blur(${(14 - k * 3) * dpr}px)`;
-        ctx.globalAlpha = 0.5;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = (22 - k * 4) * dpr;
+        ctx.globalAlpha = 0.6;
         strokeSpineQuadratic(ctx, spine);
-        ctx.filter = 'none';
+        ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
       }
       const coreSpine = buildWaveSpine(0, w, spineStep, x => threadY(x, i, 0));
-      ctx.strokeStyle = grad;
+      // Core glow (slightly stronger).
+      ctx.strokeStyle = stroke;
       ctx.lineWidth = waveStroke;
       ctx.lineCap = 'round';
-      ctx.shadowColor = 'rgba(200, 235, 255, 0.45)';
-      ctx.shadowBlur = 18 * dpr;
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = glow;
+      ctx.shadowBlur = 26 * dpr;
       strokeSpineQuadratic(ctx, coreSpine);
       ctx.shadowBlur = 0;
+
+      // Crisp pass to guarantee visibility across blend/compositor differences.
+      ctx.save();
+      ctx.filter = 'none';
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = Math.max(5 * dpr, 2);
+      strokeSpineQuadratic(ctx, coreSpine);
+      ctx.restore();
     }
     ctx.restore();
   },
 
   async _startReactiveAudio(blob) {
-    this._stopVisualPreviewLoop();
     this._stopReactiveAudio();
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC || !DOM.analysisVisualField) return;
@@ -705,8 +770,17 @@ const AnalysisModal = {
       this._smoothedGlowLevel = 0.28;
 
       source.start(0);
+      // Keep the preview loop alive until audio is actually running.
+      // On iOS/Safari, resume may be blocked without a user gesture.
       if (ctx.state === 'suspended') {
-        await ctx.resume();
+        await ctx.resume().catch(() => {});
+      }
+      if (ctx.state !== 'suspended') {
+        this._stopVisualPreviewLoop();
+      } else {
+        // Still suspended — stay on preview visuals instead of going blank.
+        this._stopReactiveAudio();
+        return;
       }
       this._audioRaf = requestAnimationFrame(() => this._audioTick());
     } catch (err) {
@@ -718,32 +792,64 @@ const AnalysisModal = {
 
   _audioTick() {
     if (!this._audioAnalyser || !this._audioData) return;
-    if (!DOM.analysisOverlay?.classList.contains('visible') || DOM.analysisOverlay.dataset.phase !== 'loading') {
-      this._stopReactiveAudio();
-      return;
+    try {
+      if (ANALYSIS_DEBUG_DRAW_LOOP && !this._debugLoggedAudioTick) {
+        this._debugLoggedAudioTick = true;
+        console.log('[yAp][analysis] audio tick running');
+      }
+
+      const phase = DOM.analysisOverlay?.dataset?.phase;
+      const allow = phase === 'loading' || phase === 'segments';
+      if (!DOM.analysisOverlay?.classList.contains('visible') || !allow) {
+        if (ANALYSIS_DEBUG_DRAW_LOOP) {
+          console.log('[yAp][analysis] audio tick stopped', {
+            visible: DOM.analysisOverlay?.classList?.contains?.('visible'),
+            phase,
+            allow,
+          });
+        }
+        this._stopReactiveAudio();
+        return;
+      }
+
+      this._resizeCanvas();
+      this._audioAnalyser.getByteFrequencyData(this._audioData);
+      const bands = this._bandsFromFreqData(this._audioData);
+      this._smoothedLevel = (this._smoothedLevel * 0.82) + (bands.master * 0.18);
+      this._smoothedGlowLevel = (this._smoothedGlowLevel * 0.994) + (bands.master * 0.006);
+      const smoothedBands = {
+        bass: bands.bass,
+        mids: bands.mids,
+        treble: bands.treble,
+        master: this._smoothedLevel,
+      };
+
+      const field = DOM.analysisVisualField;
+      if (field) {
+        const L = Math.min(1, Math.max(0.08, this._smoothedGlowLevel));
+        field.style.setProperty('--analysis-level', L.toFixed(4));
+        field.style.setProperty('--analysis-glow-mul', (0.88 + L * 0.28).toFixed(4));
+      }
+      this._drawAnalysisVisual(smoothedBands);
+
+      if (ANALYSIS_DEBUG_DRAW_LOOP && this._ctx2d && this._canvasW && this._canvasH) {
+        // Heartbeat pixel: draw AFTER main render (otherwise clearRect wipes it).
+        this._debugFrame += 1;
+        this._ctx2d.save();
+        this._ctx2d.setTransform(1, 0, 0, 1, 0, 0);
+        this._ctx2d.globalCompositeOperation = 'source-over';
+        this._ctx2d.globalAlpha = 1;
+        this._ctx2d.filter = 'none';
+        this._ctx2d.shadowBlur = 0;
+        this._ctx2d.fillStyle = (this._debugFrame % 2) ? 'rgba(0,160,255,0.98)' : 'rgba(255,120,0,0.98)';
+        this._ctx2d.fillRect(2, 2, 6, 6);
+        this._ctx2d.restore();
+      }
+    } catch (err) {
+      console.error('[yAp][analysis] audio tick error:', err);
+    } finally {
+      this._audioRaf = requestAnimationFrame(() => this._audioTick());
     }
-
-    this._resizeCanvas();
-    this._audioAnalyser.getByteFrequencyData(this._audioData);
-    const bands = this._bandsFromFreqData(this._audioData);
-    this._smoothedLevel = (this._smoothedLevel * 0.82) + (bands.master * 0.18);
-    this._smoothedGlowLevel = (this._smoothedGlowLevel * 0.994) + (bands.master * 0.006);
-    const smoothedBands = {
-      bass: bands.bass,
-      mids: bands.mids,
-      treble: bands.treble,
-      master: this._smoothedLevel,
-    };
-
-    const field = DOM.analysisVisualField;
-    if (field) {
-      const L = Math.min(1, Math.max(0.08, this._smoothedGlowLevel));
-      field.style.setProperty('--analysis-level', L.toFixed(4));
-      field.style.setProperty('--analysis-glow-mul', (0.88 + L * 0.28).toFixed(4));
-    }
-    this._drawAnalysisVisual(smoothedBands);
-
-    this._audioRaf = requestAnimationFrame(() => this._audioTick());
   },
 
   _stopReactiveAudio() {

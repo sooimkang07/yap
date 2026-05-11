@@ -326,7 +326,7 @@
               <input class="group-details-hero__name" id="input-group-settings-name" type="text" autocomplete="off" maxlength="50" required readonly>
             </label>
           </section>
-          <span class="ios-settings-nav__spacer" aria-hidden="true"></span>
+          <button class="group-details-topbar__pill" id="btn-group-settings-edit" type="button" aria-label="Edit group">Edit</button>
         </div>
 
         <section class="group-details-panel is-active" id="group-settings-panel-info" data-group-settings-panel="info">
@@ -389,45 +389,39 @@
         <div class="self-avatar" id="self-avatar">S</div>
       </div>
     </div>
-    <div class="chats-search" id="chats-search" hidden>
-      <div class="chats-search__row">
-        <div class="chats-search__field">
-          <svg class="chats-search__icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <circle cx="8.5" cy="8.5" r="5.75" fill="none" stroke="currentColor" stroke-width="1.6"/>
-            <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          </svg>
-          <input class="chats-search__input" id="input-chat-search" type="search" autocomplete="off" placeholder="Search chats">
+    <div class="chats-main">
+      <div class="chats-scroll">
+        <div class="chats-search" id="chats-search" hidden>
+          <div class="chats-search__row">
+            <div class="chats-search__field">
+              <svg class="chats-search__icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <circle cx="8.5" cy="8.5" r="5.75" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+              <input class="chats-search__input" id="input-chat-search" type="search" autocomplete="off" placeholder="Search chats">
+            </div>
+            <button class="glassNavButton chats-search__close" id="btn-clear-search" type="button" aria-label="Close search">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <button class="glassNavButton chats-search__close" id="btn-clear-search" type="button" aria-label="Close search">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          </svg>
-        </button>
+        <div class="chats-grid" id="chats-grid">
+          <!-- populated by data.js + app.js -->
+        </div>
+        <div class="chats-empty-state" id="chats-empty-state"></div>
       </div>
     </div>
-    <div class="chats-grid" id="chats-grid">
-      <!-- populated by data.js + app.js -->
-    </div>
-    <div class="chats-empty-state" id="chats-empty-state"></div>
 
     <!-- Chat context menu (long-press) -->
     <div class="chat-context-menu" id="chat-context-menu" hidden>
       <div class="chat-context-menu__overlay"></div>
       <div class="chat-context-menu__content" role="dialog" aria-modal="true" aria-label="Chat actions">
         <div class="chat-context-menu__preview" id="chat-context-preview"></div>
-        <div class="chat-context-delete-confirm" id="chat-context-delete-confirm" hidden>
-          <div class="chat-context-delete-confirm__hero">
-            <div class="chat-context-delete-confirm__art" id="chat-context-delete-art"></div>
-            <div class="chat-context-delete-confirm__name chat-card__name" id="chat-context-delete-name"></div>
-          </div>
-          <div class="chat-context-delete-confirm__sheet">
-            <p class="chat-context-delete-confirm__message" id="chat-context-delete-message">This conversation will be deleted from all of your devices.</p>
-            <button type="button" class="chat-context-delete-confirm__btn" id="ctx-delete-confirm-btn">Delete</button>
-          </div>
-        </div>
-        <div class="chat-context-menu__popover">
+        <div class="chat-context-menu__popover chat-context-menu__actions" id="chat-context-menu-actions">
           <button class="chat-context-menu__item" id="ctx-pin-chat" type="button">
-            <span class="chat-context-menu__icon chat-context-menu__icon--pin" id="ctx-pin-chat-icon" aria-hidden="true"></span>
+            <img class="chat-context-menu__icon-img" id="ctx-pin-chat-icon" src="assets/pin.svg" width="20" height="20" alt="" aria-hidden="true" />
             <span class="ctx-menu-label">Pin</span>
           </button>
           <button class="chat-context-menu__item" id="ctx-mark-unread" type="button">
@@ -443,10 +437,19 @@
             <span class="ctx-menu-label">Delete</span>
           </button>
         </div>
+        <div class="chat-context-menu__popover chat-context-delete-confirm" id="chat-context-delete-confirm" hidden>
+          <div class="chat-context-delete-confirm__inner">
+            <p class="chat-context-delete-confirm__message" id="chat-context-delete-message">This conversation will be deleted from all of your devices.</p>
+            <div class="chat-context-delete-confirm__actions">
+              <button type="button" class="chat-context-delete-confirm__btn" id="ctx-delete-confirm-btn">Delete</button>
+              <button type="button" class="chat-context-delete-confirm__btn" id="ctx-delete-cancel-btn">Cancel</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <button class="glassNavButton icon-btn chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
-      <svg width="26" height="26" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <path d="M18 9C18 9.19891 17.921 9.38968 17.7803 9.53033C17.6397 9.67098 17.4489 9.75 17.25 9.75H9.75V17.25C9.75 17.4489 9.67098 17.6397 9.53033 17.7803C9.38968 17.921 9.19891 18 9 18C8.80109 18 8.61032 17.921 8.46967 17.7803C8.32902 17.6397 8.25 17.4489 8.25 17.25V9.75H0.75C0.551088 9.75 0.360322 9.67098 0.21967 9.53033C0.0790178 9.38968 0 9.19891 0 9C0 8.80109 0.0790178 8.61032 0.21967 8.46967C0.360322 8.32902 0.551088 8.25 0.75 8.25H8.25V0.75C8.25 0.551088 8.32902 0.360322 8.46967 0.21967C8.61032 0.0790178 8.80109 0 9 0C9.19891 0 9.38968 0.0790178 9.53033 0.21967C9.67098 0.360322 9.75 0.551088 9.75 0.75V8.25H17.25C17.4489 8.25 17.6397 8.32902 17.7803 8.46967C17.921 8.61032 18 8.80109 18 9Z" fill="currentColor"/>
       </svg>
     </button>
@@ -662,9 +665,9 @@
         <div class="recording-sheet__handle"></div>
 
         <div class="rec-row rec-row--top">
-          <button class="glassNavButton glassNavButton--secondary rec-icon-btn" id="btn-analysis-cancel" type="button" aria-label="Cancel analysis">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
-              <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <button class="glassNavButton chats-search__close" id="btn-analysis-cancel" type="button" aria-label="Cancel analysis">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </button>
           <div class="analysis-heading">
@@ -692,7 +695,7 @@
               <span class="analysis-wave analysis-wave--four"></span>
             </div>
           </div>
-          <div class="analysis-hero__title" id="analysis-title">Breaking your memo<br>into topics</div>
+          <div class="analysis-hero__title" id="analysis-title">Breaking your yap<br>into topics</div>
           <div class="analysis-status-strip analysis-status-strip--hero glassNavButton" id="analysis-status-strip">
             <span id="analysis-status-copy" class="analysis-status-copy">
               <span id="analysis-status-line" class="analysis-status-copy__line">Unraveling the plot</span><span class="analysis-status-copy__dots" aria-hidden="true"><span class="analysis-status-copy__dot">.</span><span class="analysis-status-copy__dot">.</span><span class="analysis-status-copy__dot">.</span></span>

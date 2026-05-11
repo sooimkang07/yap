@@ -13,10 +13,10 @@
 const Pipeline = {
 
   // ── Entry point ───────────────────────────────────────
-  async run(blob, durationMs, chatId, authorId, localAudioUrl) {
+  async run(blob, durationMs, chatId, authorId, localAudioUrl, seedMessageId = null) {
     _pEmit('yap:pipeline:started');
 
-    let messageId = 'local-' + Date.now();
+    let messageId = seedMessageId || ('local-' + Date.now());
     let audioUrl = localAudioUrl;
     let audioPath = null;
 

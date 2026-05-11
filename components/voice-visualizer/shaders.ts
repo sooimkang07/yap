@@ -137,9 +137,13 @@ export const ribbonFragmentShader = `
     float y = vUv.y;
 
     float fw = max(fwidth(y), 1e-4);
-    float w = clamp(uEdgePx, 1.0, 18.0) * fw;
-    float edge = 1.0 - smoothstep(0.0, w, y) - smoothstep(1.0, 1.0 - w, y);
-    edge = clamp(edge, 0.0, 1.0);
+    float w = clamp(uEdgePx, 1.0, 24.0) * fw;
+    float wGlow = w * 3.4;
+    float edgeCore = 1.0 - smoothstep(0.0, w, y) - smoothstep(1.0, 1.0 - w, y);
+    float edgeWide = 1.0 - smoothstep(0.0, wGlow, y) - smoothstep(1.0, 1.0 - wGlow, y);
+    edgeCore = clamp(edgeCore, 0.0, 1.0);
+    edgeWide = clamp(edgeWide, 0.0, 1.0);
+    float glowShell = max(0.0, edgeWide - edgeCore);
 
     float iridescenceA = sin((x * 2.3 + y * 0.65 + uTime * 0.08) * 6.2831853) * 0.5 + 0.5;
     float iridescenceB = sin((x * 1.35 - y * 0.9 - uTime * 0.05) * 6.2831853) * 0.5 + 0.5;
@@ -152,8 +156,10 @@ export const ribbonFragmentShader = `
     float shimmer = smoothstep(0.0, 1.0, vSheen * 0.5 + 0.5) * uHigh;
     float pearl = fresnelLike * (0.35 + shimmer * 0.5);
 
-    vec3 color = baseColor + vec3(1.0) * pearl * 0.42;
-    float alpha = edge * (0.12 + vCenterGlow * 0.48 + uEnvelope * 0.18) * uOpacity * (0.4 + uWake * 0.6);
+    vec3 color = baseColor + vec3(1.0) * pearl * 0.18;
+    float bodyAlpha = edgeCore * (0.12 + vCenterGlow * 0.48 + uEnvelope * 0.18) * uOpacity * (0.4 + uWake * 0.6);
+    float glowAlpha = glowShell * 0.82 * uOpacity * (0.4 + uWake * 0.6);
+    float alpha = bodyAlpha + glowAlpha;
 
     gl_FragColor = vec4(color, alpha);
   }

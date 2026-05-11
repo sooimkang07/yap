@@ -128,6 +128,11 @@ function _groupThreadsByDay(threads) {
   });
   
   if (currentGroup) groups.push(currentGroup);
+
+  // Within each day section, show oldest → newest so the latest topics land at the bottom.
+  groups.forEach(group => {
+    group.threads.sort((a, b) => _getThreadDate(a) - _getThreadDate(b));
+  });
   return groups;
 }
 

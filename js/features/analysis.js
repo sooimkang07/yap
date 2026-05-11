@@ -2,25 +2,190 @@
 // yAp — AnalysisModal
 // Apple-style transition while AI breaks a memo into topics
 // ═══════════════════════════════════════════════════════
+//
+// Analysis visual iterations (canvas in .analysis-waveform-canvas)
+// ─────────────────────────────────────────────────────────
+// v0 — CSS: 3D orbital ribbons + wave rings (still in index.html; hidden via CSS).
+// v1 — Canvas: symmetric “Siri-like” vertical blob waveform + center line
+//      (kept as _drawSymmetricBlobWaveform).
+// v2 — Canvas: “segmenting” — one continuous mount.js ribbon (2× amplitude) merged left of the
+//      shell-centered split (#app / layout), smoothstep fan into four threads to the right; hub is .analysis-core in DOM.
+//      Current mode: set ANALYSIS_VISUAL_MODE below ('segmenting' | 'symmetric-blob').
+//
+const ANALYSIS_VISUAL_MODE = 'segmenting';
 
 const ANALYSIS_COPY = {
   idleLabel: 'Analyzing',
   idleTitle: 'Breaking your memo into topics',
-  idleStatus: 'Unraveling the plot...',
+  idleStatus: 'Unraveling the plot',
 };
 
 const ANALYSIS_STATUS_STEPS = [
-  'Unraveling the plot...',
-  'Sorting the voice dump...',
-  'Recapping the rant...',
+  'Unraveling the plot',
+  'Sorting the voice dump',
+  'Recapping the rant',
 ];
+
+// How long each loading status line stays on screen.
+const ANALYSIS_STATUS_STEP_MS = 3400;
+
+// Temporary tuning knobs for visual iteration.
+const ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING = true;
+
+/**
+ * Same wave stack as `components/voice-visualizer/mount.js` (canvas fallback
+ * `sampleRibbonPoints`): swell + ripple + shimmer, with phase driven by
+ * accumulated milliseconds `motionTimeMs` and per-ribbon frequency/speed.
+ */
+function mountRibbonYDelta(u, motionTimeMs, cfg, audio, heightScale) {
+  const {
+    frequency,
+    speed,
+    phase,
+    bassLift,
+    midLift,
+    highLift,
+    envelopeLift,
+    rippleLift,
+    shimmerLift,
+  } = cfg;
+  const { envelope, bass, mid, high, attack } = audio;
+  const time = motionTimeMs;
+  const swell = Math.sin(u * frequency + time * speed + phase);
+  const ripple = Math.sin(u * frequency * 2.2 - time * (speed * 0.65) + phase * 0.8);
+  const shimmer = Math.sin(u * frequency * 4.4 + time * (speed * 1.8));
+  const k = heightScale;
+  return (
+    swell * (18 + bass * bassLift) * (0.55 + envelope * envelopeLift) * k +
+    ripple * (8 + mid * midLift) * (0.35 + envelope * rippleLift) * k +
+    shimmer * (2 + high * highLift + attack * 24) * shimmerLift * k
+  );
+}
+
+/** Ribbon rows copied from mount.js `ribbons` (2D fallback). */
+const MOUNT_RIBBON_INCOMING = {
+  frequency: 7.6,
+  speed: 0.00145,
+  phase: 1.45,
+  bassLift: 18,
+  midLift: 22,
+  highLift: 18,
+  envelopeLift: 0.96,
+  rippleLift: 0.92,
+  shimmerLift: 0.22,
+};
+/** Scales ribbon scroll phase (lower = slower wave travel vs wall clock). */
+const ANALYSIS_WAVE_SCROLL_MULT = 0.38;
+/** Split / unify envelope speed (radians per ms). */
+const ANALYSIS_SPLIT_ANGULAR_MS = 0.00009;
+/** Vertical motion + fan spread multiplier vs default mount ribbon scale. */
+const ANALYSIS_WAVE_AMPLITUDE_MULT = 2;
+
+function smoothstep01(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+/**
+ * Horizontal center of the visible yAp surface in client (CSS) pixels.
+ * Prefer `#app` (letterboxed shell on desktop) over raw `visualViewport`, which can
+ * skew the anchor and push the fork too far right on some browsers / embeds.
+ */
+function segmentingSplitAnchorClientX() {
+  const app = document.getElementById('app');
+  if (app) {
+    const r = app.getBoundingClientRect();
+    if (r.width > 1) {
+      return r.left + r.width * 0.5;
+    }
+  }
+  return window.innerWidth * 0.5;
+}
+
+/**
+ * Canvas-space x where merged ribbon becomes four threads: aligned to the yAp shell
+ * center (or layout viewport), mapped into canvas pixels (not merely canvas box center).
+ */
+function segmentingSplitCenterCanvasPx(canvas, w) {
+  if (!canvas || !w) return w * 0.5;
+  const rect = canvas.getBoundingClientRect();
+  const cxCss = segmentingSplitAnchorClientX() - rect.left;
+  const clamped = Math.max(0, Math.min(rect.width, cxCss));
+  if (rect.width <= 0) return w * 0.5;
+  return clamped * (w / rect.width);
+}
+
+/** Build evenly spaced samples along x for smooth quadratic stroking. */
+function buildWaveSpine(x0, x1, stepPx, yAt) {
+  const spine = [];
+  const span = x1 - x0;
+  if (span <= 0) return spine;
+  for (let x = x0; x <= x1; x += stepPx) {
+    spine.push({ x, y: yAt(x) });
+  }
+  const last = spine[spine.length - 1];
+  if (!last || last.x < x1 - 0.5) {
+    spine.push({ x: x1, y: yAt(x1) });
+  }
+  return spine;
+}
+
+/** Same midpoint-quadratic pattern as `mount.js` `drawRibbon` spine stroke. */
+function strokeSpineQuadratic(ctx, spine) {
+  if (spine.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(spine[0].x, spine[0].y);
+  for (let i = 1; i < spine.length - 1; i += 1) {
+    const xc = (spine[i].x + spine[i + 1].x) / 2;
+    const yc = (spine[i].y + spine[i + 1].y) / 2;
+    ctx.quadraticCurveTo(spine[i].x, spine[i].y, xc, yc);
+  }
+  const end = spine[spine.length - 1];
+  ctx.lineTo(end.x, end.y);
+  ctx.stroke();
+}
 
 const AnalysisModal = {
   _onComplete: null,
   _timeouts: [],
   _statusInterval: null,
+  _audioCtx: null,
+  _audioSource: null,
+  _audioAnalyser: null,
+  _audioGain: null,
+  _audioData: null,
+  _audioRaf: 0,
+  _smoothedLevel: 0.32,
+  /** Heavily low-passed; drives CSS glow vars only (canvas uses _smoothedLevel). */
+  _smoothedGlowLevel: 0.32,
+  _vizMotionTimeMs: 0,
+  _vizLastNow: 0,
+  _vizAudio: {
+    envelope: 0.18,
+    bass: 0,
+    mid: 0,
+    high: 0,
+    attack: 0,
+  },
+  _canvas: null,
+  _ctx2d: null,
+  _canvasDpr: 1,
+  _canvasW: 0,
+  _canvasH: 0,
+  _visualPreviewRaf: 0,
 
-  open() {
+  _setAnalysisStatusStrip(text, showDots = true) {
+    const line = DOM.analysisStatusLine;
+    const wrap = DOM.analysisStatusCopy;
+    if (line && wrap) {
+      line.textContent = text;
+      wrap.classList.toggle('analysis-status-copy--no-dots', !showDots);
+      return;
+    }
+    if (DOM.analysisStatusCopy) DOM.analysisStatusCopy.textContent = showDots ? `${text}...` : text;
+  },
+
+  open(audioBlob = null) {
     this._clearTimers();
     DOM.analysisOverlay.classList.add('visible');
     DOM.analysisOverlay.setAttribute('aria-hidden', 'false');
@@ -28,12 +193,22 @@ const AnalysisModal = {
     DOM.analysisOverlay.dataset.phase = 'loading';
     DOM.analysisLabel.textContent = ANALYSIS_COPY.idleLabel;
     DOM.analysisTitle.textContent = ANALYSIS_COPY.idleTitle;
-    DOM.analysisStatusCopy.textContent = ANALYSIS_COPY.idleStatus;
+    this._setAnalysisStatusStrip(ANALYSIS_COPY.idleStatus, true);
+    this._resetVisualFieldCss();
+    this._vizMotionTimeMs = 0;
+    this._vizLastNow = 0;
+    this._vizAudio = { envelope: 0.18, bass: 0, mid: 0, high: 0, attack: 0 };
+    this._initCanvas();
+    if (audioBlob && audioBlob.size) {
+      void this._startReactiveAudio(audioBlob);
+    } else {
+      this._startVisualPreviewLoop();
+    }
     let stepIndex = 0;
     this._statusInterval = setInterval(() => {
       stepIndex = (stepIndex + 1) % ANALYSIS_STATUS_STEPS.length;
-      DOM.analysisStatusCopy.textContent = ANALYSIS_STATUS_STEPS[stepIndex];
-    }, 1800);
+      this._setAnalysisStatusStrip(ANALYSIS_STATUS_STEPS[stepIndex], true);
+    }, ANALYSIS_STATUS_STEP_MS);
   },
 
   close() {
@@ -48,10 +223,10 @@ const AnalysisModal = {
     this._onComplete = onComplete;
     const container = DOM.analysisBars;
     container.innerHTML = '';
-    DOM.analysisOverlay.dataset.phase = 'segments';
+    DOM.analysisOverlay.dataset.phase = ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING ? 'loading' : 'segments';
     DOM.analysisLabel.textContent = 'Topics Ready';
     DOM.analysisTitle.textContent = 'Here’s how yAp is shaping the thread';
-    DOM.analysisStatusCopy.textContent = `${segments.length || 0} topic${segments.length === 1 ? '' : 's'} detected`;
+    this._setAnalysisStatusStrip(`${segments.length || 0} topic${segments.length === 1 ? '' : 's'} detected`, false);
 
     const barEls = segments.map((seg, index) => {
       const durationMs = Math.max(0, Number(seg.end_ms || 0) - Number(seg.start_ms || 0));
@@ -73,10 +248,12 @@ const AnalysisModal = {
     });
 
     if (!barEls.length) {
-      DOM.analysisStatusCopy.textContent = 'No new topics found';
+      this._setAnalysisStatusStrip('No new topics found', false);
       this._timeouts.push(setTimeout(() => {
-        this.close();
-        if (this._onComplete) this._onComplete();
+        if (!ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING) {
+          this.close();
+          if (this._onComplete) this._onComplete();
+        }
       }, 900));
       return;
     }
@@ -95,8 +272,10 @@ const AnalysisModal = {
     /* Dwell on the topic list so it’s readable before the sheet dismisses */
     const totalDelay = Math.min(7200, 4200 + (barEls.length * 320));
     this._timeouts.push(setTimeout(() => {
-      this.close();
-      if (this._onComplete) this._onComplete();
+      if (!ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING) {
+        this.close();
+        if (this._onComplete) this._onComplete();
+      }
     }, totalDelay));
   },
 
@@ -105,7 +284,7 @@ const AnalysisModal = {
     DOM.analysisOverlay.dataset.phase = 'error';
     DOM.analysisLabel.textContent = 'Couldn’t Finish';
     DOM.analysisTitle.textContent = 'The memo hit a snag';
-    DOM.analysisStatusCopy.textContent = clipAnalysisError(message) || 'Try recording that one more time.';
+    this._setAnalysisStatusStrip(clipAnalysisError(message) || 'Try recording that one more time.', false);
     DOM.analysisBars.innerHTML = '';
     this._timeouts.push(setTimeout(() => this.close(), 2200));
   },
@@ -116,6 +295,486 @@ const AnalysisModal = {
     if (this._statusInterval) {
       clearInterval(this._statusInterval);
       this._statusInterval = null;
+    }
+    this._stopVisualPreviewLoop();
+    this._stopReactiveAudio();
+  },
+
+  _resetVisualFieldCss() {
+    const el = DOM.analysisVisualField;
+    if (!el) return;
+    el.style.setProperty('--analysis-level', '0.32');
+    el.style.setProperty('--analysis-glow-mul', '1');
+  },
+
+  _stepVizAudioFromBands(bands) {
+    const envTarget = Math.max(0.08, bands.master);
+    const prevEnv = this._vizAudio.envelope;
+    const aEnv = envTarget > prevEnv ? 0.16 : 0.05;
+    this._vizAudio.envelope = prevEnv + (envTarget - prevEnv) * aEnv;
+    const spike = Math.max(0, bands.master - prevEnv) * 6;
+    this._vizAudio.attack = this._vizAudio.attack + (spike - this._vizAudio.attack) * 0.16;
+    this._vizAudio.bass = this._vizAudio.bass + (bands.bass - this._vizAudio.bass) * 0.05;
+    this._vizAudio.mid = this._vizAudio.mid + (bands.mids - this._vizAudio.mid) * 0.065;
+    this._vizAudio.high = this._vizAudio.high + (bands.treble - this._vizAudio.high) * 0.08;
+  },
+
+  _stepVizAudioPreview(elapsedSec) {
+    const ambientPulse = 0.18 + Math.sin(elapsedSec * 0.38) * 0.03;
+    const prevEnv = this._vizAudio.envelope;
+    const envTarget = Math.max(ambientPulse, 0.12);
+    const aEnv = envTarget > prevEnv ? 0.16 : 0.05;
+    this._vizAudio.envelope = prevEnv + (envTarget - prevEnv) * aEnv;
+    const spike = Math.max(0, envTarget - prevEnv) * 6;
+    this._vizAudio.attack = this._vizAudio.attack + (spike - this._vizAudio.attack) * 0.16;
+    const wobble = ambientPulse * 0.85;
+    this._vizAudio.bass = this._vizAudio.bass + (wobble - this._vizAudio.bass) * 0.05;
+    this._vizAudio.mid = this._vizAudio.mid + (wobble - this._vizAudio.mid) * 0.065;
+    this._vizAudio.high = this._vizAudio.high + (wobble * 0.9 - this._vizAudio.high) * 0.08;
+  },
+
+  _advanceSegmentingMotion(rawBands, previewElapsedSec = null) {
+    const now = performance.now();
+    if (!this._vizLastNow) this._vizLastNow = now;
+    const deltaMs = Math.min(32, now - this._vizLastNow);
+    this._vizLastNow = now;
+    this._vizMotionTimeMs += deltaMs;
+    if (previewElapsedSec != null) {
+      this._stepVizAudioPreview(previewElapsedSec);
+    } else {
+      this._stepVizAudioFromBands(rawBands);
+    }
+  },
+
+  _bandsFromFreqData(data) {
+    const n = data.length;
+    const bassEnd = Math.min(14, n - 1);
+    const midEnd = Math.min(52, n - 1);
+    const trebEnd = Math.min(110, n - 1);
+    const avg = (a, b) => {
+      let s = 0;
+      let c = 0;
+      for (let i = a; i <= b; i++) {
+        s += data[i] || 0;
+        c++;
+      }
+      return c ? (s / c) / 255 : 0;
+    };
+    const bass = avg(0, bassEnd);
+    const mids = avg(Math.min(15, n - 1), midEnd);
+    const treble = avg(Math.min(53, n - 1), trebEnd);
+    const master = (bass * 0.42) + (mids * 0.38) + (treble * 0.2);
+    return { bass, mids, treble, master };
+  },
+
+  _initCanvas() {
+    const canvas = DOM.analysisWaveformCanvas;
+    if (!canvas) return;
+    this._canvas = canvas;
+    this._ctx2d = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    this._resizeCanvas();
+  },
+
+  _resizeCanvas() {
+    const canvas = this._canvas;
+    const ctx = this._ctx2d;
+    if (!canvas || !ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      this._canvasDpr = dpr;
+      this._canvasW = w;
+      this._canvasH = h;
+    }
+  },
+
+  _startVisualPreviewLoop() {
+    this._stopVisualPreviewLoop();
+    const tick = () => {
+      if (!DOM.analysisOverlay?.classList.contains('visible') || DOM.analysisOverlay.dataset.phase !== 'loading') {
+        this._stopVisualPreviewLoop();
+        return;
+      }
+      this._resizeCanvas();
+      const t = performance.now() / 1000;
+      const fake = 0.38 + 0.22 * Math.sin(t * 1.15) + 0.08 * Math.sin(t * 2.7);
+      const fakeGlow = 0.38 + 0.22 * Math.sin(t * 0.2) + 0.08 * Math.sin(t * 0.38);
+      const bands = {
+        bass: fake * 0.75,
+        mids: fake,
+        treble: fake * 0.85,
+        master: fake,
+      };
+      const field = DOM.analysisVisualField;
+      if (field) {
+        const L = Math.min(1, Math.max(0.1, fakeGlow));
+        field.style.setProperty('--analysis-level', L.toFixed(4));
+        field.style.setProperty('--analysis-glow-mul', (0.9 + L * 0.22).toFixed(4));
+      }
+      this._drawAnalysisVisual(bands, t);
+      this._visualPreviewRaf = requestAnimationFrame(tick);
+    };
+    this._visualPreviewRaf = requestAnimationFrame(tick);
+  },
+
+  _stopVisualPreviewLoop() {
+    if (this._visualPreviewRaf) {
+      cancelAnimationFrame(this._visualPreviewRaf);
+      this._visualPreviewRaf = 0;
+    }
+  },
+
+  _drawAnalysisVisual(bands, previewElapsedSec = null) {
+    if (ANALYSIS_VISUAL_MODE === 'symmetric-blob') {
+      this._drawSymmetricBlobWaveform(bands);
+    } else {
+      this._drawSegmentingWaveVisual(bands, previewElapsedSec);
+    }
+  },
+
+  /** v1 — symmetric blob (user reference: centered mirrored waveform) */
+  _drawSymmetricBlobWaveform({ bass, mids, treble, master }) {
+    const ctx = this._ctx2d;
+    const w = this._canvasW;
+    const h = this._canvasH;
+    if (!ctx || !w || !h) return;
+
+    const t = performance.now() / 1000;
+    const cx = w / 2;
+    const cy = h / 2;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Background subtle vignette (keeps center brighter like reference)
+    const bg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.05, cx, cy, Math.min(w, h) * 0.62);
+    bg.addColorStop(0, 'rgba(255,255,255,0.06)');
+    bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Lobe generator: sum of a few Gaussian bumps, symmetric, breathing.
+    const level = Math.min(1, Math.max(0.08, master));
+    const ampMax = (h * 0.34) * (0.32 + level * 1.1);
+    const wobble = 0.10 + mids * 0.35;
+    const pinch = 0.6 + (0.4 - bass * 0.25);
+
+    const lobes = [
+      { x: -0.66, s: 0.18, a: 0.72 },
+      { x: -0.30, s: 0.14, a: 0.84 },
+      { x:  0.00, s: 0.11, a: 1.18 },
+      { x:  0.30, s: 0.14, a: 0.84 },
+      { x:  0.66, s: 0.18, a: 0.72 },
+    ];
+
+    const yAt = (nx) => {
+      let y = 0;
+      for (let i = 0; i < lobes.length; i++) {
+        const L = lobes[i];
+        const dx = nx - (L.x + Math.sin(t * (0.55 + i * 0.08)) * wobble * 0.06);
+        const g = Math.exp(-(dx * dx) / (2 * L.s * L.s));
+        const pulse = 0.88 + 0.12 * Math.sin(t * (1.15 + i * 0.12) + nx * 2.2);
+        y += g * L.a * pulse;
+      }
+      // Center pinch / expand (creates the narrow center frame you showed)
+      const center = Math.exp(-(nx * nx) / (2 * 0.09 * 0.09));
+      const centerPulse = 0.86 + 0.28 * Math.sin(t * (1.05 + treble * 0.8));
+      y *= (1 - center * 0.22 * pinch) + (center * 0.22 * centerPulse);
+      return y;
+    };
+
+    // Color ramps (approx reference: blue outer, pink mid, orange core)
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0.00, 'rgba(88, 190, 255, 0.75)');
+    grad.addColorStop(0.18, 'rgba(255, 96, 214, 0.70)');
+    grad.addColorStop(0.50, 'rgba(255, 170, 72, 0.78)');
+    grad.addColorStop(0.82, 'rgba(255, 96, 214, 0.70)');
+    grad.addColorStop(1.00, 'rgba(88, 190, 255, 0.75)');
+
+    // Outer glow layer
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = `blur(${(10 + level * 14) * this._canvasDpr}px)`;
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 6 * this._canvasDpr) {
+      const nx = (x / w) * 2 - 1;
+      const y = yAt(nx);
+      ctx.lineTo(x, cy - y * ampMax);
+    }
+    for (let x = w; x >= 0; x -= 6 * this._canvasDpr) {
+      const nx = (x / w) * 2 - 1;
+      const y = yAt(nx);
+      ctx.lineTo(x, cy + y * ampMax);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Core fill (sharper)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.filter = `blur(${(2.5 + level * 2.5) * this._canvasDpr}px)`;
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 3 * this._canvasDpr) {
+      const nx = (x / w) * 2 - 1;
+      const y = yAt(nx);
+      ctx.lineTo(x, cy - y * ampMax * 0.74);
+    }
+    for (let x = w; x >= 0; x -= 3 * this._canvasDpr) {
+      const nx = (x / w) * 2 - 1;
+      const y = yAt(nx);
+      ctx.lineTo(x, cy + y * ampMax * 0.74);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Dark center “void” hint
+    ctx.save();
+    const voidW = (w * 0.07) * (0.55 + (1 - level) * 0.7);
+    const voidH = (h * 0.46) * (0.55 + level * 0.65);
+    const voidG = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(voidW, voidH));
+    voidG.addColorStop(0, 'rgba(0,0,0,0.48)');
+    voidG.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = voidG;
+    ctx.filter = `blur(${(6 + level * 10) * this._canvasDpr}px)`;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, voidW, voidH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Center line with glow (pink->blue)
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const lineGrad = ctx.createLinearGradient(0, 0, w, 0);
+    lineGrad.addColorStop(0, 'rgba(255, 120, 212, 0.75)');
+    lineGrad.addColorStop(0.5, 'rgba(255, 210, 238, 0.9)');
+    lineGrad.addColorStop(1, 'rgba(120, 210, 255, 0.75)');
+    ctx.strokeStyle = lineGrad;
+    ctx.lineWidth = Math.max(1.2 * this._canvasDpr, 2.2 * this._canvasDpr);
+    ctx.filter = `blur(${(0.6 + level * 0.8) * this._canvasDpr}px)`;
+    ctx.beginPath();
+    ctx.moveTo(0, cy);
+    ctx.lineTo(w, cy);
+    ctx.stroke();
+    ctx.restore();
+  },
+
+  /** v2 — one continuous ribbon (mount.js motion) that stays merged on the left and splits smoothly right of center. */
+  _drawSegmentingWaveVisual({ bass, mids, treble, master }, previewElapsedSec = null) {
+    const ctx = this._ctx2d;
+    const w = this._canvasW;
+    const h = this._canvasH;
+    if (!ctx || !w || !h) return;
+
+    const dpr = this._canvasDpr;
+    this._advanceSegmentingMotion({ bass, mids, treble, master }, previewElapsedSec);
+
+    const cx = segmentingSplitCenterCanvasPx(this._canvas, w);
+    const cy = h / 2;
+    const level = Math.min(1, Math.max(0.08, master));
+    const motionMs = this._vizMotionTimeMs;
+    const scrollMs = motionMs * ANALYSIS_WAVE_SCROLL_MULT;
+    const heightScale = h / 400;
+    const audio = this._vizAudio;
+    const spineStep = Math.max(1.25 * dpr, 1);
+    const waveStroke = 9.5 * dpr;
+    const AMP = ANALYSIS_WAVE_AMPLITUDE_MULT;
+
+    ctx.clearRect(0, 0, w, h);
+
+    const split01 = 0.5 - 0.5 * Math.cos(motionMs * ANALYSIS_SPLIT_ANGULAR_MS);
+    const split = (0.18 + 0.82 * split01) * (0.48 + 0.52 * level);
+    const fan = (h * 0.26) * split * AMP;
+
+    const waveDu = (x, uJitter = 0) => {
+      const u = Math.min(1, Math.max(0, x / w + uJitter));
+      return mountRibbonYDelta(u, scrollMs, MOUNT_RIBBON_INCOMING, audio, heightScale);
+    };
+
+    const spreadRight = (x, i) => {
+      if (x <= cx) return 0;
+      const xr = Math.min(1, (x - cx) / Math.max(1e-6, w - cx));
+      const st = smoothstep01(xr);
+      const idx = i - 1.5;
+      return idx * fan * st * (0.18 + xr * xr * 1.12);
+    };
+
+    const threadY = (x, i, threadJitter = 0) => {
+      const uJ = threadJitter * 0.015;
+      return cy + AMP * waveDu(x, uJ) + spreadRight(x, i);
+    };
+
+    const branchRgb = [
+      [184, 216, 255],
+      [222, 192, 248],
+      [255, 222, 184],
+      [223, 255, 184],
+    ];
+
+    const makeThreadGradient = (i) => {
+      const [r, g, b] = branchRgb[i];
+      const g1 = ctx.createLinearGradient(0, 0, w, 0);
+      g1.addColorStop(0, 'rgba(255,255,255,0.92)');
+      g1.addColorStop(0.42, `rgba(${r},${g},${b},0.9)`);
+      g1.addColorStop(0.88, `rgba(${r},${g},${b},0.32)`);
+      g1.addColorStop(1, 'rgba(255,255,255,0)');
+      return g1;
+    };
+
+    const baseSpine = buildWaveSpine(0, w, spineStep, x => cy + AMP * waveDu(x, 0));
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.strokeStyle = 'rgba(255,255,255,0.78)';
+    ctx.lineWidth = waveStroke;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(200, 235, 255, 0.88)';
+    ctx.shadowBlur = 30 * dpr;
+    strokeSpineQuadratic(ctx, baseSpine);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    const THREADS_PER_BRANCH = 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = 0; i < 4; i++) {
+      const grad = makeThreadGradient(i);
+      for (let k = 0; k < THREADS_PER_BRANCH; k++) {
+        const jitter = (k - (THREADS_PER_BRANCH - 1) / 2) * 0.55;
+        const spine = buildWaveSpine(0, w, spineStep, x => threadY(x, i, jitter));
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = waveStroke;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.filter = `blur(${(14 - k * 3) * dpr}px)`;
+        ctx.globalAlpha = 0.5;
+        strokeSpineQuadratic(ctx, spine);
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+      }
+      const coreSpine = buildWaveSpine(0, w, spineStep, x => threadY(x, i, 0));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = waveStroke;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(200, 235, 255, 0.45)';
+      ctx.shadowBlur = 18 * dpr;
+      strokeSpineQuadratic(ctx, coreSpine);
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  },
+
+  async _startReactiveAudio(blob) {
+    this._stopVisualPreviewLoop();
+    this._stopReactiveAudio();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || !DOM.analysisVisualField) return;
+
+    try {
+      const ctx = new AC();
+      this._audioCtx = ctx;
+      const raw = await blob.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(raw.slice(0));
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.loop = true;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.58;
+
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+
+      source.connect(analyser);
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
+
+      this._audioSource = source;
+      this._audioAnalyser = analyser;
+      this._audioGain = gain;
+      this._audioData = new Uint8Array(analyser.frequencyBinCount);
+      this._smoothedLevel = 0.28;
+      this._smoothedGlowLevel = 0.28;
+
+      source.start(0);
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      this._audioRaf = requestAnimationFrame(() => this._audioTick());
+    } catch (err) {
+      console.warn('[yAp] Analysis visual audio reactive unavailable:', err);
+      this._stopReactiveAudio();
+      this._startVisualPreviewLoop();
+    }
+  },
+
+  _audioTick() {
+    if (!this._audioAnalyser || !this._audioData) return;
+    if (!DOM.analysisOverlay?.classList.contains('visible') || DOM.analysisOverlay.dataset.phase !== 'loading') {
+      this._stopReactiveAudio();
+      return;
+    }
+
+    this._resizeCanvas();
+    this._audioAnalyser.getByteFrequencyData(this._audioData);
+    const bands = this._bandsFromFreqData(this._audioData);
+    this._smoothedLevel = (this._smoothedLevel * 0.82) + (bands.master * 0.18);
+    this._smoothedGlowLevel = (this._smoothedGlowLevel * 0.994) + (bands.master * 0.006);
+    const smoothedBands = {
+      bass: bands.bass,
+      mids: bands.mids,
+      treble: bands.treble,
+      master: this._smoothedLevel,
+    };
+
+    const field = DOM.analysisVisualField;
+    if (field) {
+      const L = Math.min(1, Math.max(0.08, this._smoothedGlowLevel));
+      field.style.setProperty('--analysis-level', L.toFixed(4));
+      field.style.setProperty('--analysis-glow-mul', (0.88 + L * 0.28).toFixed(4));
+    }
+    this._drawAnalysisVisual(smoothedBands);
+
+    this._audioRaf = requestAnimationFrame(() => this._audioTick());
+  },
+
+  _stopReactiveAudio() {
+    if (this._audioRaf) {
+      cancelAnimationFrame(this._audioRaf);
+      this._audioRaf = 0;
+    }
+    try {
+      this._audioSource?.stop(0);
+    } catch (_) {
+      /* already stopped */
+    }
+    this._audioSource = null;
+    this._audioAnalyser = null;
+    this._audioGain = null;
+    this._audioData = null;
+
+    if (this._audioCtx) {
+      const ctx = this._audioCtx;
+      this._audioCtx = null;
+      ctx.close?.().catch(() => {});
+    }
+
+    const field = DOM.analysisVisualField;
+    if (field) {
+      field.style.removeProperty('--analysis-level');
+      field.style.removeProperty('--analysis-glow-mul');
+    }
+
+    if (this._ctx2d && this._canvasW && this._canvasH) {
+      this._ctx2d.clearRect(0, 0, this._canvasW, this._canvasH);
     }
   },
 };

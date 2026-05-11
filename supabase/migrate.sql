@@ -26,6 +26,7 @@ ALTER TABLE chat_participants
   ADD COLUMN IF NOT EXISTS invited_by   TEXT REFERENCES users(id),
   ADD COLUMN IF NOT EXISTS invite_status TEXT NOT NULL DEFAULT 'joined'
     CHECK (invite_status IN ('pending', 'joined', 'left', 'removed')),
+  ADD COLUMN IF NOT EXISTS mute_alerts  BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 -- ── Step 2: Create missing tables ────────────────────

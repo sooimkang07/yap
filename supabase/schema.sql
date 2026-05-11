@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS chat_participants (
                             CHECK (role IN ('owner', 'admin', 'member')),
   invite_status TEXT        NOT NULL DEFAULT 'joined'
                             CHECK (invite_status IN ('pending', 'joined', 'left', 'removed')),
+  mute_alerts   BOOLEAN     NOT NULL DEFAULT FALSE,
   invited_by    TEXT        REFERENCES users(id),
   joined_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),

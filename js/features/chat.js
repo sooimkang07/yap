@@ -623,11 +623,16 @@ function _topicRowHTML(thread, message, replies, options = {}) {
         </span>
       </div>
       ${_renderSegmentTrack(segments)}
-      ${canExpand ? `<div class="topic-card__reply-summary">
-        <span class="topic-card__avatars">${_uniqueTopicParticipantAvatarsHTML(message, replies)}</span>
-      </div>` : ''}
+      ${_topicRowParticipantsStripHTML(thread, canExpand)}
     </div>
   `;
+}
+
+function _topicRowParticipantsStripHTML(thread, canExpand) {
+  const inner = _uniqueTopicParticipantAvatarsFromThread(thread);
+  if (!inner) return '';
+  const wrapClass = canExpand ? 'topic-card__reply-summary' : 'topic-card__participants';
+  return `<div class="${wrapClass}"><span class="topic-card__avatars">${inner}</span></div>`;
 }
 
 function _replyRowHTML(message) {
@@ -645,7 +650,7 @@ function _replyRowHTML(message) {
         <span class="reply-row__title">${escapeHtml(replyTitle)}</span>
         <span class="reply-row__meta">
           <span class="reply-row__time">${_formatClockTime(message.sentAt)}</span>
-          <span class="reply-row__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>
+          ${_participantAvatarChipHTML(_resolveTopicMessageAuthor(message), 'reply-row__avatar')}
         </span>
       </div>
       ${_renderSegmentTrack([{
@@ -678,24 +683,67 @@ function _renderSegmentTrack(segments) {
   `;
 }
 
-function _replyAvatarHTML(message) {
-  return `<span class="topic-card__avatar" style="background-image:url('${message.author.avatarUrl || ''}'); background-color:${message.author.color}"></span>`;
+function _resolveTopicMessageAuthor(message) {
+  if (!message) return null;
+  const a = message.author;
+  if (a && (a.id || a.name || a.avatarUrl)) return a;
+
+  const authorId = message.authorId || a?.id;
+  if (!authorId) return a || null;
+
+  if (authorId === getCurrentUserId()) {
+    const u = getCurrentUser();
+    return {
+      id: u.id,
+      name: u.name,
+      color: u.color || pickUserColor(u.name || 'You'),
+      avatarUrl: u.avatarUrl || null,
+    };
+  }
+
+  const u = getUserById(authorId);
+  if (u) return u;
+
+  return {
+    id: authorId,
+    name: a?.name || 'Friend',
+    color: a?.color || pickUserColor(authorId),
+    avatarUrl: a?.avatarUrl || null,
+  };
 }
 
-function _authorDedupeKey(message) {
+function _participantDedupeKey(message) {
   if (!message) return '';
-  return String(message.authorId || message.author?.id || message.author?.name || message.id || '').trim();
+  const id = message.authorId || message.author?.id;
+  if (id) return String(id).trim();
+  return String(message.author?.name || message.id || '').trim();
 }
 
-function _uniqueTopicParticipantAvatarsHTML(primaryMessage, replies) {
+function _participantAvatarChipHTML(author, className = 'topic-card__avatar') {
+  if (!author) {
+    return `<span class="${className}" style="background-color:rgba(0,0,0,0.08)"></span>`;
+  }
+  const url = author.avatarUrl || '';
+  const color = author.color || pickUserColor(author.name || author.id || 'user');
+  const initials = buildUserInitials(author.name || '?');
+  if (url) {
+    return `<span class="${className}" style="background-image:url('${url}'); background-color:${color}"></span>`;
+  }
+  return `<span class="${className} avatar-fallback" style="--avatar-accent:${color}"><span>${escapeHtml(initials)}</span></span>`;
+}
+
+/** Unique participants in chronological order (first memo first), one chip per person. */
+function _uniqueTopicParticipantAvatarsFromThread(thread) {
+  const ordered = _threadMessagesChronological(thread);
   const seen = new Set();
   const parts = [];
-  for (const m of [primaryMessage, ...(Array.isArray(replies) ? replies : [])]) {
-    if (!m?.author) continue;
-    const key = _authorDedupeKey(m);
+  for (const m of ordered) {
+    const key = _participantDedupeKey(m);
     if (!key || seen.has(key)) continue;
+    const author = _resolveTopicMessageAuthor(m);
+    if (!author && !m.authorId && !m.author?.id) continue;
     seen.add(key);
-    parts.push(_replyAvatarHTML(m));
+    parts.push(_participantAvatarChipHTML(author, 'topic-card__avatar'));
   }
   return parts.join('');
 }

@@ -122,6 +122,8 @@ function sanitizeChatForCache(chat) {
     preview: chat.preview || '',
     previewAuthorId: chat.previewAuthorId || null,
     persistLocally: chat.persistLocally !== false,
+    pinned: !!chat.pinned,
+    hideAlerts: !!chat.hideAlerts,
   };
 }
 
@@ -968,6 +970,23 @@ async function leaveChat(chatId, userId) {
   return true;
 }
 
+async function setChatMuteAlerts(chatId, userId, muted) {
+  if (!supabaseClient || !chatId || !userId) return null;
+  const { error } = await supabaseClient
+    .from('chat_participants')
+    .update({
+      mute_alerts: !!muted,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('chat_id', chatId)
+    .eq('user_id', userId);
+  if (error) {
+    console.warn('[yAp] setChatMuteAlerts failed:', error);
+    return null;
+  }
+  return true;
+}
+
 async function removeMemberFromChat(chatId, userId) {
   if (!supabaseClient || !chatId || !userId) throw new Error('Missing membership details.');
 
@@ -997,7 +1016,7 @@ async function getNotificationRecipients(chatId, excludeUserId) {
 
   const { data: participantRows, error } = await supabaseClient
     .from('chat_participants')
-    .select('user_id')
+    .select('user_id, mute_alerts')
     .eq('chat_id', chatId)
     .eq('invite_status', 'joined');
 
@@ -1008,6 +1027,7 @@ async function getNotificationRecipients(chatId, excludeUserId) {
 
   const joinedUserIds = [...new Set(
     (participantRows || [])
+      .filter(entry => entry && !entry.mute_alerts)
       .map(entry => entry?.user_id)
       .filter(userId => userId && userId !== excludeUserId)
   )];
@@ -1429,7 +1449,7 @@ async function getChatsForUser(userId) {
 
   const { data: memberships, error: membershipError } = await supabaseClient
     .from('chat_participants')
-    .select('chat_id, role, invite_status, chats(id, name, created_at, created_by, avatar_url, updated_at)')
+    .select('chat_id, role, invite_status, mute_alerts, chats(id, name, created_at, created_by, avatar_url, updated_at)')
     .eq('user_id', userId)
     .in('invite_status', ['joined', 'pending']);
 
@@ -1573,6 +1593,7 @@ async function getChatsForUser(userId) {
         lastMessageAt: latestMessageByChat.get(chat.id)?.sentAt || (chat.updated_at ? new Date(chat.updated_at).getTime() : 0),
         preview: latestMessageByChat.get(chat.id)?.preview || '',
         previewAuthorId: latestMessageByChat.get(chat.id)?.authorId || null,
+        hideAlerts: !!entry.mute_alerts,
       };
     })
     .filter(Boolean)

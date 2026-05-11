@@ -84,6 +84,9 @@ const AppState = {
   chatsRefreshPromise: null,
 };
 
+/** Next chats list paint runs a FLIP reorder (pin / unpin). Cleared after render. */
+let _chatsListFlipPending = null;
+
 // ── DOM refs ──────────────────────────────────────────
 const DOM = {};
 const PLAY_BUTTON_ICONS = {
@@ -250,6 +253,9 @@ function cacheDOM() {
   DOM.btnProfileEdit = document.getElementById('btn-profile-edit');
   DOM.inputManageProfileAvatar = document.getElementById('input-manage-profile-avatar');
   DOM.inputManageProfileAvatarFile = document.getElementById('input-manage-profile-avatar-file');
+  DOM.profileAvatarPreviewOverlay = document.getElementById('profile-avatar-preview-overlay');
+  DOM.profileAvatarPreviewStage = document.getElementById('profile-avatar-preview-stage');
+  DOM.btnProfileAvatarPreviewClose = document.getElementById('btn-profile-avatar-preview-close');
   DOM.btnUpdateProfile = document.getElementById('btn-update-profile');
   DOM.btnSignOut = document.getElementById('btn-sign-out');
   DOM.profileManageFeedback = document.getElementById('profile-manage-feedback');
@@ -347,7 +353,10 @@ function cacheDOM() {
   DOM.analysisTitle   = document.getElementById('analysis-title');
   DOM.analysisBody    = document.getElementById('analysis-body');
   DOM.analysisStatusCopy = document.getElementById('analysis-status-copy');
+  DOM.analysisStatusLine = document.getElementById('analysis-status-line');
   DOM.btnAnalysisCancel = document.getElementById('btn-analysis-cancel');
+  DOM.analysisVisualField = document.querySelector('#analysis-overlay .analysis-visual-field');
+  DOM.analysisWaveformCanvas = document.getElementById('analysis-waveform-canvas');
   DOM.iosAlertOverlay = document.getElementById('ios-alert-overlay');
   DOM.iosAlertTitle = document.getElementById('ios-alert-title');
   DOM.iosAlertMessage = document.getElementById('ios-alert-message');
@@ -511,6 +520,12 @@ function navigate(toId, direction = 'forward', { replace = false, skipTransition
   if (!to || from === to) return;
 
   const fromId = from?.dataset.screen || AppState.screen;
+  if (fromId === 'profile' && toId !== 'profile') {
+    closeProfileAvatarPreviewOverlay();
+  }
+  if (fromId === 'chat' && toId !== 'chat') {
+    cancelRecording();
+  }
   const eligibleForHistory = fromId && fromId !== 'splash';
   if (!replace && eligibleForHistory) {
     if (direction === 'back') {
@@ -797,11 +812,60 @@ function clearScreenHistory() {
   AppState.screenHistory = [];
 }
 
-function scheduleChatsListRender() {
+function scheduleChatsListRender(options = {}) {
+  if (options.flipForChatId != null) {
+    _chatsListFlipPending = {
+      chatId: options.flipForChatId,
+      pinned: !!options.flipPinned,
+    };
+  }
   if (AppState.chatsRenderRaf) return;
   AppState.chatsRenderRaf = requestAnimationFrame(() => {
     AppState.chatsRenderRaf = 0;
     renderChatsList();
+  });
+}
+
+const _CHATS_GRID_FLIP_MS = 680;
+const _CHATS_GRID_FLIP_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
+function _runChatsGridFlipAnimation(grid, oldRects) {
+  if (!grid || !oldRects?.size) return;
+
+  requestAnimationFrame(() => {
+    const animated = [];
+    for (const el of grid.querySelectorAll('.chat-card')) {
+      const id = el.dataset.chatId;
+      const prev = oldRects.get(id);
+      if (!prev) continue;
+      const next = el.getBoundingClientRect();
+      const dx = prev.left - next.left;
+      const dy = prev.top - next.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      el.style.transition = 'none';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      animated.push(el);
+    }
+
+    if (!animated.length) return;
+
+    requestAnimationFrame(() => {
+      for (const el of animated) {
+        el.style.transition = `transform ${_CHATS_GRID_FLIP_MS}ms ${_CHATS_GRID_FLIP_EASING}`;
+        el.style.transform = 'translate(0, 0)';
+        const cleanup = () => {
+          el.removeEventListener('transitionend', onEnd);
+          el.style.transition = '';
+          el.style.transform = '';
+        };
+        const onEnd = event => {
+          if (event.propertyName !== 'transform') return;
+          cleanup();
+        };
+        el.addEventListener('transitionend', onEnd);
+        window.setTimeout(cleanup, _CHATS_GRID_FLIP_MS + 100);
+      }
+    });
   });
 }
 
@@ -885,16 +949,17 @@ async function backgroundRefreshChats() {
     const remoteChats = await getChatsForUser(getCurrentUserId());
     if (remoteChats && Array.isArray(remoteChats)) {
       const oldChats = AppState.chats || [];
-      const newChats = remoteChats;
-      
-      // Only re-render if chats actually changed
+      const merged = applyPinnedFromLocal(remoteChats, oldChats);
+      const newChats = sortChatsForDisplay(merged);
+
       const oldIds = new Set(oldChats.map(c => c.id));
       const newIds = new Set(newChats.map(c => c.id));
-      const hasChanges = oldIds.size !== newIds.size || 
-                         newChats.some(c => !oldIds.has(c.id));
-      
+      const hasChanges = oldIds.size !== newIds.size
+        || newChats.some((c, i) => c.id !== oldChats[i]?.id || Number(c.unread || 0) !== Number(oldChats[i]?.unread || 0));
+
       if (hasChanges) {
         AppState.chats = newChats;
+        updateChatsUnreadCounts();
         writeCachedChatsForUser(AppState.chats, getCurrentUserId());
         scheduleChatsListRender();
       }
@@ -905,6 +970,9 @@ async function backgroundRefreshChats() {
 }
 
 function renderChatsList() {
+  const flipPending = _chatsListFlipPending;
+  _chatsListFlipPending = null;
+
   const chats = AppState.chats.length ? AppState.chats : [];
   const showEmptyState = chats.length === 0;
   const query = AppState.chatsSearchQuery.trim().toLowerCase();
@@ -914,6 +982,19 @@ function renderChatsList() {
     return !query || displayName.toLowerCase().includes(query);
   });
   const showSearch = AppState.chatsSearchOpen || !!query;
+
+  const grid = DOM.chatsGrid;
+  let oldRects = null;
+  if (flipPending && grid && !showEmptyState) {
+    const cards = grid.querySelectorAll('.chat-card');
+    if (cards.length) {
+      oldRects = new Map();
+      for (const el of cards) {
+        const id = el.dataset.chatId;
+        if (id) oldRects.set(id, el.getBoundingClientRect());
+      }
+    }
+  }
 
   setDisplay(DOM.chatsGrid, !showEmptyState, 'grid');
   setDisplay(DOM.chatsEmptyState, showEmptyState, 'flex');
@@ -942,16 +1023,40 @@ function renderChatsList() {
       ? `<span class="chat-badge" aria-label="${chat.unread} unread message${chat.unread === 1 ? '' : 's'}"></span>`
       : '';
 
+    const unreadAlertsIconHTML = chat.unread > 0
+      ? `<span class="chat-card__unread-alerts-icon" aria-hidden="true"></span>`
+      : '';
+    const pinHTML = chat.pinned
+      ? `<span class="chat-card__pin" aria-hidden="true"></span>`
+      : '';
+    const trailingHTML = unreadAlertsIconHTML || pinHTML
+      ? `<div class="chat-card__title-trailing">${unreadAlertsIconHTML}${pinHTML}</div>`
+      : '';
+
     return `
       <div class="chat-card chat-card--${chat.visual || 'default'}${chat.id === ACTIVE_CHAT_ID ? ' chat-card--besties' : ''}" data-chat-id="${chat.id}">
         <div class="chat-card__art">${artHTML}</div>
         <div class="chat-card__footer">
-          ${badgeHTML}
-          <div class="chat-card__name">${escapeHtml(displayName)}</div>
+          <div class="chat-card__title-row">
+            <div class="chat-card__name-anchor">
+              ${badgeHTML}
+              <div class="chat-card__name">${escapeHtml(displayName)}</div>
+            </div>
+            ${trailingHTML}
+          </div>
         </div>
       </div>
     `;
   }).join('');
+
+  if (oldRects && flipPending && grid) {
+    _runChatsGridFlipAnimation(grid, oldRects);
+  }
+  if (flipPending?.pinned && grid) {
+    const card = [...grid.querySelectorAll('.chat-card')].find(c => c.dataset.chatId === flipPending.chatId);
+    const pinEl = card?.querySelector('.chat-card__pin');
+    if (pinEl) pinEl.classList.add('chat-card__pin--rising');
+  }
 }
 
 function pinChatInLocalLists(chat) {
@@ -976,8 +1081,205 @@ function pinChatInLocalLists(chat) {
   writeCachedChatsForUser(AppState.chats, getCurrentUserId());
 }
 
+function applyPinnedFromLocal(chats, ...sources) {
+  const pinnedIds = new Set();
+  for (const list of sources) {
+    for (const c of list || []) {
+      if (c?.id && c.pinned) pinnedIds.add(c.id);
+    }
+  }
+  return (Array.isArray(chats) ? chats : []).map(chat => {
+    if (!chat?.id) return chat;
+    return { ...chat, pinned: pinnedIds.has(chat.id) };
+  });
+}
+
+function sortChatsForDisplay(chats) {
+  return [...(Array.isArray(chats) ? chats : [])].sort((a, b) => {
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    return (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0);
+  });
+}
+
+async function markLatestOtherVoiceMemoUnread(chatId) {
+  const uid = getCurrentUserId();
+  if (!chatId || !uid) return;
+
+  const threads = Store.getCachedThreads(chatId);
+  if (!threads.length) return;
+
+  let bestMsg = null;
+  let bestSent = -1;
+  for (const thread of threads) {
+    for (const message of thread.messages || []) {
+      if (!message || message.authorId === uid) continue;
+      const sid = String(message.voiceMessageId || message.id || '');
+      if (!sid || sid.startsWith('optimistic')) continue;
+      const sent = Number(message.sentAt || 0);
+      if (sent >= bestSent) {
+        bestSent = sent;
+        bestMsg = message;
+      }
+    }
+  }
+  if (!bestMsg) return;
+
+  const voiceMessageId = bestMsg.voiceMessageId || bestMsg.id;
+  const targetId = bestMsg.id;
+
+  const updated = threads.map(thread => ({
+    ...thread,
+    messages: (thread.messages || []).map(m => {
+      if (m.id !== targetId) return m;
+      return {
+        ...m,
+        heardByCurrentUser: false,
+        playedMs: 0,
+        heardAt: null,
+      };
+    }),
+  }));
+
+  Store.replaceThreads(chatId, updated);
+  if (AppState.activeChat?.id === chatId) {
+    Store.setActiveChat(chatId);
+    renderTopics();
+  }
+
+  if (AppState.supabaseOk && voiceMessageId && !String(voiceMessageId).startsWith('local-')) {
+    await savePlaybackProgressRecord({
+      userId: uid,
+      voiceMessageId,
+      heard: false,
+      playedMs: 0,
+    });
+  }
+
+  updateChatsUnreadCounts();
+  writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+  scheduleChatsListRender();
+}
+
+async function markEntireChatAsRead(chatId) {
+  const uid = getCurrentUserId();
+  if (!chatId || !uid) return;
+
+  const threads = Store.getCachedThreads(chatId);
+  if (!threads.length) {
+    updateChatsUnreadCounts();
+    writeCachedChatsForUser(AppState.chats, uid);
+    scheduleChatsListRender();
+    return;
+  }
+
+  const heardPromises = [];
+  const updated = threads.map(thread => ({
+    ...thread,
+    messages: (thread.messages || []).map(m => {
+      if (!m || m.authorId === uid || m.heardByCurrentUser) return m;
+      const vmid = m.voiceMessageId;
+      if (AppState.supabaseOk && vmid && !String(vmid).startsWith('local-') && !String(vmid).startsWith('optimistic')) {
+        heardPromises.push(savePlaybackProgressRecord({
+          userId: uid,
+          voiceMessageId: vmid,
+          heard: true,
+          playedMs: 0,
+        }));
+      }
+      return {
+        ...m,
+        heardByCurrentUser: true,
+        heardAt: Date.now(),
+      };
+    }),
+  }));
+
+  Store.replaceThreads(chatId, updated);
+  if (AppState.activeChat?.id === chatId) {
+    Store.setActiveChat(chatId);
+    renderTopics();
+  }
+
+  if (heardPromises.length) {
+    await Promise.all(heardPromises);
+  }
+  updateChatsUnreadCounts();
+  writeCachedChatsForUser(AppState.chats, uid);
+  scheduleChatsListRender();
+}
+
+function syncChatContextMenuLabels(chat) {
+  if (!chat) return;
+
+  const pinBtn = document.getElementById('ctx-pin-chat');
+  const pinIcon = document.getElementById('ctx-pin-chat-icon');
+  const pinLabel = pinBtn?.querySelector('.ctx-menu-label');
+  if (pinIcon && pinLabel) {
+    pinLabel.textContent = chat.pinned ? 'Unpin' : 'Pin';
+    pinIcon.classList.toggle('chat-context-menu__icon--pin', !chat.pinned);
+    pinIcon.classList.toggle('chat-context-menu__icon--unpin', !!chat.pinned);
+  }
+
+  const unreadBtn = document.getElementById('ctx-mark-unread');
+  const unreadIcon = unreadBtn?.querySelector('.chat-context-menu__icon');
+  const unreadLabel = unreadBtn?.querySelector('.ctx-menu-label');
+  const hasUnread = Number(chat.unread || 0) > 0;
+  if (unreadIcon && unreadLabel) {
+    unreadLabel.textContent = hasUnread ? 'Mark as Read' : 'Mark as Unread';
+    unreadIcon.classList.toggle('chat-context-menu__icon--unread', !hasUnread);
+    unreadIcon.classList.toggle('chat-context-menu__icon--read', hasUnread);
+  }
+
+  const alertsBtn = document.getElementById('ctx-hide-alerts');
+  const alertsIcon = alertsBtn?.querySelector('.chat-context-menu__icon');
+  const alertsLabel = alertsBtn?.querySelector('.ctx-menu-label');
+  const muted = !!chat.hideAlerts;
+  if (alertsIcon && alertsLabel) {
+    alertsLabel.textContent = muted ? 'Show Alerts' : 'Hide Alerts';
+    alertsIcon.classList.toggle('chat-context-menu__icon--alerts', !muted);
+    alertsIcon.classList.toggle('chat-context-menu__icon--show-alerts', muted);
+  }
+}
+
+function enterChatContextDeleteConfirm() {
+  const chatId = AppState.contextMenuChatId;
+  if (!chatId || !DOM.chatContextMenu) return;
+  const chat = AppState.chats.find(c => c.id === chatId);
+  if (!chat) return;
+
+  const art = document.getElementById('chat-context-delete-art');
+  const nameEl = document.getElementById('chat-context-delete-name');
+  const confirmEl = document.getElementById('chat-context-delete-confirm');
+  if (art) art.innerHTML = _chatArtHTML(chat);
+  if (nameEl) nameEl.textContent = getChatDisplayName(chat);
+  if (confirmEl) confirmEl.removeAttribute('hidden');
+  DOM.chatContextMenu.classList.add('chat-context-menu--delete-confirm');
+}
+
+async function executeLeaveAndRemoveChat(chatId) {
+  const uid = getCurrentUserId();
+  if (!chatId || !uid) return;
+
+  await leaveChat(chatId, uid);
+  Store.clear(chatId);
+  removeCachedThreadsForChat(chatId);
+  AppState.chats = AppState.chats.filter(c => c.id !== chatId);
+  AppState.pendingChats = AppState.pendingChats.filter(c => c.id !== chatId);
+  if (AppState.activeChat?.id === chatId) {
+    AppState.activeChat = null;
+  }
+  writeCachedChatsForUser(AppState.chats, uid);
+  await refreshChatsAndRender({ force: true });
+}
+
 function showChatContextMenu(chatId) {
   if (!DOM.chatContextMenu) return;
+
+  DOM.chatContextMenu.classList.remove('chat-context-menu--delete-confirm');
+  const confirmEl = document.getElementById('chat-context-delete-confirm');
+  if (confirmEl) confirmEl.setAttribute('hidden', '');
 
   const card = document.querySelector(`[data-chat-id="${chatId}"]`);
   const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
@@ -1100,12 +1402,18 @@ function showChatContextMenu(chatId) {
   popover.style.left = left + 'px';
 
   AppState.contextMenuChatId = chatId;
+  updateChatsUnreadCounts();
+  const menuChat = AppState.chats.find(c => c.id === chatId) || null;
+  syncChatContextMenuLabels(menuChat);
   DOM.chatContextMenu.removeAttribute('hidden');
   DOM.chatContextMenu.classList.add('active');
 }
 
 function hideChatContextMenu() {
   if (!DOM.chatContextMenu) return;
+  DOM.chatContextMenu.classList.remove('chat-context-menu--delete-confirm');
+  const confirmEl = document.getElementById('chat-context-delete-confirm');
+  if (confirmEl) confirmEl.setAttribute('hidden', '');
   const popover = DOM.chatContextMenu.querySelector('.chat-context-menu__popover');
   if (popover) {
     popover.style.top = '';
@@ -1127,29 +1435,32 @@ async function handleChatContextAction(action) {
 
   try {
     switch (action) {
-      case 'pin':
-        pinChatInLocalLists(chat);
-        await refreshChatsAndRender();
-        break;
-      case 'mark-unread':
-        chat.unread = 1;
+      case 'pin': {
+        const nextPinned = !chat.pinned;
+        AppState.chats = sortChatsForDisplay(
+          AppState.chats.map(c => (c.id === chatId ? { ...c, pinned: nextPinned } : c))
+        );
         writeCachedChatsForUser(AppState.chats, getCurrentUserId());
-        await refreshChatsAndRender();
+        scheduleChatsListRender({ flipForChatId: chatId, flipPinned: nextPinned });
         break;
-      case 'hide-alerts':
-        chat.hideAlerts = !chat.hideAlerts;
-        writeCachedChatsForUser(AppState.chats, getCurrentUserId());
-        await refreshChatsAndRender();
-        break;
-      case 'delete':
-        if (confirm(`Leave "${getChatDisplayName(chat)}"?`)) {
-          await leaveChat(chatId, getCurrentUserId());
-          AppState.chats = AppState.chats.filter(c => c.id !== chatId);
-          AppState.pendingChats = AppState.pendingChats.filter(c => c.id !== chatId);
-          writeCachedChatsForUser(AppState.chats, getCurrentUserId());
-          await refreshChatsAndRender();
+      }
+      case 'mark-unread': {
+        const fresh = AppState.chats.find(c => c.id === chatId);
+        if (fresh && Number(fresh.unread || 0) > 0) {
+          await markEntireChatAsRead(chatId);
+        } else {
+          await markLatestOtherVoiceMemoUnread(chatId);
         }
         break;
+      }
+      case 'hide-alerts': {
+        const nextMute = !chat.hideAlerts;
+        chat.hideAlerts = nextMute;
+        await setChatMuteAlerts(chatId, getCurrentUserId(), nextMute);
+        writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+        await refreshChatsAndRender({ force: true });
+        break;
+      }
     }
   } catch (error) {
     console.error('[yAp] Context action failed:', error);
@@ -1212,6 +1523,10 @@ function buildChatDeepLink(chatId) {
 
 async function showLocalChatNotification(title, body, tag, chatId = '') {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (chatId) {
+    const chat = AppState.chats.find(c => c.id === chatId);
+    if (chat?.hideAlerts) return;
+  }
   const targetUrl = buildChatDeepLink(chatId);
 
   try {
@@ -1263,7 +1578,9 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
   for (const chat of Array.isArray(chats) ? chats : []) {
     const previous = previousSnapshot.get(chat.id);
     if (!previous) {
-      showLocalChatNotification(getChatDisplayName(chat, 'New chat'), 'You were added to a chat.', `chat-${chat.id}`, chat.id);
+      if (!chat.hideAlerts) {
+        showLocalChatNotification(getChatDisplayName(chat, 'New chat'), 'You were added to a chat.', `chat-${chat.id}`, chat.id);
+      }
       continue;
     }
 
@@ -1275,6 +1592,7 @@ function notifyAboutRemoteChatChanges(previousSnapshot, chats = AppState.chats) 
       && chat.previewAuthorId !== currentUserId;
 
     if (!hasNewRemoteMessage) continue;
+    if (chat.hideAlerts) continue;
 
     showLocalChatNotification(
       getChatDisplayName(chat, 'New message'),
@@ -1630,6 +1948,58 @@ function validateProfileSetupFields() {
 function syncProfileManageAvatarLabel(user = getCurrentUser()) {
   if (!DOM.manageProfilePhotoLabel) return;
   DOM.manageProfilePhotoLabel.textContent = user?.avatarUrl ? 'Edit' : 'Add';
+}
+
+let profileAvatarPreviewReturnFocus = null;
+
+function syncManageProfilePhotoButton() {
+  if (!DOM.btnManageProfilePhoto) return;
+  const editing = DOM.btnProfileEdit?.dataset.editing === 'true';
+  DOM.btnManageProfilePhoto.setAttribute(
+    'aria-label',
+    editing ? 'Change profile photo' : 'View profile photo',
+  );
+}
+
+function onProfileAvatarPreviewOverlayKeydown(event) {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  closeProfileAvatarPreviewOverlay();
+}
+
+function closeProfileAvatarPreviewOverlay() {
+  if (!DOM.profileAvatarPreviewOverlay || DOM.profileAvatarPreviewOverlay.hidden) return;
+  DOM.profileAvatarPreviewOverlay.hidden = true;
+  DOM.profileAvatarPreviewOverlay.setAttribute('aria-hidden', 'true');
+  document.removeEventListener('keydown', onProfileAvatarPreviewOverlayKeydown);
+  DOM.profileAvatarPreviewStage?.setAttribute('aria-hidden', 'true');
+  if (profileAvatarPreviewReturnFocus && typeof profileAvatarPreviewReturnFocus.focus === 'function') {
+    try {
+      profileAvatarPreviewReturnFocus.focus();
+    } catch {}
+  }
+  profileAvatarPreviewReturnFocus = null;
+}
+
+function openProfileAvatarPreviewOverlay() {
+  if (!DOM.profileAvatarPreviewOverlay || !DOM.profileAvatarPreviewStage) return;
+  profileAvatarPreviewReturnFocus = document.activeElement;
+  const name = DOM.inputManageProfileName?.value?.trim() || getCurrentUser().name || 'You';
+  const rawUrl = DOM.inputManageProfileAvatar?.value?.trim() || '';
+  const imageUrl = hasCustomProfileAvatar(rawUrl) ? rawUrl : '';
+  setAvatarPickerPreview({
+    element: DOM.profileAvatarPreviewStage,
+    imageUrl,
+    fallbackText: buildUserInitials(name),
+    accent: pickUserColor(name),
+  });
+  DOM.profileAvatarPreviewOverlay.hidden = false;
+  DOM.profileAvatarPreviewOverlay.setAttribute('aria-hidden', 'false');
+  DOM.profileAvatarPreviewStage.setAttribute('aria-hidden', 'false');
+  document.addEventListener('keydown', onProfileAvatarPreviewOverlayKeydown);
+  try {
+    DOM.btnProfileAvatarPreviewClose?.focus();
+  } catch {}
 }
 
 async function handleProfileAvatarPicked(file, target = 'setup') {
@@ -3247,6 +3617,10 @@ function updateContactsHubChrome() {
 }
 
 // ── Recording flow ────────────────────────────────────
+// Debug helpers for animation iteration (do not ship enabled).
+const YAP_DEBUG_HOLD_ANALYSIS_AFTER_SEND = true;
+const YAP_DEBUG_SEND_TRANSITION_MS = 2400;
+
 async function startRecording() {
   const mgr = new RecordingManager({
     videoEl: DOM.waveformVideo,
@@ -3377,7 +3751,12 @@ async function sendRecording() {
       }
 
       // Memo send: show analysis overlay while pipeline runs.
-      AnalysisModal.open();
+      AnalysisModal.open(blob);
+
+      if (YAP_DEBUG_HOLD_ANALYSIS_AFTER_SEND) {
+        // For visual iteration: keep the analysis overlay up and do not send.
+        return;
+      }
 
       // Process in background with no loading screen
       await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl);
@@ -3398,7 +3777,7 @@ async function sendRecording() {
         clearReplyTarget();
       }
     }
-  }, 520);
+  }, YAP_DEBUG_SEND_TRANSITION_MS);
 }
 
 function discardRecording() {
@@ -3949,7 +4328,7 @@ async function refreshChats({ force = false } = {}) {
 
   const refreshPromise = (async () => {
     if (!AppState.supabaseOk) {
-      AppState.chats = AppState.pendingChats || [];
+      AppState.chats = sortChatsForDisplay(AppState.pendingChats || []);
       return AppState.chats;
     }
 
@@ -3957,12 +4336,12 @@ async function refreshChats({ force = false } = {}) {
     const cachedChats = readCachedChatsForUser(getCurrentUserId());
     // Show cached chats immediately if available
     if (cachedChats.length && !AppState.chats.length) {
-      AppState.chats = cachedChats;
+      AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, []));
       scheduleChatsListRender();
     }
     if (!force && cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
       // Keep UI snappy, but still try to pull the latest chats in the background.
-      AppState.chats = cachedChats;
+      AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, AppState.chats));
       backgroundRefreshChats();
       return AppState.chats;
     }
@@ -3990,9 +4369,9 @@ async function refreshChats({ force = false } = {}) {
       if (!chat?.id || seenChatIds.has(chat.id)) return false;
       seenChatIds.add(chat.id);
       return true;
-    }).sort((a, b) => (b.lastMessageAt || b.localCreatedAt || 0) - (a.lastMessageAt || a.localCreatedAt || 0));
-
-    AppState.chats = dedupedChats;
+    });
+    const withPins = applyPinnedFromLocal(dedupedChats, cachedChats, AppState.chats);
+    AppState.chats = sortChatsForDisplay(withPins);
     updateChatsUnreadCounts();
     writeCachedChatsForUser(AppState.chats, getCurrentUserId());
     AppState.pendingChats = AppState.pendingChats.filter(chat => !remoteIds.has(chat.id));
@@ -4038,10 +4417,11 @@ function renderProfileSettings() {
     delete DOM.btnProfileEdit.dataset.editing;
     DOM.btnProfileEdit.classList.remove('is-icon-only');
     DOM.btnProfileEdit.textContent = 'Edit';
-    DOM.btnProfileEdit.setAttribute('aria-label', 'Edit profile name');
+    DOM.btnProfileEdit.setAttribute('aria-label', 'Edit profile');
   }
   DOM.inputManageProfileAvatar.value = currentUser.avatarUrl || '';
   syncProfileManageAvatarLabel(currentUser);
+  syncManageProfilePhotoButton();
   setFeedback(DOM.profileManageFeedback, '');
 }
 
@@ -4368,7 +4748,7 @@ async function routeAuthenticatedUser() {
     && !AppState.auth.pendingChatId;
   if (canLeaveSplashEarly) {
     const cachedChats = readCachedChatsForUser(getCurrentUserId());
-    if (cachedChats.length) AppState.chats = cachedChats;
+    if (cachedChats.length) AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, []));
     navigate('chats', 'fade');
     scheduleChatsListRender();
   }
@@ -4432,7 +4812,7 @@ async function routeAuthenticatedUser() {
   let showedChatsBeforeRefresh = false;
   if (canShowChatsBeforeRefresh) {
     const cachedChats = readCachedChatsForUser(appUser.id);
-    if (cachedChats.length) AppState.chats = cachedChats;
+    if (cachedChats.length) AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, []));
     AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
     navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
     scheduleChatsListRender();
@@ -4929,12 +5309,13 @@ function wireEvents() {
       DOM.btnProfileEdit.dataset.editing = 'true';
       DOM.btnProfileEdit.innerHTML = '<img src="assets/done.svg" alt="" aria-hidden="true">';
       DOM.btnProfileEdit.classList.add('is-icon-only');
-      DOM.btnProfileEdit.setAttribute('aria-label', 'Done editing profile name');
+      DOM.btnProfileEdit.setAttribute('aria-label', 'Done editing profile');
       DOM.inputManageProfileName.readOnly = false;
       DOM.inputManageProfileName.focus();
       try {
         DOM.inputManageProfileName.setSelectionRange(0, DOM.inputManageProfileName.value.length);
       } catch {}
+      syncManageProfilePhotoButton();
       return;
     }
 
@@ -4946,10 +5327,22 @@ function wireEvents() {
     delete DOM.btnProfileEdit.dataset.editing;
     DOM.btnProfileEdit.classList.remove('is-icon-only');
     DOM.btnProfileEdit.textContent = 'Edit';
-    DOM.btnProfileEdit.setAttribute('aria-label', 'Edit profile name');
+    DOM.btnProfileEdit.setAttribute('aria-label', 'Edit profile');
+    syncManageProfilePhotoButton();
   });
   DOM.btnManageProfilePhoto?.addEventListener('click', () => {
-    DOM.inputManageProfileAvatarFile?.click();
+    if (DOM.btnProfileEdit?.dataset.editing === 'true') {
+      DOM.inputManageProfileAvatarFile?.click();
+      return;
+    }
+    openProfileAvatarPreviewOverlay();
+  });
+  DOM.profileAvatarPreviewOverlay?.addEventListener('click', () => {
+    closeProfileAvatarPreviewOverlay();
+  });
+  DOM.btnProfileAvatarPreviewClose?.addEventListener('click', event => {
+    event.stopPropagation();
+    closeProfileAvatarPreviewOverlay();
   });
   DOM.inputManageProfileName?.addEventListener('input', () => {
     const nextName = DOM.inputManageProfileName.value.trim() || 'You';
@@ -4972,6 +5365,10 @@ function wireEvents() {
     await saveManagedProfileNameFromEditor();
   });
   DOM.inputManageProfileAvatarFile?.addEventListener('change', async event => {
+    if (DOM.btnProfileEdit?.dataset.editing !== 'true') {
+      event.target.value = '';
+      return;
+    }
     const file = event.target.files?.[0];
     await handleProfileAvatarPicked(file, 'manage');
     if (file) {
@@ -5088,7 +5485,22 @@ function wireEvents() {
   document.getElementById('ctx-pin-chat')?.addEventListener('click', () => handleChatContextAction('pin'));
   document.getElementById('ctx-mark-unread')?.addEventListener('click', () => handleChatContextAction('mark-unread'));
   document.getElementById('ctx-hide-alerts')?.addEventListener('click', () => handleChatContextAction('hide-alerts'));
-  document.getElementById('ctx-delete-chat')?.addEventListener('click', () => handleChatContextAction('delete'));
+  document.getElementById('ctx-delete-chat')?.addEventListener('click', event => {
+    event.stopPropagation();
+    enterChatContextDeleteConfirm();
+  });
+  document.getElementById('ctx-delete-confirm-btn')?.addEventListener('click', async event => {
+    event.stopPropagation();
+    const id = AppState.contextMenuChatId;
+    if (!id) return;
+    try {
+      await executeLeaveAndRemoveChat(id);
+    } catch (err) {
+      console.error('[yAp] Delete chat failed:', err);
+    } finally {
+      hideChatContextMenu();
+    }
+  });
 
   DOM.btnBack.addEventListener('click', () => {
     void closeActiveChatAndNavigateToList();

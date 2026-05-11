@@ -276,7 +276,7 @@
           </svg>
         </button>
         <section class="profile-details-hero" aria-label="Profile">
-          <button class="ios-profile-photo-button" id="btn-manage-profile-photo" type="button" aria-label="Change profile photo">
+          <button class="ios-profile-photo-button" id="btn-manage-profile-photo" type="button" aria-label="View profile photo">
             <div class="settings-avatar group-details-hero__avatar" id="profile-settings-avatar"></div>
           </button>
           <label class="group-details-hero__name-wrap" for="input-manage-profile-name">
@@ -415,28 +415,38 @@
       <div class="chat-context-menu__overlay"></div>
       <div class="chat-context-menu__content" role="dialog" aria-modal="true" aria-label="Chat actions">
         <div class="chat-context-menu__preview" id="chat-context-preview"></div>
+        <div class="chat-context-delete-confirm" id="chat-context-delete-confirm" hidden>
+          <div class="chat-context-delete-confirm__hero">
+            <div class="chat-context-delete-confirm__art" id="chat-context-delete-art"></div>
+            <div class="chat-context-delete-confirm__name chat-card__name" id="chat-context-delete-name"></div>
+          </div>
+          <div class="chat-context-delete-confirm__sheet">
+            <p class="chat-context-delete-confirm__message" id="chat-context-delete-message">This conversation will be deleted from all of your devices.</p>
+            <button type="button" class="chat-context-delete-confirm__btn" id="ctx-delete-confirm-btn">Delete</button>
+          </div>
+        </div>
         <div class="chat-context-menu__popover">
           <button class="chat-context-menu__item" id="ctx-pin-chat" type="button">
-            <span class="chat-context-menu__icon chat-context-menu__icon--pin" aria-hidden="true"></span>
-            <span>Pin</span>
+            <span class="chat-context-menu__icon chat-context-menu__icon--pin" id="ctx-pin-chat-icon" aria-hidden="true"></span>
+            <span class="ctx-menu-label">Pin</span>
           </button>
           <button class="chat-context-menu__item" id="ctx-mark-unread" type="button">
             <span class="chat-context-menu__icon chat-context-menu__icon--unread" aria-hidden="true"></span>
-            <span>Mark as Unread</span>
+            <span class="ctx-menu-label">Mark as Unread</span>
           </button>
           <button class="chat-context-menu__item" id="ctx-hide-alerts" type="button">
             <span class="chat-context-menu__icon chat-context-menu__icon--alerts" aria-hidden="true"></span>
-            <span>Hide Alerts</span>
+            <span class="ctx-menu-label">Hide Alerts</span>
           </button>
           <button class="chat-context-menu__item chat-context-menu__item--delete" id="ctx-delete-chat" type="button">
             <span class="chat-context-menu__icon chat-context-menu__icon--delete" aria-hidden="true"></span>
-            <span>Delete</span>
+            <span class="ctx-menu-label">Delete</span>
           </button>
         </div>
       </div>
     </div>
     <button class="glassNavButton icon-btn chats-empty-state__cta" id="btn-start-chat" aria-label="Create a group">
-      <svg width="20" height="20" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <path d="M18 9C18 9.19891 17.921 9.38968 17.7803 9.53033C17.6397 9.67098 17.4489 9.75 17.25 9.75H9.75V17.25C9.75 17.4489 9.67098 17.6397 9.53033 17.7803C9.38968 17.921 9.19891 18 9 18C8.80109 18 8.61032 17.921 8.46967 17.7803C8.32902 17.6397 8.25 17.4489 8.25 17.25V9.75H0.75C0.551088 9.75 0.360322 9.67098 0.21967 9.53033C0.0790178 9.38968 0 9.19891 0 9C0 8.80109 0.0790178 8.61032 0.21967 8.46967C0.360322 8.32902 0.551088 8.25 0.75 8.25H8.25V0.75C8.25 0.551088 8.32902 0.360322 8.46967 0.21967C8.61032 0.0790178 8.80109 0 9 0C9.19891 0 9.38968 0.0790178 9.53033 0.21967C9.67098 0.360322 9.75 0.551088 9.75 0.75V8.25H17.25C17.4489 8.25 17.6397 8.32902 17.7803 8.46967C17.921 8.61032 18 8.80109 18 9Z" fill="currentColor"/>
       </svg>
     </button>
@@ -666,6 +676,7 @@
 
         <div class="analysis-hero">
           <div class="analysis-visual-field" aria-hidden="true">
+            <canvas class="analysis-waveform-canvas" id="analysis-waveform-canvas"></canvas>
             <span class="analysis-visual-field__glow analysis-visual-field__glow--one"></span>
             <span class="analysis-visual-field__glow analysis-visual-field__glow--two"></span>
             <span class="analysis-visual-field__glow analysis-visual-field__glow--three"></span>
@@ -673,7 +684,7 @@
             <span class="analysis-ribbon analysis-ribbon--two"></span>
             <span class="analysis-ribbon analysis-ribbon--three"></span>
             <span class="analysis-ribbon analysis-ribbon--four"></span>
-            <span class="analysis-core"></span>
+            <span class="analysis-core glassNavButton" aria-hidden="true"></span>
             <div class="analysis-wave-cluster">
               <span class="analysis-wave analysis-wave--one"></span>
               <span class="analysis-wave analysis-wave--two"></span>
@@ -682,8 +693,10 @@
             </div>
           </div>
           <div class="analysis-hero__title" id="analysis-title">Breaking your memo<br>into topics</div>
-          <div class="analysis-status-strip analysis-status-strip--hero" id="analysis-status-strip">
-            <span id="analysis-status-copy">Unraveling the plot...</span>
+          <div class="analysis-status-strip analysis-status-strip--hero glassNavButton" id="analysis-status-strip">
+            <span id="analysis-status-copy" class="analysis-status-copy">
+              <span id="analysis-status-line" class="analysis-status-copy__line">Unraveling the plot</span><span class="analysis-status-copy__dots" aria-hidden="true"><span class="analysis-status-copy__dot">.</span><span class="analysis-status-copy__dot">.</span><span class="analysis-status-copy__dot">.</span></span>
+            </span>
           </div>
         </div>
 
@@ -698,6 +711,17 @@
 
 </div>
 <!-- /app -->
+
+<div class="profile-avatar-preview-overlay" id="profile-avatar-preview-overlay" role="dialog" aria-modal="true" aria-label="Profile photo" aria-hidden="true" hidden>
+  <button type="button" class="profile-avatar-preview-overlay__close glassNavButton" id="btn-profile-avatar-preview-close" aria-label="Close preview">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <div class="profile-avatar-preview-overlay__stage">
+    <div id="profile-avatar-preview-stage" class="settings-avatar group-details-hero__avatar profile-avatar-preview-stage" role="img" aria-hidden="true"></div>
+  </div>
+</div>
 
 <div class="ios-alert-overlay" id="ios-alert-overlay" aria-hidden="true" hidden>
   <div class="ios-alert">

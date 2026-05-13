@@ -3,6 +3,8 @@
   "framework": null,
   "outputDirectory": ".",
   "public": true,
+  "buildCommand": "echo 'Static site - no build needed'",
+  "devCommand": "npx http-server",
   "headers": [
     {
       "source": "/(.*)",

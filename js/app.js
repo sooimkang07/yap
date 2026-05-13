@@ -3743,6 +3743,12 @@ async function sendRecording() {
       };
       Store.addMessage(replyTargetThreadId, optimisticMessage);
       renderTopics();
+      // Re-render current thread to show new message immediately
+      const currentThread = Store.getThread(replyTargetThreadId);
+      if (currentThread) {
+        DOM.chatEmpty?.classList.toggle('is-single-member', false);
+        DOM.chatTopics?.classList.add('showing-thread-details');
+      }
       scrollChatToLatest();
     }
   } else {

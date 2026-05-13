@@ -4942,7 +4942,7 @@ html, body {
 
 .reply-row__title {
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: -0.03em;
 }
 
 .topic-row__meta,

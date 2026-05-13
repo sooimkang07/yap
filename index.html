@@ -20,6 +20,12 @@
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="components/voice-visualizer/voice-visualizer.css">
 </head>
+
+<script>
+  // Mock local preview - skip to analyzing
+  window.MOCK_SESSION = { user: { id: "local-test" }, session: { access_token: "mock" } };
+  window.SHOW_ANALYSIS = true;
+</script>
 <body>
 <script>
 // Auto-login for development - remove before production
@@ -37,7 +43,6 @@
 
     const client = window.supabase?.createClient?.(SUPABASE_URL, SUPABASE_ANON_KEY);
     if (!client) {
-      setTimeout(autoLoginSooim, 500); // Retry when Supabase is ready
       return;
     }
 
@@ -63,8 +68,13 @@
   <!-- SCREEN: SPLASH                                  -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="screen-splash" class="screen active" data-screen="splash">
-    <div class="splash-content">
-      <img class="splash-logo" src="assets/y.png" alt="yAp">
+    <video id="splash-video" class="splash-video" autoplay muted playsinline loop>
+      <source src="assets/yap-logo.mov" type="video/quicktime">
+      <source src="assets/yap-logo.mov" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <div class="splash-content splash-content--delayed">
+      <img class="splash-logo" src="assets/logo-black.png" alt="yAp">
       <div class="splash-tagline">Less typing. More yapping.</div>
     </div>
   </div>
@@ -75,7 +85,7 @@
   <div id="screen-welcome" class="screen" data-screen="welcome">
     <div class="entry-screen">
       <div class="entry-screen__hero">
-        <img class="entry-screen__logo" src="assets/y.png" alt="yAp">
+        <img class="entry-screen__logo" src="assets/logo-black.png" alt="yAp">
         <h1 class="entry-screen__title">Made for friends who yAp all day.</h1>
         <p class="entry-screen__body">Talk naturally, reply by topic, and stay caught up on each other’s lives.</p>
       </div>
@@ -453,7 +463,7 @@
         <path d="M18 9C18 9.19891 17.921 9.38968 17.7803 9.53033C17.6397 9.67098 17.4489 9.75 17.25 9.75H9.75V17.25C9.75 17.4489 9.67098 17.6397 9.53033 17.7803C9.38968 17.921 9.19891 18 9 18C8.80109 18 8.61032 17.921 8.46967 17.7803C8.32902 17.6397 8.25 17.4489 8.25 17.25V9.75H0.75C0.551088 9.75 0.360322 9.67098 0.21967 9.53033C0.0790178 9.38968 0 9.19891 0 9C0 8.80109 0.0790178 8.61032 0.21967 8.46967C0.360322 8.32902 0.551088 8.25 0.75 8.25H8.25V0.75C8.25 0.551088 8.32902 0.360322 8.46967 0.21967C8.61032 0.0790178 8.80109 0 9 0C9.19891 0 9.38968 0.0790178 9.53033 0.21967C9.67098 0.360322 9.75 0.551088 9.75 0.75V8.25H17.25C17.4489 8.25 17.6397 8.32902 17.7803 8.46967C17.921 8.61032 18 8.80109 18 9Z" fill="currentColor"/>
       </svg>
     </button>
-    <div class="chats-empty-state__cta-label" id="btn-start-chat-label">New chat</div>
+    <div class="chats-empty-state__cta-label" id="btn-start-chat-label"></div>
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
@@ -750,3 +760,25 @@
 <script defer type="module" src="components/voice-visualizer/mount.js"></script>
 </body>
 </html>
+
+<script>
+    }
+  }, 500);
+</script>
+
+<script>
+  // Force show analysis overlay after app loads
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      const splashScreen = document.querySelector('[data-screen="splash"]');
+      const analysisOverlay = document.getElementById('analysis-overlay');
+      
+      if (splashScreen) splashScreen.style.display = 'none';
+      if (analysisOverlay) {
+        analysisOverlay.classList.add('visible');
+        analysisOverlay.setAttribute('aria-hidden', 'false');
+        analysisOverlay.style.pointerEvents = 'auto';
+      }
+    }, 800);
+  });
+</script>

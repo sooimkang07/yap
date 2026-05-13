@@ -60,6 +60,22 @@ const Pipeline = {
       .map(threadId => Store.getThread(threadId))
       .filter(Boolean);
 
+    // Scroll to oldest topic card that received replies
+    const repliedToThreads = touches
+      .filter(touch => !touch.isNewThread)
+      .map(touch => touch.thread);
+    if (repliedToThreads.length > 0) {
+      const oldestThread = repliedToThreads.reduce((oldest, curr) =>
+        (curr.createdAt || 0) < (oldest.createdAt || 0) ? curr : oldest
+      );
+      if (oldestThread?.id) {
+        setTimeout(() => {
+          const el = document.querySelector(`[data-thread-id="${oldestThread.id}"]`);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 100);
+      }
+    }
+
     if (isSupabaseReady()) {
       this._persistProcessingResult({
         transcript,
@@ -339,6 +355,11 @@ const Pipeline = {
         };
         Store.addThread(thread);
         isNewThread = true;
+        // Remove optimistic placeholder from new thread if it exists
+        const placeholderThread = Store.getThread(`thread-${messageId}-${index}`);
+        if (placeholderThread?.messages) {
+          placeholderThread.messages = placeholderThread.messages.filter(msg => !msg.optimistic);
+        }
       }
 
       touches.push({

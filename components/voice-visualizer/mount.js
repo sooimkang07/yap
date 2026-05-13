@@ -83,18 +83,6 @@ if (mountEl) {
     return spine;
   }
 
-  function strokeSpinePath(ctx, spine) {
-    ctx.beginPath();
-    ctx.moveTo(spine[0].x, spine[0].y);
-    for (let i = 1; i < spine.length - 1; i += 1) {
-      const xc = (spine[i].x + spine[i + 1].x) / 2;
-      const yc = (spine[i].y + spine[i + 1].y) / 2;
-      ctx.quadraticCurveTo(spine[i].x, spine[i].y, xc, yc);
-    }
-    const last = spine[spine.length - 1];
-    ctx.lineTo(last.x, last.y);
-  }
-
   function drawRibbon(width, height, time, config, audio) {
     const spine = sampleRibbonPoints(width, height, time, config, audio);
     ctx.save();
@@ -110,11 +98,17 @@ if (mountEl) {
       y: point.y + thickness * config.depth,
     }));
 
+    const fillGradient = ctx.createLinearGradient(0, height * config.baseY, width, height * (config.baseY + 0.06));
+    fillGradient.addColorStop(0, config.colors[0]);
+    fillGradient.addColorStop(0.28, config.colors[1]);
+    fillGradient.addColorStop(0.62, config.colors[2]);
+    fillGradient.addColorStop(1, config.colors[3]);
+
     ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = config.fillColor;
+    ctx.fillStyle = fillGradient;
     ctx.globalAlpha = config.alpha * (0.42 + smooth.wake * 0.55);
-    ctx.shadowBlur = 52;
-    ctx.shadowColor = config.glowRgb;
+    ctx.shadowBlur = 42;
+    ctx.shadowColor = config.shadow;
 
     ctx.beginPath();
     ctx.moveTo(top[0].x, top[0].y);
@@ -138,33 +132,37 @@ if (mountEl) {
 
     ctx.closePath();
     ctx.fill();
-    ctx.shadowBlur = 0;
 
-    const baseW = Math.max(3, thickness * config.edgeWidth * 1.22);
-    const strokeRgb = config.strokeColor;
-    const glowRgb = config.glowRgb;
+    const strokeGradient = ctx.createLinearGradient(0, height * config.baseY, width, height * config.baseY);
+    strokeGradient.addColorStop(0, 'rgba(255,255,255,0.66)');
+    strokeGradient.addColorStop(0.22, config.edgeColors[0]);
+    strokeGradient.addColorStop(0.58, config.edgeColors[1]);
+    strokeGradient.addColorStop(1, 'rgba(255,255,255,0.5)');
 
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    ctx.strokeStyle = strokeRgb;
-    ctx.globalCompositeOperation = 'screen';
+    ctx.lineWidth = Math.max(1.4, thickness * config.edgeWidth);
+    ctx.strokeStyle = strokeGradient;
+    ctx.globalAlpha = 0.78;
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = config.edgeShadow;
 
-    const passes = [
-      { width: baseW * 2.75, blur: 52, alpha: 0.3, color: strokeRgb },
-      { width: baseW * 2.0, blur: 34, alpha: 0.46, color: strokeRgb },
-      { width: baseW * 1.32, blur: 18, alpha: 0.78, color: strokeRgb },
-      { width: baseW, blur: 9, alpha: 0.96, color: strokeRgb },
-    ];
+    ctx.beginPath();
+    ctx.moveTo(spine[0].x, spine[0].y);
+    for (let i = 1; i < spine.length - 1; i += 1) {
+      const xc = (spine[i].x + spine[i + 1].x) / 2;
+      const yc = (spine[i].y + spine[i + 1].y) / 2;
+      ctx.quadraticCurveTo(spine[i].x, spine[i].y, xc, yc);
+    }
+    const last = spine[spine.length - 1];
+    ctx.lineTo(last.x, last.y);
+    ctx.stroke();
 
-    passes.forEach(pass => {
-      ctx.lineWidth = pass.width;
-      ctx.globalAlpha = pass.alpha;
-      ctx.shadowBlur = pass.blur;
-      ctx.shadowColor = glowRgb;
-      strokeSpinePath(ctx, spine);
-      ctx.stroke();
-    });
+    ctx.lineWidth = Math.max(1, thickness * 0.08);
+    ctx.strokeStyle = 'rgba(255,255,255,0.58)';
+    ctx.globalAlpha = 0.42;
     ctx.shadowBlur = 0;
+    ctx.stroke();
 
     ctx.restore();
   }
@@ -180,24 +178,24 @@ if (mountEl) {
     ctx.fillRect(0, 0, width, height);
 
     const leftGlow = ctx.createRadialGradient(width * 0.16, height * 0.44, 0, width * 0.16, height * 0.44, width * 0.34);
-    leftGlow.addColorStop(0, `rgba(255, 222, 184, ${0.16 + audio.envelope * 0.16})`);
-    leftGlow.addColorStop(0.28, `rgba(222, 192, 248, ${0.12 + audio.mid * 0.14})`);
-    leftGlow.addColorStop(0.5, `rgba(184, 216, 255, ${0.12 + audio.mid * 0.1})`);
+    leftGlow.addColorStop(0, `rgba(255, 177, 110, ${0.18 + audio.envelope * 0.18})`);
+    leftGlow.addColorStop(0.24, `rgba(255, 145, 210, ${0.12 + audio.mid * 0.16})`);
+    leftGlow.addColorStop(0.46, `rgba(212, 127, 255, ${0.16 + audio.mid * 0.12})`);
     leftGlow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = leftGlow;
     ctx.fillRect(0, 0, width, height);
 
     const rightGlow = ctx.createRadialGradient(width * 0.84, height * 0.46, 0, width * 0.84, height * 0.46, width * 0.28);
-    rightGlow.addColorStop(0, `rgba(184, 216, 255, ${0.16 + audio.high * 0.18})`);
-    rightGlow.addColorStop(0.3, `rgba(223, 255, 184, ${0.12 + audio.bass * 0.12})`);
-    rightGlow.addColorStop(0.48, `rgba(222, 192, 248, ${0.1 + audio.envelope * 0.1})`);
+    rightGlow.addColorStop(0, `rgba(130, 238, 255, ${0.18 + audio.high * 0.22})`);
+    rightGlow.addColorStop(0.28, `rgba(180, 255, 233, ${0.12 + audio.bass * 0.1})`);
+    rightGlow.addColorStop(0.44, `rgba(255, 182, 244, ${0.1 + audio.envelope * 0.12})`);
     rightGlow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = rightGlow;
     ctx.fillRect(0, 0, width, height);
 
     const centerGlow = ctx.createRadialGradient(width * 0.48, height * 0.56, 0, width * 0.48, height * 0.56, width * 0.24);
-    centerGlow.addColorStop(0, `rgba(255,255,255,${0.07 + audio.envelope * 0.07})`);
-    centerGlow.addColorStop(0.38, `rgba(222, 192, 248, ${0.06 + audio.attack * 0.1})`);
+    centerGlow.addColorStop(0, `rgba(255,255,255,${0.08 + audio.envelope * 0.08})`);
+    centerGlow.addColorStop(0.36, `rgba(210, 160, 255, ${0.05 + audio.attack * 0.1})`);
     centerGlow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = centerGlow;
     ctx.fillRect(0, 0, width, height);
@@ -224,84 +222,86 @@ if (mountEl) {
 
       drawBackdrop(width, height, smooth);
 
-      const yapRibbonPalette = [
-        { stroke: 'rgba(184, 216, 255, 0.96)', fill: 'rgba(184, 216, 255, 0.2)', glow: 'rgba(184, 216, 255, 0.75)' },
-        { stroke: 'rgba(222, 192, 248, 0.96)', fill: 'rgba(222, 192, 248, 0.2)', glow: 'rgba(222, 192, 248, 0.75)' },
-        { stroke: 'rgba(255, 222, 184, 0.96)', fill: 'rgba(255, 222, 184, 0.2)', glow: 'rgba(255, 222, 184, 0.75)' },
-        { stroke: 'rgba(223, 255, 184, 0.96)', fill: 'rgba(223, 255, 184, 0.2)', glow: 'rgba(223, 255, 184, 0.75)' },
-      ];
-
-      const yapRibbonBase = {
-        thickness: 32,
-        depth: 0.62,
-        edgeWidth: 0.22,
-        alpha: 0.7,
-      };
-
       const ribbons = [
         {
-          ...yapRibbonBase,
-          strokeColor: yapRibbonPalette[0].stroke,
-          fillColor: yapRibbonPalette[0].fill,
-          glowRgb: yapRibbonPalette[0].glow,
           baseY: 0.48,
           frequency: 5.8,
           speed: 0.00115,
           phase: 0,
+          thickness: 20,
           bassLift: 24,
           midLift: 18,
           highLift: 10,
           envelopeLift: 1.12,
           rippleLift: 0.84,
           shimmerLift: 0.18,
+          depth: 0.72,
+          edgeWidth: 0.14,
+          alpha: 0.74,
+          shadow: 'rgba(255, 132, 215, 0.28)',
+          edgeShadow: 'rgba(180, 120, 255, 0.2)',
+          colors: ['rgba(255, 226, 158, 0.54)', 'rgba(255, 122, 178, 0.48)', 'rgba(120, 92, 255, 0.58)', 'rgba(182, 243, 255, 0.44)'],
+          edgeColors: ['rgba(255, 211, 123, 0.9)', 'rgba(140, 228, 255, 0.86)'],
         },
         {
-          ...yapRibbonBase,
-          strokeColor: yapRibbonPalette[1].stroke,
-          fillColor: yapRibbonPalette[1].fill,
-          glowRgb: yapRibbonPalette[1].glow,
           baseY: 0.52,
           frequency: 7.6,
           speed: 0.00145,
           phase: 1.45,
+          thickness: 20,
           bassLift: 18,
           midLift: 22,
           highLift: 18,
           envelopeLift: 0.96,
           rippleLift: 0.92,
           shimmerLift: 0.22,
+          depth: 0.52,
+          edgeWidth: 0.14,
+          alpha: 0.6,
+          shadow: 'rgba(122, 234, 255, 0.26)',
+          edgeShadow: 'rgba(130, 238, 255, 0.22)',
+          colors: ['rgba(255,255,255,0.34)', 'rgba(151, 246, 255, 0.46)', 'rgba(232, 165, 255, 0.44)', 'rgba(255, 244, 206, 0.32)'],
+          edgeColors: ['rgba(255,255,255,0.76)', 'rgba(171, 237, 255, 0.84)'],
         },
         {
-          ...yapRibbonBase,
-          strokeColor: yapRibbonPalette[2].stroke,
-          fillColor: yapRibbonPalette[2].fill,
-          glowRgb: yapRibbonPalette[2].glow,
           baseY: 0.5,
           frequency: 4.4,
           speed: 0.00088,
           phase: 3.1,
+          thickness: 20,
           bassLift: 28,
           midLift: 12,
           highLift: 10,
           envelopeLift: 1.22,
           rippleLift: 0.62,
           shimmerLift: 0.12,
+          depth: 0.88,
+          edgeWidth: 0.14,
+          alpha: 0.36,
+          shadow: 'rgba(255, 214, 132, 0.16)',
+          edgeShadow: 'rgba(255, 225, 164, 0.16)',
+          colors: ['rgba(255, 243, 202, 0.18)', 'rgba(255, 160, 238, 0.18)', 'rgba(182, 122, 255, 0.2)', 'rgba(198, 247, 255, 0.16)'],
+          edgeColors: ['rgba(255, 248, 214, 0.54)', 'rgba(255,255,255,0.46)'],
         },
         {
-          ...yapRibbonBase,
-          strokeColor: yapRibbonPalette[3].stroke,
-          fillColor: yapRibbonPalette[3].fill,
-          glowRgb: yapRibbonPalette[3].glow,
           baseY: 0.49,
           frequency: 9.8,
           speed: 0.00185,
           phase: 2.15,
+          thickness: 20,
           bassLift: 10,
           midLift: 20,
           highLift: 26,
           envelopeLift: 0.72,
           rippleLift: 1.02,
           shimmerLift: 0.28,
+          depth: 0.28,
+          edgeWidth: 0.14,
+          alpha: 0.54,
+          shadow: 'rgba(190, 244, 255, 0.24)',
+          edgeShadow: 'rgba(255,255,255,0.16)',
+          colors: ['rgba(255,255,255,0.16)', 'rgba(130, 236, 255, 0.24)', 'rgba(255, 175, 234, 0.24)', 'rgba(255, 255, 255, 0.12)'],
+          edgeColors: ['rgba(255,255,255,0.88)', 'rgba(200, 246, 255, 0.82)'],
         },
       ];
 

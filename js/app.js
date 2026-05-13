@@ -2038,7 +2038,7 @@ function closeChatsSearch() {
   renderChatsList();
 }
 
-function openCreateGroupComposer() {
+function openCreateGroupComposer(addToExistingChat = false) {
   const sheet = DOM.screens?.createGroup;
   const chatsScreen = DOM.screens?.chats;
   if (sheet) {
@@ -2051,6 +2051,7 @@ function openCreateGroupComposer() {
     }
   }
 
+  AppState.addingMembersToExistingChat = addToExistingChat;
   AppState.screen = 'chats';
   navigate('create-group', 'forward');
 
@@ -2977,7 +2978,6 @@ function _buildNowPlayingTimeline(thread) {
   }).join('');
 
   DOM.npTimeline.innerHTML = `
-    <span class="np-timeline__tick" data-np-elapsed>0:00</span>
     <span class="np-timeline__track">
       ${segmentHtml}
       <span class="np-timeline__played" aria-hidden="true">${playedSegmentHtml}</span>
@@ -3312,21 +3312,7 @@ function _buildNowPlayingSegmentedRingLayers(thread) {
 }
 
 function _syncNowPlayingSegmentedRing() {
-  const trackEl = DOM.npAvatars?.querySelector('.np-avatar--current .np-avatar__ring--track');
-  const progressEl = DOM.npAvatars?.querySelector('.np-avatar--current .np-avatar__ring--progress');
-  if (!trackEl || !progressEl) return;
-  const threads = Store.getThreads();
-  const thread = threads[AppState.nowPlaying.topicIndex];
-  if (!thread) {
-    trackEl.style.removeProperty('background');
-    progressEl.style.removeProperty('background');
-    return;
-  }
-  const layers = _buildNowPlayingSegmentedRingLayers(thread);
-  if (layers?.track) trackEl.style.background = layers.track;
-  else trackEl.style.removeProperty('background');
-  if (layers?.progress) progressEl.style.background = layers.progress;
-  else progressEl.style.removeProperty('background');
+  // Segmented ring removed - keeping function for compatibility
 }
 
 function _syncNowPlayingAvatarProgress() {
@@ -5366,43 +5352,68 @@ function wireEvents() {
       return;
     }
     if (!AppState.onboarding.pendingMembers.length) {
-      setFeedback(DOM.createGroupFeedback, 'Add at least one person to start a chat.', 'error');
+      const action = AppState.addingMembersToExistingChat ? 'Add' : 'start a chat';
+      setFeedback(DOM.createGroupFeedback, `${action} at least one person to ${action === 'Add' ? 'add to the group' : 'start a chat'}.`, 'error');
       DOM.inputCreateGroupSearch?.focus();
       return;
     }
     AppState.onboarding.createGroupSubmitting = true;
     setFeedback(DOM.createGroupFeedback, '');
-    setButtonBusy(DOM.btnCreateGroupSubmit, true, 'Creating');
+    const buttonLabel = AppState.addingMembersToExistingChat ? 'Adding...' : 'Creating';
+    setButtonBusy(DOM.btnCreateGroupSubmit, true, buttonLabel);
 
     try {
-      const createdChat = await createGroupChat({
-        ownerUserId: getCurrentUserId(),
-        name: DOM.inputGroupName?.value || '',
-        members: AppState.onboarding.pendingMembers,
-      });
-      const nextChat = createdChat;
+      if (AppState.addingMembersToExistingChat && AppState.activeChat?.id) {
+        // Add members to existing chat
+        await addMembersToChat({
+          chatId: AppState.activeChat.id,
+          ownerUserId: getCurrentUserId(),
+          members: AppState.onboarding.pendingMembers,
+        });
 
-      resetCreateGroupComposer();
-      // Pin the freshly-created chat immediately so it survives the trip back
-      // to All Chats even if the remote refresh has not caught up yet.
-      pinChatInLocalLists(nextChat);
-      scheduleChatsListRender();
-      // Forcibly close the create-group sheet so it doesn't stay active and
-      // intercept the back button when the user navigates out of the new chat.
-      const createGroupSheet = DOM.screens?.createGroup;
-      if (createGroupSheet) {
-        createGroupSheet.classList.remove('active', 'screen-sheet-closing');
-        resetScreenTransitionState(createGroupSheet);
+        // Clear pending members and close the composer
+        resetCreateGroupComposer();
+        const createGroupSheet = DOM.screens?.createGroup;
+        if (createGroupSheet) {
+          createGroupSheet.classList.remove('active', 'screen-sheet-closing');
+          resetScreenTransitionState(createGroupSheet);
+        }
+        goBack('group-settings');
+        setFeedback(DOM.groupSettingsFeedback, 'Members added successfully!', 'success');
+        renderGroupSettings(AppState.groupSettingsInvites);
+        refreshChatsAndRender();
+      } else {
+        // Create new chat
+        const createdChat = await createGroupChat({
+          ownerUserId: getCurrentUserId(),
+          name: DOM.inputGroupName?.value || '',
+          members: AppState.onboarding.pendingMembers,
+        });
+        const nextChat = createdChat;
+
+        resetCreateGroupComposer();
+        // Pin the freshly-created chat immediately so it survives the trip back
+        // to All Chats even if the remote refresh has not caught up yet.
+        pinChatInLocalLists(nextChat);
+        scheduleChatsListRender();
+        // Forcibly close the create-group sheet so it doesn't stay active and
+        // intercept the back button when the user navigates out of the new chat.
+        const createGroupSheet = DOM.screens?.createGroup;
+        if (createGroupSheet) {
+          createGroupSheet.classList.remove('active', 'screen-sheet-closing');
+          resetScreenTransitionState(createGroupSheet);
+        }
+        if (AppState.navTimer) { clearTimeout(AppState.navTimer); AppState.navTimer = null; }
+        await openChat(nextChat);
+        // Refresh from DB in background to sync any server-side changes.
+        refreshChatsAndRender();
       }
-      if (AppState.navTimer) { clearTimeout(AppState.navTimer); AppState.navTimer = null; }
-      await openChat(nextChat);
-      // Refresh from DB in background to sync any server-side changes.
-      refreshChatsAndRender();
     } catch (error) {
-      setFeedback(DOM.createGroupFeedback, error.message || 'We could not create your group yet.', 'error');
+      setFeedback(DOM.createGroupFeedback, error.message || `We could not ${AppState.addingMembersToExistingChat ? 'add members to' : 'create'} the group yet.`, 'error');
     } finally {
       AppState.onboarding.createGroupSubmitting = false;
       setButtonBusy(DOM.btnCreateGroupSubmit, false);
+      AppState.addingMembersToExistingChat = false;
     }
   });
 
@@ -5710,7 +5721,7 @@ function wireEvents() {
       setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
       return;
     }
-    openCreateGroupComposer();
+    openCreateGroupComposer(true);
   });
   DOM.groupSettingsBackgroundOptions?.addEventListener('click', event => {
     const option = event.target.closest('[data-group-background]');

@@ -4431,7 +4431,8 @@ async function refreshChats({ force = false } = {}) {
 
     const remoteChats = await getChatsForUser(getCurrentUserId());
     AppState.sync.lastChatsRefreshAt = Date.now();
-    const resolvedRemoteChats = Array.isArray(remoteChats) ? remoteChats : cachedChats;
+    // If remote fetch failed (null) or returned empty and we have cached chats, use cached
+    const resolvedRemoteChats = (Array.isArray(remoteChats) && remoteChats.length > 0) ? remoteChats : cachedChats;
     const pendingChatFreshnessMs = 2 * 60 * 1000;
     const now = Date.now();
 

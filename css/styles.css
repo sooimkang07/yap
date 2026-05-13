@@ -2950,7 +2950,7 @@ html, body {
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 2.5rem 1.5rem 7.5rem;
+  padding: 2.5rem 1.5rem calc(2rem + env(safe-area-inset-bottom));
   position: relative;
   z-index: 1;
   overflow: hidden;
@@ -5836,6 +5836,9 @@ select,
 }
 
 .group-details-hero__avatars {
+  position: relative;
+  width: 12rem;
+  height: 12rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5855,10 +5858,30 @@ select,
   justify-content: center;
   font-size: 2.125rem;
   font-weight: 700;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
-.group-details-hero__avatars .group-details-hero__avatar + .group-details-hero__avatar {
-  margin-left: -1.375rem;
+.group-details-hero__avatars .group-details-hero__avatar:nth-child(1) {
+  transform: translate(calc(-50% + 0px), calc(-50% - 40px));
+  z-index: 4;
+}
+
+.group-details-hero__avatars .group-details-hero__avatar:nth-child(2) {
+  transform: translate(calc(-50% + 35px), calc(-50% + 20px));
+  z-index: 3;
+}
+
+.group-details-hero__avatars .group-details-hero__avatar:nth-child(3) {
+  transform: translate(calc(-50% - 35px), calc(-50% + 20px));
+  z-index: 2;
+}
+
+.group-details-hero__avatars .group-details-hero__avatar:nth-child(4) {
+  transform: translate(calc(-50% + 0px), calc(-50% + 50px));
+  z-index: 1;
 }
 
 .group-details-hero__name-wrap {
@@ -8480,7 +8503,7 @@ select,
   margin-top: var(--compose-sheet-top-pad);
   gap: 0.75rem;
   padding:
-    max(1rem, calc(env(safe-area-inset-top, 0rem) + 0.75rem))
+    calc(env(safe-area-inset-top, 0rem) + 0.25rem)
     0
     0;
   justify-content: flex-start;

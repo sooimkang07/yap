@@ -1617,6 +1617,7 @@ async function syncRemoteState({ forceConversation = false, forceChats = false }
         setDisplay(DOM.chatProcessing, false);
         setDisplay(DOM.chatEmpty, true);
         setDisplay(DOM.chatTopics, false);
+        stopPlaybackOnChatExit();
         setDisplay(DOM.chatPresence, false);
       }
     } else if (AppState.screen === 'group-settings' && AppState.activeChat?.id) {
@@ -2543,6 +2544,7 @@ async function openChat(chat) {
       } else {
         setDisplay(DOM.chatEmpty, true);
         setDisplay(DOM.chatTopics, false);
+        stopPlaybackOnChatExit();
       }
       renderChatPresence(AppState.activeChat);
     })
@@ -2652,6 +2654,14 @@ function _startNowPlayingPlayback() {
   AppState.nowPlaying.completedAll = false;
   _syncNowPlayingPauseIcon(true);
   PlaybackController.playThread(thread, null).catch(() => {});
+}
+
+function stopPlaybackOnChatExit() {
+  if (PlaybackController.audio && !PlaybackController.audio.paused) {
+    PlaybackController.audio.pause();
+    AppState.nowPlaying.isPlaying = false;
+    _syncNowPlayingPauseIcon(false);
+  }
 }
 
 function _toggleNowPlayingPause() {

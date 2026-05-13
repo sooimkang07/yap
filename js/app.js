@@ -2419,24 +2419,31 @@ function renderActiveChatShell(chat) {
   const firstMember = featuredMembers[0];
   const secondMember = featuredMembers[1];
 
-  // Render all floating avatars
-  const floatingContainer = DOM.chatEmpty?.querySelector('.floating-avatars-container') || DOM.chatEmpty;
-  if (floatingContainer && featuredMembers.length > 0) {
+  // Hide placeholder avatars and render real floating avatars
+  if (DOM.floatingAvatarPrimary) DOM.floatingAvatarPrimary.style.display = 'none';
+  if (DOM.floatingAvatarSecondary) DOM.floatingAvatarSecondary.style.display = 'none';
+  
+  if (featuredMembers.length > 0) {
     let existingContainer = DOM.chatEmpty?.querySelector('.floating-avatars-container');
     if (!existingContainer) {
       existingContainer = document.createElement('div');
       existingContainer.className = 'floating-avatars-container';
-      DOM.chatEmpty?.appendChild(existingContainer);
-      DOM.chatEmpty.floatingAvatarsContainer = existingContainer;
+      DOM.chatEmpty?.insertBefore(existingContainer, DOM.chatEmpty.firstChild);
     }
     
     existingContainer.innerHTML = '';
+    const spacing = 120; // pixels between avatars
     featuredMembers.forEach((member, index) => {
       const avatarEl = document.createElement('div');
       avatarEl.className = 'floating-avatar floating-avatar--dynamic';
       avatarEl.id = `floating-avatar-${index}`;
       avatarEl.style.zIndex = 1000 - index;
-      avatarEl.style.right = (index * 30) + 'px';
+      // Spread avatars horizontally and vertically
+      const angle = (index / Math.max(1, featuredMembers.length - 1)) * 360;
+      const radius = 100;
+      const x = Math.cos(angle * Math.PI / 180) * radius;
+      const y = Math.sin(angle * Math.PI / 180) * radius;
+      avatarEl.style.transform = `translate(${x}px, ${y}px)`;
       
       const labelEl = document.createElement('div');
       labelEl.className = 'floating-avatar__label';

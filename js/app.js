@@ -2322,7 +2322,7 @@ function _chatArtHTML(chat) {
   }
 
   if (chat.visual === 'besties') {
-    const bestiesMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 2);
+    const bestiesMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 4);
     if (bestiesMembers.length) {
       return `
         <div class="chat-art-besties">
@@ -2367,7 +2367,7 @@ function _chatArtHTML(chat) {
     return `<div class="chat-art-circle chat-art-circle--mushroom"></div>`;
   }
 
-  const artMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 2);
+  const artMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 4);
   if (artMembers.length) {
     return `
       <div class="chat-art-besties">
@@ -2390,7 +2390,7 @@ function renderActiveChatShell(chat) {
   const otherMembers = getChatOtherMembers(chat);
   if (DOM.chatMemberPips) {
     if (otherMembers.length > 1) {
-      const pipMembers = otherMembers.slice(0, 2);
+      const pipMembers = otherMembers.slice(0, 4);
       DOM.chatMemberPips.innerHTML = `
         <div class="chat-art-besties chat-art-besties--pips">
           ${pipMembers.map((member, index) => buildMemberAvatarMarkup(
@@ -2414,14 +2414,43 @@ function renderActiveChatShell(chat) {
   renderChatPresence(chat);
   DOM.chatEmpty?.classList.toggle('is-single-member', otherMembers.length === 1);
 
-  const featuredMembers = otherMembers.slice(0, 2);
+  const featuredMembers = otherMembers.slice(0, otherMembers.length);
   const firstMember = featuredMembers[0];
   const secondMember = featuredMembers[1];
 
-  if (DOM.floatingAvatarPrimary) DOM.floatingAvatarPrimary.style.display = firstMember ? '' : 'none';
-  if (firstMember) renderFloatingProfile(DOM.floatingAvatarPrimary, DOM.floatingAvatarPrimaryLabel, DOM.floatingAvatarPrimaryPhoto, firstMember, '');
-  if (DOM.floatingAvatarSecondary) DOM.floatingAvatarSecondary.style.display = secondMember ? '' : 'none';
-  if (secondMember) renderFloatingProfile(DOM.floatingAvatarSecondary, DOM.floatingAvatarSecondaryLabel, DOM.floatingAvatarSecondaryPhoto, secondMember, '');
+  // Render all floating avatars
+  const floatingContainer = DOM.chatEmpty?.querySelector('.floating-avatars-container') || DOM.chatEmpty;
+  if (floatingContainer && featuredMembers.length > 0) {
+    let existingContainer = DOM.chatEmpty?.querySelector('.floating-avatars-container');
+    if (!existingContainer) {
+      existingContainer = document.createElement('div');
+      existingContainer.className = 'floating-avatars-container';
+      DOM.chatEmpty?.appendChild(existingContainer);
+      DOM.chatEmpty.floatingAvatarsContainer = existingContainer;
+    }
+    
+    existingContainer.innerHTML = '';
+    featuredMembers.forEach((member, index) => {
+      const avatarEl = document.createElement('div');
+      avatarEl.className = 'floating-avatar floating-avatar--dynamic';
+      avatarEl.id = `floating-avatar-${index}`;
+      avatarEl.style.zIndex = 1000 - index;
+      avatarEl.style.right = (index * 30) + 'px';
+      
+      const labelEl = document.createElement('div');
+      labelEl.className = 'floating-avatar__label';
+      labelEl.textContent = member.name || member.phoneE164 || 'User';
+      
+      const photoEl = document.createElement('div');
+      photoEl.className = 'floating-avatar__photo';
+      
+      avatarEl.appendChild(labelEl);
+      avatarEl.appendChild(photoEl);
+      existingContainer.appendChild(avatarEl);
+      
+      renderFloatingProfile(avatarEl, labelEl, photoEl, member, '');
+    });
+  }
 }
 
 // ── Open a chat ───────────────────────────────────────
@@ -4656,7 +4685,7 @@ function renderGroupSettings(invites = []) {
 
   if (DOM.groupSettingsHeroAvatars) {
     if (otherMembers.length > 1) {
-      const heroMembers = otherMembers.slice(0, 2);
+      const heroMembers = otherMembers.slice(0, 4);
       DOM.groupSettingsHeroAvatars.innerHTML = `
         <div class="chat-art-besties chat-art-besties--hero">
           ${heroMembers.map((member, index) => buildMemberAvatarMarkup(

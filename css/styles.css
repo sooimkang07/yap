@@ -1818,6 +1818,30 @@ button {
 }
 
 /* Chat footer */
+
+
+/* Dynamic floating avatars container */
+.floating-avatars-container {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.floating-avatar--dynamic {
+  position: absolute;
+  top: 20%;
+  background: transparent;
+  box-shadow: none;
+  animation: besties-float-dynamic 9s ease-in-out infinite;
+  pointer-events: auto;
+}
+
+@keyframes besties-float-dynamic {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
 .chat-footer {
   padding: 0 0 2.25rem;
   display: flex;

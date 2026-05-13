@@ -1,9 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "node -c server.js",
-  "devCommand": "node server.js",
   "framework": null,
   "outputDirectory": ".",
+  "public": true,
   "headers": [
     {
       "source": "/(.*)",
@@ -13,6 +12,12 @@
           "value": "microphone=(self)"
         }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/index.html",
+      "destination": "/index.html"
     }
   ],
   "crons": [

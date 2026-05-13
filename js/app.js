@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// yAp — App
+// yap — App
 // Router, screen manager, event wiring
 // ═══════════════════════════════════════════════════════
 
@@ -908,7 +908,7 @@ async function primeConversationCaches() {
           await hydrateChatFromSupabase(chat.id);
           AppState.sync.conversationCacheVersions.set(chat.id, buildConversationCacheVersion(chat));
         } catch (error) {
-          console.warn('[yAp] conversation cache prime failed:', chat.id, error);
+          console.warn('[yap] conversation cache prime failed:', chat.id, error);
         }
       }
     };
@@ -966,7 +966,7 @@ async function backgroundRefreshChats() {
       }
     }
   } catch (error) {
-    console.warn('[yAp] background chat refresh failed:', error);
+    console.warn('[yap] background chat refresh failed:', error);
   }
 }
 
@@ -1440,7 +1440,7 @@ async function handleChatContextAction(action) {
       }
     }
   } catch (error) {
-    console.error('[yAp] Context action failed:', error);
+    console.error('[yap] Context action failed:', error);
   }
 }
 
@@ -1521,7 +1521,7 @@ async function showLocalChatNotification(title, body, tag, chatId = '') {
       return;
     }
   } catch (error) {
-    console.warn('[yAp] service worker notification failed:', error);
+    console.warn('[yap] service worker notification failed:', error);
   }
 
   try {
@@ -1541,7 +1541,7 @@ async function showLocalChatNotification(title, body, tag, chatId = '') {
       notification.close();
     };
   } catch (error) {
-    console.warn('[yAp] local notification failed:', error);
+    console.warn('[yap] local notification failed:', error);
   }
 }
 
@@ -1635,7 +1635,7 @@ async function syncRemoteState({ forceConversation = false, forceChats = false }
     notifyAboutRemoteChatChanges(previousSnapshot, AppState.chats);
     AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
   } catch (error) {
-    console.warn('[yAp] remote sync failed:', error);
+    console.warn('[yap] remote sync failed:', error);
   } finally {
     AppState.sync.inFlight = false;
     const pendingForceConversation = AppState.sync.pendingForceConversation;
@@ -1731,7 +1731,7 @@ function stopRemoteSync() {
     try {
       supabaseClient?.removeChannel?.(AppState.sync.realtimeChannel);
     } catch (error) {
-      console.warn('[yAp] realtime channel cleanup failed:', error);
+      console.warn('[yap] realtime channel cleanup failed:', error);
     }
   }
   AppState.sync.realtimeChannel = null;
@@ -1783,14 +1783,14 @@ function ensureRealtimeSyncChannel() {
 
   channel.subscribe(async status => {
     if (status === 'SUBSCRIBED') {
-      console.log('[yAp] Realtime subscription active');
+      console.log('[yap] Realtime subscription active');
       await syncLocalPresence();
       refreshRemotePresenceState();
       renderChatPresence(AppState.activeChat);
       return;
     }
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-      console.warn(`[yAp] Realtime channel ${status}, falling back to polling`);
+      console.warn(`[yap] Realtime channel ${status}, falling back to polling`);
       AppState.sync.realtimeChannel = null;
       // Auto-reconnect in 5 seconds
       setTimeout(() => ensureRealtimeSyncChannel(), 5000);
@@ -1803,7 +1803,7 @@ function ensureRealtimeSyncChannel() {
   setInterval(() => {
     if (!AppState.sync.realtimeChannel || !supabaseClient?.channel) return;
     if (AppState.sync.realtimeChannel.state !== 'joined') {
-      console.warn('[yAp] Realtime connection lost, re-establishing...');
+      console.warn('[yap] Realtime connection lost, re-establishing...');
       closeRealtimeSyncChannel();
       ensureRealtimeSyncChannel();
     }
@@ -2077,7 +2077,7 @@ function getChatMemberDisplayName(member) {
   return String(resolvedMember?.phoneE164 || '').trim();
 }
 
-function getChatDisplayName(chat, fallback = 'yAp chat') {
+function getChatDisplayName(chat, fallback = 'yap chat') {
   const otherNames = getChatOtherMembers(chat)
     .map(getChatMemberDisplayName)
     .filter(Boolean);
@@ -2278,7 +2278,7 @@ async function syncLocalPresence() {
   try {
     await channel.track(getLocalPresencePayload());
   } catch (error) {
-    console.warn('[yAp] local presence track failed:', error);
+    console.warn('[yap] local presence track failed:', error);
   }
 }
 
@@ -2555,9 +2555,9 @@ async function openChat(chat) {
       }
       renderChatPresence(AppState.activeChat);
     })
-    .catch(error => console.warn('[yAp] Chat open hydration failed:', error));
+    .catch(error => console.warn('[yap] Chat open hydration failed:', error));
 
-  markChatMessagesAsHeard(chat.id).catch(error => console.warn('[yAp] mark read failed:', error));
+  markChatMessagesAsHeard(chat.id).catch(error => console.warn('[yap] mark read failed:', error));
 }
 
 function scrollChatToLatest() {
@@ -2584,7 +2584,7 @@ async function hydrateActiveConversation(force = false) {
 
   AppState.conversationHydrating = hydrateChatFromSupabase(activeChatId)
     .catch(error => {
-      console.warn('[yAp] Conversation hydration failed:', error);
+      console.warn('[yap] Conversation hydration failed:', error);
       return Store.getThreads();
     })
     .finally(() => {
@@ -3342,7 +3342,7 @@ function _showRecRow(which) {
 function _setRecordingIdleState() {
   AppState.recording.manager = null;
   AppState.recording.phase = 'idle';
-  PresenceManager.setRecordingState('idle').catch(e => console.warn('[yAp] Presence update failed:', e));
+  PresenceManager.setRecordingState('idle').catch(e => console.warn('[yap] Presence update failed:', e));
   window.__yapVoiceVisualizerBridge?.reset?.();
   window.__yapVoiceVisualizerBridge?.setRecording?.(false);
   DOM.btnMic.classList.remove('recording');
@@ -3524,7 +3524,7 @@ async function getImportedContactsCountForCurrentUser() {
     const contacts = await getImportedContactsForUser(getCurrentUserId());
     return contacts.length;
   } catch (error) {
-    console.warn('[yAp] imported contacts lookup failed:', error);
+    console.warn('[yap] imported contacts lookup failed:', error);
     return 0;
   }
 }
@@ -3562,14 +3562,14 @@ async function handleDirectDeviceContactsImport() {
     const successMessage = AppState.onboarding.contactsTarget === 'group-settings'
       ? (addedCount
         ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'} to this group.`
-        : 'No new registered yAp users were found in those contacts.')
+        : 'No new registered yap users were found in those contacts.')
       : isContactsOnboardingTarget()
         ? (addedCount
           ? `Connected ${addedCount} contact${addedCount === 1 ? '' : 's'} from your phone.`
           : 'Those contacts are already connected.')
       : (addedCount
         ? `Added ${addedCount} contact${addedCount === 1 ? '' : 's'} to the To field.`
-        : 'No new registered yAp users were found in those contacts.');
+        : 'No new registered yap users were found in those contacts.');
 
     if (AppState.onboarding.contactsTarget === 'group-settings') {
       await refreshActiveChatAndSettings();
@@ -3670,13 +3670,13 @@ async function startRecording() {
   try {
     await mgr.start();
     AppState.recording.phase = 'recording';
-    PresenceManager.setRecordingState('recording').catch(e => console.warn('[yAp] Presence update failed:', e));
+    PresenceManager.setRecordingState('recording').catch(e => console.warn('[yap] Presence update failed:', e));
     window.__yapVoiceVisualizerBridge?.setRecording?.(true);
     DOM.btnMic.classList.add('recording');
     syncLocalPresence();
   } catch (err) {
     const message = err?.message || 'We could not start recording on this device.';
-    console.warn('[yAp] startRecording failed:', err);
+    console.warn('[yap] startRecording failed:', err);
     const isPermissionError = err?.message?.includes('permission');
     const title = isPermissionError ? 'Enable Microphone' : 'Microphone Unavailable';
     showIOSAlert(message, { title });
@@ -3693,7 +3693,7 @@ async function stopRecording() {
   if (!result) return;
 
   AppState.recording.phase = 'stopped';
-  PresenceManager.setRecordingState('recording').catch(e => console.warn('[yAp] Presence update failed:', e));
+  PresenceManager.setRecordingState('recording').catch(e => console.warn('[yap] Presence update failed:', e));
   window.__yapVoiceVisualizerBridge?.setRecording?.(false);
   _showRecRow('stopped');
   syncLocalPresence();
@@ -3706,7 +3706,7 @@ async function sendRecording() {
   const mgr = AppState.recording.manager;
   if (!mgr || !mgr.blob) return;
   if (!mgr.blob.size) {
-    console.error('[yAp] Cannot send empty recording blob', {
+    console.error('[yap] Cannot send empty recording blob', {
       durationMs: mgr.durationMs || 0,
       mimeType: mgr.blob.type || mgr.mimeType || 'unknown',
       size: mgr.blob.size,
@@ -3717,7 +3717,7 @@ async function sendRecording() {
   }
 
   AppState.recording.phase = 'sending';
-  PresenceManager.setRecordingState('sending').catch(e => console.warn('[yAp] Presence update failed:', e));
+  PresenceManager.setRecordingState('sending').catch(e => console.warn('[yap] Presence update failed:', e));
   _showRecRow('sending');
   syncLocalPresence();
 
@@ -3772,7 +3772,7 @@ async function sendRecording() {
     // For memos: show optimistic message immediately before analysis modal opens
     const threadId = `thread-${seedMessageId}-0`;
     const currentAuthor = getUserById(authorId) || getCurrentUser();
-    console.log('[yAp] Creating optimistic memo:', { threadId, chatId, seedMessageId });
+    console.log('[yap] Creating optimistic memo:', { threadId, chatId, seedMessageId });
     if (!Store.getThread(threadId)) {
       Store.addThread({
         id: threadId,
@@ -3783,7 +3783,7 @@ async function sendRecording() {
         lastActivityAt: Date.now(),
         messages: [],
       });
-      console.log('[yAp] Thread added. Current threads:', Store.getThreads().length);
+      console.log('[yap] Thread added. Current threads:', Store.getThreads().length);
     }
     Store.addMessage(threadId, {
       id: `${seedMessageId}-seg-0`,
@@ -3805,7 +3805,7 @@ async function sendRecording() {
       optimistic: true,
       status: 'sending',
     });
-    console.log('[yAp] Message added. Rendering topics...');
+    console.log('[yap] Message added. Rendering topics...');
     renderTopics();
     scrollChatToLatest();
   }
@@ -3845,7 +3845,7 @@ async function sendRecording() {
       await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl, seedMessageId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err || 'Something went wrong');
-      console.error('[yAp] Pipeline error:', {
+      console.error('[yap] Pipeline error:', {
         message: errorMessage,
         error: err,
       });
@@ -3937,7 +3937,7 @@ async function shareInviteLinks(invites = [], { source = 'group' } = {}) {
   if (!shareText) {
     showIOSAlert(
       source === 'draft'
-        ? 'Create the group first, then yAp can generate invite links for each person.'
+        ? 'Create the group first, then yap can generate invite links for each person.'
         : 'No invite links are ready yet for this group.',
       { title: 'Invite Links' }
     );
@@ -3947,7 +3947,7 @@ async function shareInviteLinks(invites = [], { source = 'group' } = {}) {
   try {
     if (navigator.share) {
       await navigator.share({
-        title: 'Join me on yAp',
+        title: 'Join me on yap',
         text: shareText,
       });
       return true;
@@ -4001,7 +4001,7 @@ function validationMessageForField(field) {
     ?.replace(/\(optional\)/ig, '')
     ?.trim();
 
-  if (field?.id === 'input-auth-phone') return { title: 'Phone Number', message: 'Enter the phone number you want to use with yAp.' };
+  if (field?.id === 'input-auth-phone') return { title: 'Phone Number', message: 'Enter the phone number you want to use with yap.' };
   if (field?.id === 'input-auth-code') return { title: 'Verification Code', message: 'Enter the verification code from your text message.' };
   if (field?.id === 'input-profile-name' || field?.id === 'input-manage-profile-name') {
     return { title: 'Display Name', message: 'Enter the name people will see in the conversation.' };
@@ -4132,7 +4132,7 @@ function renderCreateGroupContactRow(contact, { compact = false } = {}) {
   const statusBadge = isSelf
     ? 'You'
     : matchedUser
-      ? 'On yAp'
+      ? 'On yap'
       : 'Invite';
   const subtitle = isSelf
     ? 'Message yourself'
@@ -4204,7 +4204,7 @@ async function renderCreateGroupPicker() {
         <div class="create-chat-picker__contact-name">${escapeHtml(manualMatchedUser?.name || exactPhone)}</div>
         <div class="create-chat-picker__contact-sub">${escapeHtml(manualMatchedUser ? exactPhone : 'Send an SMS invite')}</div>
       </div>
-      <span class="create-chat-picker__contact-badge create-chat-picker__contact-badge--${manualMatchedUser ? 'registered' : 'invite'}">${manualMatchedUser ? 'On yAp' : 'Invite'}</span>
+      <span class="create-chat-picker__contact-badge create-chat-picker__contact-badge--${manualMatchedUser ? 'registered' : 'invite'}">${manualMatchedUser ? 'On yap' : 'Invite'}</span>
     </button>
   ` : '';
 
@@ -4371,10 +4371,10 @@ async function renderContactsHub() {
     const initials = buildUserInitials(contact.display_name || phone || 'C');
     const inOnboarding = isContactsOnboardingTarget();
     const status = inOnboarding
-      ? (matchedUser ? 'On yAp' : 'Imported')
+      ? (matchedUser ? 'On yap' : 'Imported')
       : AppState.onboarding.contactsTarget === 'group-settings'
-      ? (inGroup ? 'In Conversation' : invited ? 'Pending' : matchedUser ? 'On yAp' : 'Invite')
-      : (selected ? 'Added' : matchedUser ? 'On yAp' : 'Invite');
+      ? (inGroup ? 'In Conversation' : invited ? 'Pending' : matchedUser ? 'On yap' : 'Invite')
+      : (selected ? 'Added' : matchedUser ? 'On yap' : 'Invite');
     const isDisabled = inOnboarding
       ? true
       : AppState.onboarding.contactsTarget === 'group-settings'
@@ -4915,7 +4915,7 @@ async function routeAuthenticatedUser() {
         AppState.auth.pendingInviteToken = '';
       }
     } catch (error) {
-      console.warn('[yAp] invite acceptance failed:', error);
+      console.warn('[yap] invite acceptance failed:', error);
       setFeedback(
         DOM.authPhoneFeedback,
         error.message || 'We could not open that invite yet. You can still sign in and try again.',
@@ -4939,14 +4939,14 @@ async function routeAuthenticatedUser() {
   // Otherwise, await the refresh to show something to the user
   if (showedChatsBeforeRefresh) {
     refreshChatsAndRender().catch(error => {
-      console.warn('[yAp] background chat refresh failed:', error);
+      console.warn('[yap] background chat refresh failed:', error);
     });
   } else {
     await refreshChatsAndRender();
   }
   bindResumeRefreshHandlers();
   ensureNotificationPermission().catch(error => {
-    console.warn('[yAp] notification permission request failed:', error);
+    console.warn('[yap] notification permission request failed:', error);
   });
 
   if (AppState.auth.pendingChatId) {
@@ -5018,11 +5018,11 @@ async function safeResolveInitialRoute() {
   try {
     await resolveInitialRoute();
   } catch (error) {
-    console.error('[yAp] initial route failed:', error);
+    console.error('[yap] initial route failed:', error);
     navigate('auth-phone', 'fade');
     setFeedback(
       DOM.authPhoneFeedback,
-      error.message || 'We hit a setup error while opening yAp. Try signing in again.',
+      error.message || 'We hit a setup error while opening yap. Try signing in again.',
       'error'
     );
   }
@@ -5613,7 +5613,7 @@ function wireEvents() {
     try {
       await executeLeaveAndRemoveChat(id);
     } catch (err) {
-      console.error('[yAp] Delete chat failed:', err);
+      console.error('[yap] Delete chat failed:', err);
     } finally {
       hideChatContextMenu();
     }
@@ -5878,7 +5878,7 @@ function registerServiceWorker() {
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(error => {
-      console.warn('[yAp] service worker registration failed:', error);
+      console.warn('[yap] service worker registration failed:', error);
     });
   }, { once: true });
 }
@@ -5904,15 +5904,15 @@ async function boot() {
 
   AppState.supabaseOk = initSupabase();
   if (YAP_SUPABASE_REMOTE_SYNC_ENABLED) startRemoteSync();
-  flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+  flushNotificationOutbox().catch(error => console.warn('[yap] notification outbox flush failed:', error));
   window.addEventListener('online', () => {
-    flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+    flushNotificationOutbox().catch(error => console.warn('[yap] notification outbox flush failed:', error));
   });
   window.addEventListener('focus', () => {
-    flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+    flushNotificationOutbox().catch(error => console.warn('[yap] notification outbox flush failed:', error));
     // Force refresh chats when browser regains focus to catch new chats added on other accounts
     if (AppState.supabaseOk && (AppState.screen === 'chats-list' || AppState.screen === 'splash')) {
-      refreshChatsAndRender({ force: true }).catch(error => console.warn('[yAp] focus chat refresh failed:', error));
+      refreshChatsAndRender({ force: true }).catch(error => console.warn('[yap] focus chat refresh failed:', error));
     }
   });
   if (AppState.supabaseOk && supabaseClient?.auth) {

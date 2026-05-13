@@ -1,11 +1,14 @@
 {
-  "name": "yAp",
-  "short_name": "yAp",
+  "name": "yap",
+  "short_name": "yap",
   "description": "Voice-first group chat for real-life conversations.",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
-  "display_override": ["fullscreen", "standalone"],
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
   "background_color": "#fdfbff",
   "theme_color": "#fdfbff",
   "icons": [

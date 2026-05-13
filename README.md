@@ -1,4 +1,4 @@
-# yAp
+# yap
 
 Voice-first group chat web app with a shareable PWA client, serverless API routes, and Supabase persistence.
 

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// yAp — Data Layer
+// yap — Data Layer
 // Supabase client + seeded data + DB helpers
 // ═══════════════════════════════════════════════════════
 
@@ -12,15 +12,15 @@ const APP_USER_SELECT_FIELDS = 'id, name, color_hex, avatar_url, auth_user_id, p
 
 function initSupabase() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.warn('[yAp] Supabase not configured — audio will not persist. Set SUPABASE_URL and SUPABASE_ANON_KEY in js/core/config.js');
+    console.warn('[yap] Supabase not configured — audio will not persist. Set SUPABASE_URL and SUPABASE_ANON_KEY in js/core/config.js');
     return false;
   }
   try {
     supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('[yAp] Supabase connected');
+    console.log('[yap] Supabase connected');
     return true;
   } catch (e) {
-    console.error('[yAp] Supabase init failed:', e);
+    console.error('[yap] Supabase init failed:', e);
     return false;
   }
 }
@@ -351,7 +351,7 @@ async function getAuthSession() {
   if (!supabaseClient?.auth) return null;
   const { data, error } = await supabaseClient.auth.getSession();
   if (error) {
-    console.error('[yAp] auth getSession failed:', error);
+    console.error('[yap] auth getSession failed:', error);
     return null;
   }
     if (data?.session) console.log('[Session] Restored from Supabase');
@@ -374,7 +374,7 @@ async function fetchBackendReadiness() {
 
     return payload;
   } catch (error) {
-    console.warn('[yAp] backend readiness check failed:', error);
+    console.warn('[yap] backend readiness check failed:', error);
     return null;
   }
 }
@@ -476,7 +476,7 @@ async function getAppUserByAuthUserId(authUserId) {
     .limit(5);
 
   if (error) {
-    console.error('[yAp] getAppUserByAuthUserId failed:', error);
+    console.error('[yap] getAppUserByAuthUserId failed:', error);
     return null;
   }
 
@@ -504,7 +504,7 @@ async function getAppUserByPhone(phone) {
     .limit(5);
 
   if (error) {
-    console.error('[yAp] getAppUserByPhone failed:', error);
+    console.error('[yap] getAppUserByPhone failed:', error);
     return null;
   }
 
@@ -590,7 +590,7 @@ async function uploadProfileAvatar(userId, avatarValue) {
     });
 
   if (uploadError) {
-    console.warn('[yAp] avatar upload failed, keeping inline avatar data:', uploadError);
+    console.warn('[yap] avatar upload failed, keeping inline avatar data:', uploadError);
     return normalizedValue;
   }
 
@@ -627,7 +627,7 @@ async function ensureAppUserFromAuthSession(session) {
       .single();
 
     if (error) {
-      console.error('[yAp] ensureAppUserFromAuthSession update failed:', error);
+      console.error('[yap] ensureAppUserFromAuthSession update failed:', error);
       setStoredAuthSession({
         ...session,
         appUserId: appUser.id,
@@ -667,7 +667,7 @@ async function ensureAppUserFromAuthSession(session) {
   }
 
   if (error) {
-    console.error('[yAp] ensureAppUserFromAuthSession insert failed:', error);
+    console.error('[yap] ensureAppUserFromAuthSession insert failed:', error);
     return null;
   }
 
@@ -748,7 +748,7 @@ async function getInvitationsForChat(chatId) {
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.warn('[yAp] getInvitationsForChat failed:', error);
+    console.warn('[yap] getInvitationsForChat failed:', error);
     return [];
   }
 
@@ -875,7 +875,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
       .insert(manualContactRows);
 
     if (contactsError) {
-      console.warn('[yAp] imported_contacts insert skipped:', contactsError.message);
+      console.warn('[yap] imported_contacts insert skipped:', contactsError.message);
     }
   }
 
@@ -887,7 +887,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
       .eq('id', chatId)
       .maybeSingle();
     const owner = getUserById(ownerUserId) || getCurrentUser();
-    const chatName = String(chatRow?.name || AppState?.activeChat?.name || 'your yAp chat').trim() || 'your yAp chat';
+    const chatName = String(chatRow?.name || AppState?.activeChat?.name || 'your yap chat').trim() || 'your yap chat';
 
     const recipients = participantRows
       .filter(row => row.user_id && row.user_id !== ownerUserId)
@@ -919,7 +919,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
     }
   } catch (error) {
     smsWarning = error instanceof Error ? error.message : 'Members were added, but notifications could not be sent.';
-    console.warn('[yAp] addMembersToChat notifications failed:', error);
+    console.warn('[yap] addMembersToChat notifications failed:', error);
   }
 
   return {
@@ -933,7 +933,7 @@ async function addMembersToChat({ chatId, ownerUserId, members }) {
 async function resendInvitation(invite) {
   if (!invite?.id || !invite?.phone_e164) throw new Error('Missing invite details.');
   const results = await sendInviteMessages({
-    chatName: AppState?.activeChat?.name || 'yAp group',
+    chatName: AppState?.activeChat?.name || 'yap group',
     inviterName: getCurrentUser().name,
     invites: [invite],
   });
@@ -981,7 +981,7 @@ async function setChatMuteAlerts(chatId, userId, muted) {
     .eq('chat_id', chatId)
     .eq('user_id', userId);
   if (error) {
-    console.warn('[yAp] setChatMuteAlerts failed:', error);
+    console.warn('[yap] setChatMuteAlerts failed:', error);
     return null;
   }
   return true;
@@ -1021,7 +1021,7 @@ async function getNotificationRecipients(chatId, excludeUserId) {
     .eq('invite_status', 'joined');
 
   if (error) {
-    console.warn('[yAp] getNotificationRecipients failed:', error);
+    console.warn('[yap] getNotificationRecipients failed:', error);
     return dedupeNotificationRecipients(fallbackRecipients);
   }
 
@@ -1042,7 +1042,7 @@ async function getNotificationRecipients(chatId, excludeUserId) {
     .in('id', joinedUserIds);
 
   if (usersError) {
-    console.warn('[yAp] getNotificationRecipients users lookup failed:', usersError);
+    console.warn('[yap] getNotificationRecipients users lookup failed:', usersError);
     return dedupeNotificationRecipients(fallbackRecipients);
   }
 
@@ -1064,7 +1064,7 @@ async function getNotificationRecipients(chatId, excludeUserId) {
     .in('status', ['pending', 'sent']);
 
   if (inviteError) {
-    console.warn('[yAp] getNotificationRecipients invitations lookup failed:', inviteError);
+    console.warn('[yap] getNotificationRecipients invitations lookup failed:', inviteError);
     return dedupeNotificationRecipients([...joinedRecipients, ...fallbackRecipients]);
   }
 
@@ -1150,7 +1150,7 @@ function triggerNotificationJobProcessing() {
     method: 'POST',
     keepalive: true,
     cache: 'no-store',
-  }).catch(error => console.warn('[yAp] notification job processing trigger failed:', error));
+  }).catch(error => console.warn('[yap] notification job processing trigger failed:', error));
 }
 
 async function flushNotificationOutbox() {
@@ -1169,7 +1169,7 @@ async function flushNotificationOutbox() {
       if (attempts < 5) {
         remaining.push({ ...entry, attempts });
       } else {
-        console.warn('[yAp] Dropping notification outbox entry after retries:', error);
+        console.warn('[yap] Dropping notification outbox entry after retries:', error);
       }
     }
   }
@@ -1205,7 +1205,7 @@ async function sendMessageNotifications({ chatId, chatName, senderName, recipien
       recipient_name: recipient.name || '',
       sender_user_id: getCurrentUserId() || null,
       sender_name: senderName || getCurrentUser().name || 'A friend',
-      chat_name: chatName || 'your yAp chat',
+      chat_name: chatName || 'your yap chat',
       kind: notificationKind === 'chat_invite' ? 'chat_invite' : (isReply ? 'reply' : 'message'),
       thread_label: threadLabel || null,
       transcript: transcript || null,
@@ -1227,13 +1227,13 @@ async function sendMessageNotifications({ chatId, chatName, senderName, recipien
         status: 'queued',
       }));
     } catch (error) {
-      console.warn('[yAp] notification job enqueue failed; falling back to direct send:', error);
+      console.warn('[yap] notification job enqueue failed; falling back to direct send:', error);
     }
   }
 
   try {
     const results = await postNotificationPayload(payload, { keepalive: true });
-    flushNotificationOutbox().catch(error => console.warn('[yAp] notification outbox flush failed:', error));
+    flushNotificationOutbox().catch(error => console.warn('[yap] notification outbox flush failed:', error));
     return results;
   } catch (error) {
     enqueueNotificationPayload(payload);
@@ -1278,7 +1278,7 @@ async function sendInviteMessages({ chatName, inviterName, invites }) {
         recipient_name: invite.invitee_name,
         sender_user_id: getCurrentUserId() || null,
         sender_name: inviterName || getCurrentUser().name || 'A friend',
-        chat_name: chatName || 'a yAp group',
+        chat_name: chatName || 'a yap group',
         kind: 'chat_invite',
         target_url: targetUrl.toString(),
         channel: 'sms',
@@ -1296,7 +1296,7 @@ async function sendInviteMessages({ chatName, inviterName, invites }) {
         }));
       }
     } catch (error) {
-      console.warn('[yAp] invite notification job enqueue failed; falling back to direct send:', error);
+      console.warn('[yap] invite notification job enqueue failed; falling back to direct send:', error);
     }
   }
 
@@ -1343,7 +1343,7 @@ async function updateInvitationStatuses(results) {
       .eq('id', result.id);
 
     if (error) {
-      console.warn('[yAp] Invitation status update failed:', error);
+      console.warn('[yap] Invitation status update failed:', error);
     }
   }));
 }
@@ -1418,7 +1418,7 @@ async function saveImportedContacts(ownerUserId, contacts, source = 'icloud_vcar
     .select('id, owner_user_id, source, display_name, phone_e164, email, matched_user_id, invited_chat_id, created_at, updated_at');
 
   if (error) {
-    console.warn('[yAp] saveImportedContacts failed:', error);
+    console.warn('[yap] saveImportedContacts failed:', error);
     return [];
   }
 
@@ -1436,7 +1436,7 @@ async function getImportedContactsForUser(ownerUserId) {
     .limit(YAP_SUPABASE_MAX_IMPORTED_CONTACTS);
 
   if (error) {
-    console.warn('[yAp] getImportedContactsForUser failed:', error);
+    console.warn('[yap] getImportedContactsForUser failed:', error);
     return [];
   }
 
@@ -1449,7 +1449,7 @@ async function getImportedContactsForUser(ownerUserId) {
     : { data: [], error: null };
 
   if (usersError) {
-    console.warn('[yAp] getImportedContactsForUser user match failed:', usersError);
+    console.warn('[yap] getImportedContactsForUser user match failed:', usersError);
   }
 
   const usersByPhone = new Map((users || []).map(user => {
@@ -1471,7 +1471,7 @@ async function getRegisteredUserByPhone(phone) {
   try {
     return await getAppUserByPhone(phone);
   } catch (error) {
-    console.warn('[yAp] getRegisteredUserByPhone failed:', error);
+    console.warn('[yap] getRegisteredUserByPhone failed:', error);
     return null;
   }
 }
@@ -1486,7 +1486,7 @@ async function getChatsForUser(userId) {
     .in('invite_status', ['joined', 'pending']);
 
   if (membershipError) {
-    console.error('[yAp] getChatsForUser memberships failed:', membershipError);
+    console.error('[yap] getChatsForUser memberships failed:', membershipError);
     return null;
   }
 
@@ -1527,16 +1527,16 @@ async function getChatsForUser(userId) {
   const { data: voiceMessages, error: messagesError } = messagesResult;
 
   if (participantError) {
-    console.error('[yAp] getChatsForUser participants failed:', participantError);
+    console.error('[yap] getChatsForUser participants failed:', participantError);
     return null;
   }
 
   if (messagesError) {
-    console.warn('[yAp] getChatsForUser unread query failed:', messagesError);
+    console.warn('[yap] getChatsForUser unread query failed:', messagesError);
   }
 
   if (inviteError) {
-    console.warn('[yAp] getChatsForUser invitations query failed:', inviteError);
+    console.warn('[yap] getChatsForUser invitations query failed:', inviteError);
   }
 
   // Now fetch users for participants (this depends on participants result)
@@ -1552,7 +1552,7 @@ async function getChatsForUser(userId) {
       .in('id', participantUserIds);
 
     if (participantUsersError) {
-      console.error('[yAp] getChatsForUser participant users failed:', participantUsersError);
+      console.error('[yap] getChatsForUser participant users failed:', participantUsersError);
       return null;
     }
 
@@ -1740,7 +1740,7 @@ async function createGroupChat({ ownerUserId, name, members }) {
       .insert(manualContactRows);
 
     if (contactsError) {
-      console.warn('[yAp] imported_contacts insert skipped:', contactsError.message);
+      console.warn('[yap] imported_contacts insert skipped:', contactsError.message);
     }
   }
 
@@ -1792,7 +1792,7 @@ async function createGroupChat({ ownerUserId, name, members }) {
     }
   } catch (error) {
     smsWarning = error instanceof Error ? error.message : 'Chat created, but notifications could not be sent.';
-    console.warn('[yAp] createGroupChat notifications failed:', error);
+    console.warn('[yap] createGroupChat notifications failed:', error);
   }
 
   return {
@@ -1828,7 +1828,7 @@ const CHATS = [];
  */
 async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
   if (!supabaseClient) {
-    console.warn('[yAp] saveVoiceMessage: Supabase not configured, skipping DB write');
+    console.warn('[yap] saveVoiceMessage: Supabase not configured, skipping DB write');
     return null;
   }
 
@@ -1848,7 +1848,7 @@ async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
     });
 
   if (uploadErr) {
-    console.warn('[yAp] Storage upload failed, falling back to inline audio:', uploadErr);
+    console.warn('[yap] Storage upload failed, falling back to inline audio:', uploadErr);
     persistedAudioRef = await blobToDataUrl(audioBlob);
   } else {
     // 2. Create a signed URL for immediate playback. The stored DB value remains the path.
@@ -1873,11 +1873,11 @@ async function saveVoiceMessage(chatId, authorId, audioBlob, durationMs) {
     .single();
 
   if (insertErr) {
-    console.error('[yAp] DB insert failed:', insertErr);
+    console.error('[yap] DB insert failed:', insertErr);
     throw new Error(`Voice memo save failed: ${insertErr.message || 'database insert failed'}`);
   }
 
-  console.log('[yAp] Voice message saved:', data);
+  console.log('[yap] Voice message saved:', data);
   return {
     messageId: data.id,
     audioUrl: audioUrl || persistedAudioRef,
@@ -1923,7 +1923,7 @@ async function saveTranscriptRecord(voiceMessageId, transcriptText, wordTimestam
     .single();
 
   if (error) {
-    console.error('[yAp] Transcript insert failed:', error);
+    console.error('[yap] Transcript insert failed:', error);
     return null;
   }
 
@@ -1945,7 +1945,7 @@ async function ensureTopicThread(thread) {
     .upsert(payload, { onConflict: 'id' });
 
   if (error) {
-    console.error('[yAp] Topic thread upsert failed:', error);
+    console.error('[yap] Topic thread upsert failed:', error);
     return null;
   }
 
@@ -1969,7 +1969,7 @@ async function saveTopicSegmentRecord({ voiceMessageId, topicThreadId, label, tr
     .single();
 
   if (error) {
-    console.error('[yAp] Topic segment insert failed:', error);
+    console.error('[yap] Topic segment insert failed:', error);
     return null;
   }
 
@@ -1985,7 +1985,7 @@ async function markVoiceMessageDone(messageId) {
     .eq('id', messageId);
 
   if (error) {
-    console.error('[yAp] Voice message status update failed:', error);
+    console.error('[yap] Voice message status update failed:', error);
     return null;
   }
 
@@ -2001,7 +2001,7 @@ async function markVoiceMessageFailed(messageId) {
     .eq('id', messageId);
 
   if (error) {
-    console.error('[yAp] Voice message failure update failed:', error);
+    console.error('[yap] Voice message failure update failed:', error);
     return null;
   }
 
@@ -2023,7 +2023,7 @@ async function saveGeneratedReply({ chatId, threadId, authorId, audioBlob, durat
     });
 
   if (uploadErr) {
-    console.warn('[yAp] Generated reply upload failed, falling back to inline audio:', uploadErr);
+    console.warn('[yap] Generated reply upload failed, falling back to inline audio:', uploadErr);
     persistedAudioRef = await blobToDataUrl(audioBlob);
   }
 
@@ -2047,7 +2047,7 @@ async function saveGeneratedReply({ chatId, threadId, authorId, audioBlob, durat
     });
 
   if (insertErr) {
-    console.error('[yAp] Generated reply DB insert failed:', insertErr);
+    console.error('[yap] Generated reply DB insert failed:', insertErr);
     return null;
   }
 
@@ -2077,7 +2077,7 @@ async function persistReplyAudioForMessage({ chatId, voiceMessageId, audioBlob, 
     });
 
   if (uploadErr) {
-    console.warn('[yAp] Reply audio backfill upload failed, falling back to inline audio:', uploadErr);
+    console.warn('[yap] Reply audio backfill upload failed, falling back to inline audio:', uploadErr);
     persistedAudioRef = await blobToDataUrl(audioBlob);
   }
 
@@ -2099,7 +2099,7 @@ async function persistReplyAudioForMessage({ chatId, voiceMessageId, audioBlob, 
     .eq('id', voiceMessageId);
 
   if (updateErr) {
-    console.error('[yAp] Reply audio backfill DB update failed:', updateErr);
+    console.error('[yap] Reply audio backfill DB update failed:', updateErr);
     return null;
   }
 
@@ -2120,7 +2120,7 @@ async function savePlaybackProgressRecord({ userId, voiceMessageId, heard, playe
     });
 
   if (error) {
-    console.error('[yAp] Playback progress upsert failed:', error);
+    console.error('[yap] Playback progress upsert failed:', error);
     return null;
   }
 
@@ -2129,11 +2129,11 @@ async function savePlaybackProgressRecord({ userId, voiceMessageId, heard, playe
 
 async function getVoiceMessages(chatId) {
   if (!supabaseClient || !chatId) {
-    console.log('[yAp] getVoiceMessages: Missing supabaseClient or chatId', { chatId, hasClient: !!supabaseClient });
+    console.log('[yap] getVoiceMessages: Missing supabaseClient or chatId', { chatId, hasClient: !!supabaseClient });
     return [];
   }
 
-  console.log('[yAp] getVoiceMessages: Starting query for chatId', chatId);
+  console.log('[yap] getVoiceMessages: Starting query for chatId', chatId);
   const { data, error } = await supabaseClient
     .from('voice_messages')
     .select(`
@@ -2153,14 +2153,14 @@ async function getVoiceMessages(chatId) {
     .limit(YAP_SUPABASE_MAX_CONVERSATION_MESSAGES);
 
   if (error) {
-    console.error('[yAp] getVoiceMessages error for chatId', chatId, ':', error);
+    console.error('[yap] getVoiceMessages error for chatId', chatId, ':', error);
     return [];
   }
 
   const count = data?.length || 0;
-  console.log(`[yAp] getVoiceMessages: Found ${count} messages for chat ${chatId}`);
+  console.log(`[yap] getVoiceMessages: Found ${count} messages for chat ${chatId}`);
   if (count > 0) {
-    console.log('[yAp] Message details:', data.map(m => ({
+    console.log('[yap] Message details:', data.map(m => ({
       id: m.id,
       chat_id: m.chat_id,
       author_id: m.author_id,
@@ -2182,7 +2182,7 @@ async function createSignedAudioUrl(storagePath, expiresIn = 60 * 60) {
     .createSignedUrl(storagePath, expiresIn);
 
   if (error) {
-    console.error('[yAp] Signed URL creation failed:', error);
+    console.error('[yap] Signed URL creation failed:', error);
     return null;
   }
 
@@ -2414,7 +2414,7 @@ async function getTopicThreads(chatId) {
     .order('created_at', { ascending: true });
 
   if (error) {
-    console.error('[yAp] getTopicThreads:', error);
+    console.error('[yap] getTopicThreads:', error);
     return [];
   }
 
@@ -2634,19 +2634,19 @@ async function hydrateChatFromSupabase(chatId) {
     }))
     .filter(thread => {
       const visible = isVisibleConversationThread(thread);
-      if (!visible) console.log('[yAp] Filtered out thread:', thread.id, '- messages:', thread.messages.length);
+      if (!visible) console.log('[yap] Filtered out thread:', thread.id, '- messages:', thread.messages.length);
       return visible;
     })
     .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
 
-  console.log(`[yAp] hydrateChatFromSupabase: Created ${hydratedThreads.length} visible threads from ${threadMap.size} total threads for chat ${chatId}`);
+  console.log(`[yap] hydrateChatFromSupabase: Created ${hydratedThreads.length} visible threads from ${threadMap.size} total threads for chat ${chatId}`);
 
   if (!hydratedThreads.length && cachedThreads.length) {
-    console.log('[yAp] No new threads fetched, returning cached threads for chat', chatId);
+    console.log('[yap] No new threads fetched, returning cached threads for chat', chatId);
     return Store.replaceThreads(chatId, cachedThreads);
   }
 
-  console.log('[yAp] Storing', hydratedThreads.length, 'threads for chat', chatId);
+  console.log('[yap] Storing', hydratedThreads.length, 'threads for chat', chatId);
   return Store.replaceThreads(chatId, hydratedThreads);
 }
 

@@ -23,7 +23,7 @@
   "crons": [
     {
       "path": "/api/process-notification-jobs",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }

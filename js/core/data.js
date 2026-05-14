@@ -2502,10 +2502,17 @@ function repairVoiceMemoSegmentPlayWindows(totalDurationMs, rows, threadMap) {
         (Number(m.endMs) || 0) === (Number(messages[0].endMs) || 0)
       );
     });
+  // Force redistribution if all segments span the full duration (they all claim to be the whole memo)
+  const allSpanFull = messages.length > 1 && messages.every(m => {
+    const span = Math.max(0, Number(m.endMs || 0) - Number(m.startMs || 0));
+    return span >= dur * 0.90;
+  });
+
   const mustRedistribute =
     anyNearFull ||
     anyEmpty ||
     allZeroOrSmall ||
+    allSpanFull ||
     sumSpans > dur * 1.2 ||
     (windowsIdentical && messages.length > 1);
 

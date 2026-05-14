@@ -10,23 +10,17 @@
   <meta name="apple-mobile-web-app-title" content="yap">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="format-detection" content="telephone=no">
-  <link rel="icon" type="image/x-icon" href="assets/favicon.ico?v=1778671997">
-  <link rel="shortcut icon" href="assets/favicon.ico?v=1778671997">
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1778671997">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1778671997">
-  <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png?v=1778671997">
-  <meta name="theme-color" content="#fdfbff">
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico?v=1747267400">
+  <link rel="shortcut icon" href="assets/favicon.ico?v=1747267400">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1747267400">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1747267400">
+  <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png?v=1747267400">
+  <meta name="theme-color" content="#f6f8ff">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="components/voice-visualizer/voice-visualizer.css">
 </head>
 
-<script>
-  // Mock local preview - skip to analyzing
-  window.MOCK_SESSION = { user: { id: "local-test" }, session: { access_token: "mock" } };
-  window.SHOW_ANALYSIS = true;
-</script>
-<body>
 <script>
 // Auto-login for development - remove before production
 (async function autoLoginSooim() {
@@ -67,15 +61,10 @@
   <!-- ═══════════════════════════════════════════════ -->
   <!-- SCREEN: SPLASH                                  -->
   <!-- ═══════════════════════════════════════════════ -->
-  <div id="screen-splash" class="screen active" data-screen="splash">
-    <video id="splash-video" class="splash-video" autoplay muted playsinline loop>
-      <source src="assets/yap-logo.mov" type="video/quicktime">
-      <source src="assets/yap-logo.mov" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
-    <div class="splash-content splash-content--delayed">
-      <img class="splash-logo" src="assets/logo-black.png" alt="yap">
-      <div class="splash-tagline">Less typing. More yapping.</div>
+  <div id="screen-splash" class="screen splash active" data-screen="splash">
+    <div class="splash-content">
+      <img class="splash-logo" src="assets/logo.png?v=20260514" alt="yap" width="270" height="270" decoding="async">
+      <p class="splash-tagline">Less texting. More yapping.</p>
     </div>
   </div>
 
@@ -85,7 +74,7 @@
   <div id="screen-welcome" class="screen" data-screen="welcome">
     <div class="entry-screen">
       <div class="entry-screen__hero">
-        <img class="entry-screen__logo" src="assets/logo-black.png" alt="yap">
+        <img class="entry-screen__logo" src="assets/logo.png?v=20260514" alt="yap" width="208" height="208" decoding="async">
         <h1 class="entry-screen__title">Made for friends who yap all day.</h1>
         <p class="entry-screen__body">Talk naturally, reply by topic, and stay caught up on each other’s lives.</p>
       </div>
@@ -289,10 +278,10 @@
           <button class="ios-profile-photo-button" id="btn-manage-profile-photo" type="button" aria-label="View profile photo">
             <div class="settings-avatar group-details-hero__avatar" id="profile-settings-avatar"></div>
           </button>
-          <label class="group-details-hero__name-wrap" for="input-manage-profile-name">
-            <input class="group-details-hero__name" id="input-manage-profile-name" type="text" autocomplete="name" maxlength="40" value="" aria-label="Display name">
-          </label>
         </section>
+        <label class="group-details-hero__name-wrap profile-nav-name" for="input-manage-profile-name">
+          <input class="group-details-hero__name" id="input-manage-profile-name" type="text" autocomplete="name" maxlength="40" value="" aria-label="Display name">
+        </label>
         <button class="group-details-topbar__pill" id="btn-profile-edit" type="button">Edit</button>
       </div>
       <div class="ios-settings-scroll">
@@ -347,20 +336,6 @@
               <span class="ios-settings-row__title">Mobile</span>
               <span class="group-details-contact-value" id="group-settings-contact-phone"></span>
             </div>
-          </div>
-
-          <div class="group-details-card group-details-card--list group-details-edit-block" id="group-settings-invite-card">
-            <label class="ios-settings-row ios-settings-row--input" for="input-group-member-phone">
-              <span class="ios-settings-row__title">Phone</span>
-              <input class="ios-settings-row__field" id="input-group-member-phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="+1 555 555 0104">
-            </label>
-            <label class="ios-settings-row ios-settings-row--input ios-settings-row--secondary" for="input-group-member-name">
-              <span class="ios-settings-row__title">Label</span>
-              <input class="ios-settings-row__field" id="input-group-member-name" type="text" autocomplete="off" placeholder="Optional" maxlength="40">
-            </label>
-            <button class="ios-settings-row ios-settings-row--action" id="btn-add-group-settings-member" type="button">
-              <span class="ios-settings-row__title">Send Invite</span>
-            </button>
           </div>
 
           <div class="group-details-card group-details-card--list group-details-card--toggles">
@@ -435,7 +410,7 @@
             <span class="ctx-menu-label">Pin</span>
           </button>
           <button class="chat-context-menu__item" id="ctx-mark-unread" type="button">
-            <span class="chat-context-menu__icon chat-context-menu__icon--unread" aria-hidden="true"></span>
+            <img class="chat-context-menu__icon-img" id="ctx-mark-unread-icon" src="assets/mark-as-unread.svg" width="20" height="20" alt="" aria-hidden="true" />
             <span class="ctx-menu-label">Mark as Unread</span>
           </button>
           <button class="chat-context-menu__item" id="ctx-hide-alerts" type="button">
@@ -689,6 +664,48 @@
 
         <div class="analysis-hero">
           <div class="analysis-visual-field" aria-hidden="true">
+            <div class="analysis-prism" aria-hidden="true">
+              <div class="analysis-prism__disc"></div>
+              <svg class="analysis-prism__svg" viewBox="-100 0 600 220" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <defs>
+                  <linearGradient id="analysis-prism-incoming-tip-grad" gradientUnits="userSpaceOnUse" x1="-80" y1="110" x2="200" y2="110">
+                    <stop offset="0%" stop-color="#ffffff" stop-opacity="1" />
+                    <stop offset="62%" stop-color="#ffffff" stop-opacity="0.88" />
+                    <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+                  </linearGradient>
+                  <linearGradient id="analysis-prism-branch-0-grad" gradientUnits="userSpaceOnUse" x1="200" y1="110" x2="254" y2="110">
+                    <stop offset="0%" stop-color="#ffffff" />
+                    <stop offset="24%" stop-color="#ffffff" />
+                    <stop offset="100%" stop-color="#B8D8FF" />
+                  </linearGradient>
+                  <linearGradient id="analysis-prism-branch-1-grad" gradientUnits="userSpaceOnUse" x1="200" y1="110" x2="254" y2="110">
+                    <stop offset="0%" stop-color="#ffffff" />
+                    <stop offset="24%" stop-color="#ffffff" />
+                    <stop offset="100%" stop-color="#DEC0F8" />
+                  </linearGradient>
+                  <linearGradient id="analysis-prism-branch-2-grad" gradientUnits="userSpaceOnUse" x1="200" y1="110" x2="254" y2="110">
+                    <stop offset="0%" stop-color="#ffffff" />
+                    <stop offset="24%" stop-color="#ffffff" />
+                    <stop offset="100%" stop-color="#FFDEB8" />
+                  </linearGradient>
+                  <linearGradient id="analysis-prism-branch-3-grad" gradientUnits="userSpaceOnUse" x1="200" y1="110" x2="254" y2="110">
+                    <stop offset="0%" stop-color="#ffffff" />
+                    <stop offset="24%" stop-color="#ffffff" />
+                    <stop offset="100%" stop-color="#DFFFB8" />
+                  </linearGradient>
+                </defs>
+                <path id="analysis-prism-branch-0" class="analysis-prism__branch analysis-prism__branch--a" fill="none" stroke="url(#analysis-prism-branch-0-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M 200 110 L 380 70" />
+                <path id="analysis-prism-branch-1" class="analysis-prism__branch analysis-prism__branch--b" fill="none" stroke="url(#analysis-prism-branch-1-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M 200 110 L 392 102" />
+                <path id="analysis-prism-branch-2" class="analysis-prism__branch analysis-prism__branch--c" fill="none" stroke="url(#analysis-prism-branch-2-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M 200 110 L 388 148" />
+                <path id="analysis-prism-branch-3" class="analysis-prism__branch analysis-prism__branch--d" fill="none" stroke="url(#analysis-prism-branch-3-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M 200 110 L 368 188" />
+                <path id="analysis-prism-branch-0-hub" class="analysis-prism__branch-hub analysis-prism__branch-hub--a" fill="none" stroke="url(#analysis-prism-branch-0-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="" />
+                <path id="analysis-prism-branch-1-hub" class="analysis-prism__branch-hub analysis-prism__branch-hub--b" fill="none" stroke="url(#analysis-prism-branch-1-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="" />
+                <path id="analysis-prism-branch-2-hub" class="analysis-prism__branch-hub analysis-prism__branch-hub--c" fill="none" stroke="url(#analysis-prism-branch-2-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="" />
+                <path id="analysis-prism-branch-3-hub" class="analysis-prism__branch-hub analysis-prism__branch-hub--d" fill="none" stroke="url(#analysis-prism-branch-3-grad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="" />
+                <path id="analysis-prism-incoming" class="analysis-prism__incoming" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" d="M -50 110 L 200 110" />
+                <path id="analysis-prism-incoming-tip" class="analysis-prism__incoming-tip" fill="url(#analysis-prism-incoming-tip-grad)" d="" />
+              </svg>
+            </div>
             <canvas class="analysis-waveform-canvas" id="analysis-waveform-canvas"></canvas>
             <span class="analysis-visual-field__glow analysis-visual-field__glow--one"></span>
             <span class="analysis-visual-field__glow analysis-visual-field__glow--two"></span>
@@ -705,7 +722,7 @@
               <span class="analysis-wave analysis-wave--four"></span>
             </div>
           </div>
-          <div class="analysis-hero__title" id="analysis-title">Breaking your yap<br>into topics</div>
+          <div class="analysis-hero__title" id="analysis-title">Breaking your memo<br>into topics</div>
           <div class="analysis-status-strip analysis-status-strip--hero glassNavButton" id="analysis-status-strip">
             <span id="analysis-status-copy" class="analysis-status-copy">
               <span id="analysis-status-line" class="analysis-status-copy__line">Unraveling the plot</span><span class="analysis-status-copy__dots" aria-hidden="true"><span class="analysis-status-copy__dot">.</span><span class="analysis-status-copy__dot">.</span><span class="analysis-status-copy__dot">.</span></span>
@@ -754,31 +771,9 @@
 <script defer src="js/features/recording-indicator.js"></script>
 <script defer src="js/features/recording.js"></script>
 <script defer src="js/features/pipeline.js"></script>
-<script defer src="js/features/analysis.js"></script>
+<script defer type="module" src="js/features/analysis.js"></script>
 <script defer src="js/features/chat.js"></script>
 <script defer src="js/app.js"></script>
 <script defer type="module" src="components/voice-visualizer/mount.js"></script>
 </body>
 </html>
-
-<script>
-    }
-  }, 500);
-</script>
-
-<script>
-  // Force show analysis overlay after app loads
-  window.addEventListener('load', () => {
-    setTimeout(() => {
-      const splashScreen = document.querySelector('[data-screen="splash"]');
-      const analysisOverlay = document.getElementById('analysis-overlay');
-      
-      if (splashScreen) splashScreen.style.display = 'none';
-      if (analysisOverlay) {
-        analysisOverlay.classList.add('visible');
-        analysisOverlay.setAttribute('aria-hidden', 'false');
-        analysisOverlay.style.pointerEvents = 'auto';
-      }
-    }, 800);
-  });
-</script>

@@ -773,6 +773,15 @@ function toggleTopicExpand(threadId) {
   renderTopics();
 }
 
+/** Collapse expanded topic cards and clear thread-detail chrome (e.g. after Now Playing finishes the queue). */
+function collapseChatTopicLayout() {
+  _expandedThreadId = null;
+  DOM.chatTopics?.classList.remove('showing-thread-details');
+  const otherMembers = (AppState.activeChat?.members || []).filter(m => m?.id && m.id !== getCurrentUserId());
+  DOM.chatEmpty?.classList.toggle('is-single-member', otherMembers.length === 1);
+  AppState.chatViewMode = 'threads';
+}
+
 function _handleTopicInteraction(event) {
   const playableRow = event.target.closest('[data-playable-id]');
   if (playableRow) {

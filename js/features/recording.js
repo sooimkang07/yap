@@ -37,9 +37,15 @@ class RecordingManager {
     this.recognition        = null;
     this.finalTranscript    = '';
     this.interimTranscript  = '';
+    this._transcriptRaw = '';
+    this._transcriptResizeObserver = null;
+    this._transcriptLayoutRaf = 0;
+    this._transcriptMeasureCanvas = null;
 
     // Waveform snapshot for frozen state
     this.frozenData     = null;
+    /** @type {Uint8Array | null} */
+    this._timeDomain    = null;
 
     // State
     this.phase          = 'idle'; // idle | recording | stopped | sending
@@ -81,8 +87,110 @@ class RecordingManager {
     }) || '';
   }
 
+  /**
+   * Some environments (iOS Simulator, Safari, virtual cables, Bluetooth) reject common
+   * constraint sets with NotFoundError / OverconstrainedError / AbortError. Try a wide ladder,
+   * then per-device constraints (including inputs whose deviceId is still empty in some states).
+   */
+  async _acquireMicStream() {
+    if (!window.isSecureContext) {
+      throw new DOMException(
+        'Microphone requires a secure page. Open yap over https:// or http://localhost (not a raw file or non-secure URL).',
+        'SecurityError',
+      );
+    }
+
+    const gUM = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    if (!gUM) {
+      throw new Error('This browser does not support microphone recording.');
+    }
+
+    const attempts = [
+      { audio: true },
+      { video: false, audio: true },
+      { audio: {} },
+      { audio: { channelCount: 1 } },
+      { audio: { channelCount: { ideal: 1 } } },
+      {
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+        },
+      },
+      {
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      },
+    ];
+
+    const recoverable = name =>
+      name === 'NotFoundError'
+      || name === 'OverconstrainedError'
+      || name === 'AbortError';
+
+    let lastErr = null;
+    for (const constraints of attempts) {
+      try {
+        return await gUM(constraints);
+      } catch (e) {
+        lastErr = e;
+        const name = e?.name || '';
+        if (!recoverable(name)) {
+          throw e;
+        }
+      }
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter(d => d.kind === 'audioinput');
+      for (const d of inputs) {
+        if (d.deviceId) {
+          try {
+            return await gUM({ audio: { deviceId: { ideal: d.deviceId } } });
+          } catch (e) {
+            lastErr = e;
+            const name = e?.name || '';
+            if (!recoverable(name)) throw e;
+          }
+          try {
+            return await gUM({ audio: { deviceId: { exact: d.deviceId } } });
+          } catch (e) {
+            lastErr = e;
+            const name = e?.name || '';
+            if (!recoverable(name)) throw e;
+          }
+        }
+      }
+      if (inputs.length > 0) {
+        try {
+          return await gUM({ audio: true });
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+    } catch (e) {
+      lastErr = e;
+      const name = e?.name || '';
+      if (name && !recoverable(name)) throw e;
+    }
+
+    try {
+      return await gUM({ audio: true });
+    } catch (e) {
+      lastErr = e;
+    }
+
+    throw lastErr || new Error('No microphone input is available.');
+  }
+
   // ── Start recording ───────────────────────────────────
-  async start() {
+  async start(options = {}) {
+    const { onStreamReady } = options;
     if (this.phase !== 'idle') return;
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('This browser does not support microphone recording.');
@@ -92,16 +200,38 @@ class RecordingManager {
     }
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await this._acquireMicStream();
     } catch (err) {
-      let msg = `Could not access microphone: ${err.message}`;
-      if (err.name === 'NotAllowedError') {
+      const errName = err?.name || '';
+      let msg = `Could not access microphone: ${err.message || errName || 'Unknown error'}`;
+      if (errName === 'NotAllowedError') {
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         msg = isIOS
           ? 'Microphone permission denied.\n\nTo use voice memos:\n1. Open Settings\n2. Go to Privacy > Microphone\n3. Enable microphone access for yAp\n4. Return to the app and try again'
           : 'Microphone permission denied.\n\nTo use voice memos:\n1. Check your browser\'s permission settings\n2. Allow microphone access for this site\n3. Refresh the page and try again';
+      } else if (errName === 'SecurityError') {
+        msg = err.message || msg;
+      } else if (errName === 'NotFoundError' || errName === 'OverconstrainedError') {
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isMac = /Mac/.test(navigator.userAgent);
+        const sysHint = isMac
+          ? '\n\nOn Mac: System Settings → Privacy & Security → Microphone — enable access for your browser. In Sound → Input, pick a working microphone and speak to confirm the level meter moves.'
+          : '';
+        msg = isIOS
+          ? 'No microphone was found.\n\n• On the iOS Simulator there is no mic — use a real iPhone.\n• On a device: disconnect Bluetooth headsets that have no mic, then try again.\n• Close other apps that might be using the microphone.'
+          : `No microphone was found.\n\nTry a physical microphone or headset, disconnect virtual audio devices (e.g. BlackHole), set a real default input in your OS sound settings, and close other tabs or apps using the mic.${sysHint}`;
       }
       throw new Error(msg);
+    }
+
+    if (typeof onStreamReady === 'function') {
+      try {
+        onStreamReady();
+      } catch (e) {
+        this.stream?.getTracks?.().forEach(track => track.stop());
+        this.stream = null;
+        throw e;
+      }
     }
 
     // Set up Audio API for waveform
@@ -114,7 +244,8 @@ class RecordingManager {
     const source = this.audioContext.createMediaStreamSource(this.stream);
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
-    this.analyser.smoothingTimeConstant = 0.65;
+    /* Lower = snappier level meter (still blended with time-domain RMS below). */
+    this.analyser.smoothingTimeConstant = 0.28;
     source.connect(this.analyser);
 
     // Set up MediaRecorder
@@ -232,6 +363,7 @@ class RecordingManager {
       window.__yapVoiceVisualizerBridge.reset();
     }
     this._clearCanvas();
+    this._disconnectTranscriptResizeObserver();
     this._renderTranscript(APP_COPY.listening);
   }
 
@@ -264,10 +396,19 @@ class RecordingManager {
 
   _renderVideoReactive(data) {
     const energy = this._sampleEnergy(data);
-    const master = energy.master;
+    const fftMaster = energy.master;
     const bass = energy.bass;
     const mids = energy.mids;
     const treble = energy.treble;
+
+    const tdLen = this.analyser.fftSize;
+    if (!this._timeDomain || this._timeDomain.length !== tdLen) {
+      this._timeDomain = new Uint8Array(tdLen);
+    }
+    this.analyser.getByteTimeDomainData(this._timeDomain);
+    const rms = this._sampleTimeDomainRms(this._timeDomain);
+    /* RMS tracks perceived loudness; FFT bands track timbre — blend for responsive, accurate motion. */
+    const master = Math.min(1, fftMaster * 0.3 + rms * 0.7);
 
     if (window.__yapVoiceVisualizerBridge?.setAnalysis) {
       window.__yapVoiceVisualizerBridge.setAnalysis({
@@ -302,6 +443,18 @@ class RecordingManager {
     }
 
     if (this.ctx) this._clearCanvas();
+  }
+
+  /** Normalized 0–1 loudness from time-domain samples (byte, centered at 128). */
+  _sampleTimeDomainRms(td) {
+    if (!td || !td.length) return 0;
+    let sum = 0;
+    for (let i = 0; i < td.length; i += 1) {
+      const v = (td[i] - 128) / 128;
+      sum += v * v;
+    }
+    const raw = Math.sqrt(sum / td.length);
+    return Math.min(1, raw * 4.1);
   }
 
   _sampleEnergy(data) {
@@ -430,13 +583,107 @@ class RecordingManager {
     this.recognition = null;
   }
 
+  _disconnectTranscriptResizeObserver() {
+    if (this._transcriptLayoutRaf) {
+      cancelAnimationFrame(this._transcriptLayoutRaf);
+      this._transcriptLayoutRaf = 0;
+    }
+    if (this._transcriptResizeObserver) {
+      try {
+        this._transcriptResizeObserver.disconnect();
+      } catch {}
+      this._transcriptResizeObserver = null;
+    }
+  }
+
+  _ensureTranscriptResizeObserver() {
+    if (!this.transcriptEl || this._transcriptResizeObserver || typeof ResizeObserver === 'undefined') return;
+    this._transcriptResizeObserver = new ResizeObserver(() => {
+      if (this._transcriptLayoutRaf) cancelAnimationFrame(this._transcriptLayoutRaf);
+      this._transcriptLayoutRaf = requestAnimationFrame(() => {
+        this._transcriptLayoutRaf = 0;
+        this._applyTranscriptLayout();
+      });
+    });
+    this._transcriptResizeObserver.observe(this.transcriptEl);
+  }
+
+  _transcriptMeasureCtx() {
+    if (!this._transcriptMeasureCanvas) {
+      this._transcriptMeasureCanvas = document.createElement('canvas');
+    }
+    return this._transcriptMeasureCanvas.getContext('2d');
+  }
+
+  _fitTranscriptTailWords(raw, maxWidthPx) {
+    const el = this.transcriptEl;
+    if (!el || maxWidthPx <= 1) return raw;
+    const ctx = this._transcriptMeasureCtx();
+    if (!ctx) return raw;
+    try {
+      ctx.font = getComputedStyle(el).font || '400 1rem system-ui';
+    } catch {
+      ctx.font = '400 1rem system-ui';
+    }
+    const measure = s => {
+      try {
+        return ctx.measureText(s).width;
+      } catch {
+        return maxWidthPx + 1;
+      }
+    };
+    const words = raw.split(' ');
+    if (words.length === 0) return '';
+    const budget = Math.max(0, maxWidthPx - 1);
+    let start = 0;
+    while (start < words.length) {
+      const slice = words.slice(start).join(' ');
+      if (measure(slice) <= budget) {
+        if (start > 0) {
+          const withEllipsis = `… ${slice}`;
+          if (measure(withEllipsis) <= budget) return withEllipsis;
+        }
+        return slice;
+      }
+      start += 1;
+    }
+    return '';
+  }
+
+  _applyTranscriptLayout() {
+    if (!this.transcriptEl) return;
+    if (this.transcriptEl.classList.contains('is-placeholder')) return;
+    const raw = this._transcriptRaw;
+    if (!raw) {
+      this.transcriptEl.textContent = APP_COPY.listening;
+      this.transcriptEl.classList.add('is-placeholder');
+      return;
+    }
+    const w = this.transcriptEl.clientWidth;
+    if (w <= 0) {
+      this.transcriptEl.textContent = raw;
+      return;
+    }
+    this.transcriptEl.textContent = this._fitTranscriptTailWords(raw, w);
+  }
+
   _renderTranscript(text) {
     if (!this.transcriptEl) return;
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-    const clipped = normalized.length > 64 ? '…' + normalized.slice(-64) : normalized;
-    const output = clipped || APP_COPY.listening;
-    this.transcriptEl.textContent = output;
-    this.transcriptEl.classList.toggle('is-placeholder', output === APP_COPY.listening);
+    const isListening = normalized === '' || normalized === APP_COPY.listening;
+
+    if (isListening) {
+      this._disconnectTranscriptResizeObserver();
+      this._transcriptRaw = '';
+      this.transcriptEl.textContent = APP_COPY.listening;
+      this.transcriptEl.classList.add('is-placeholder');
+      return;
+    }
+
+    this._transcriptRaw = normalized;
+    this.transcriptEl.classList.remove('is-placeholder');
+    this._ensureTranscriptResizeObserver();
+    this._applyTranscriptLayout();
   }
 
   _startVideo() {

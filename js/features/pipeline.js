@@ -44,6 +44,13 @@ const Pipeline = {
       transcript = processed.transcript || '';
       transcriptWords = processed.words || null;
       segments = Array.isArray(processed.segments) ? processed.segments : [];
+      if (!segments.length && String(transcript || processed.transcript || '').trim()) {
+        const t = String(processed.transcript || transcript || '').trim();
+        console.warn('[yAp] process-audio returned no segments; using transcript-based fallback');
+        segments = this._fallbackSegments(durationMs, t);
+      } else if (!segments.length) {
+        segments = this._fallbackSegments(durationMs, '');
+      }
       _pEmit('yap:pipeline:transcribed', { transcript });
     } catch (error) {
       console.warn('[yAp] Audio processing failed — saving memo with fallback threading:', error);
@@ -219,27 +226,68 @@ const Pipeline = {
   },
 
   async _processAudio(blob, durationMs, threadContext) {
-    const mimeType = blob.type || 'audio/webm';
-    const audioBase64 = await _blobToBase64(blob);
+    const mimeType = (blob.type || 'audio/webm').split(';')[0].trim() || 'audio/webm';
+    const headersBase = {
+      'X-Yap-Duration-Ms': String(durationMs || 0),
+      'X-Yap-Thread-Context': _toBase64Json(threadContext),
+    };
 
-    const res = await fetch(YAP_PROCESS_AUDIO_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Yap-Duration-Ms': String(durationMs || 0),
-        'X-Yap-Thread-Context': _toBase64Json(threadContext),
-      },
-      body: JSON.stringify({
-        mimeType,
-        audioBase64,
-      }),
-    });
+    const postJson = async () => {
+      const audioBase64 = await _blobToBase64(blob);
+      const res = await fetch(YAP_PROCESS_AUDIO_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headersBase,
+        },
+        body: JSON.stringify({ mimeType, audioBase64 }),
+      });
+      if (!res.ok) throw await _apiErrorFromResponse('Audio processing failed', res);
+      const data = await res.json();
+      if (data && typeof data.error === 'string' && data.error) {
+        const hint = data.hint ? ` ${data.hint}` : '';
+        throw new Error(`${data.error}${hint}`);
+      }
+      return data;
+    };
 
-    if (!res.ok) {
-      throw await _apiErrorFromResponse('Audio processing failed', res);
+    const postRaw = async () => {
+      const res = await fetch(YAP_PROCESS_AUDIO_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': mimeType,
+          ...headersBase,
+        },
+        body: blob,
+      });
+      if (!res.ok) throw await _apiErrorFromResponse('Audio processing failed', res);
+      const data = await res.json();
+      if (data && typeof data.error === 'string' && data.error) {
+        const hint = data.hint ? ` ${data.hint}` : '';
+        throw new Error(`${data.error}${hint}`);
+      }
+      return data;
+    };
+
+    // JSON (base64) first: many hosts parse `application/json` reliably; raw binary often arrives empty on serverless.
+    const approxJsonBytes = Math.ceil(blob.size * 1.37) + 512;
+    const underJsonLimit = approxJsonBytes < 3_800_000;
+
+    if (underJsonLimit) {
+      try {
+        return await postJson();
+      } catch (err) {
+        console.warn('[yAp] process-audio: JSON upload failed, retrying raw body:', err?.message || err);
+        return postRaw();
+      }
     }
 
-    return res.json();
+    try {
+      return await postRaw();
+    } catch (err) {
+      console.warn('[yAp] process-audio: raw upload failed, retrying JSON:', err?.message || err);
+      return postJson();
+    }
   },
 
   _threadContext() {
@@ -490,7 +538,7 @@ const Pipeline = {
     const normalizedTranscript = String(transcript || '').trim();
     return [
       {
-        label: 'Voice memo',
+        label: normalizedTranscript ? _shortLabel(normalizedTranscript) : 'Voice memo',
         excerpt: normalizedTranscript ? clipWords(normalizedTranscript, 10) : 'New voice memo',
         transcript: normalizedTranscript || 'Voice memo',
         start_ms: 0,

@@ -159,10 +159,10 @@ introduce one-off solid screen backgrounds for new screens.
 ## Asset Rules
 
 - Reuse:
-  - `assets/y.png`
+  - `assets/logo.png`
   - record/play/pause/stop/send/close/add SVG assets
   - avatar/contact placeholders
-- `assets/y.png` is the logo. Use it wherever the yAp logo appears.
+- `assets/logo.png` is the logo. Use it wherever the yAp logo appears.
 - Do not use `yap-logo.png` or another logo asset as a replacement unless the
   user explicitly changes the brand direction.
 - Do not use `glass-bg.png` as the background for navigation or playback

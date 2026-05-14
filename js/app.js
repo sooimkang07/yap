@@ -3,6 +3,12 @@
 // Router, screen manager, event wiring
 // ═══════════════════════════════════════════════════════
 
+/** Inline check for profile / group “Done editing” (stroke matches nav back chevrons). */
+const DONE_EDITING_CHECK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 6.5L9.5 17 4 11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+/** Plus for “Add” in group people strip; stroke follows .glassNavButton svg rules. */
+const GLASS_NAV_PLUS_SVG = '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 3.5V14.5M3.5 9H14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
 // ── App state ─────────────────────────────────────────
 const AppState = {
   screen:     'splash',    // current screen id
@@ -34,6 +40,8 @@ const AppState = {
     manager: null,
     phase:   'idle',       // idle | recording | stopped | sending
     sentAt: 0,            // timestamp when message was sent
+    /** `sendRecording` defers work; must clear when leaving chat or navigation races leave analysis open. */
+    sendScheduledTimer: null,
   },
   playback: {
     lastHeardChatId: null,
@@ -62,6 +70,8 @@ const AppState = {
     sharedWithYou: true,
     autoTranslate: false,
   },
+  /** Viewport Y of `#btn-group-settings-back` top when opening add-members sheet; consumed in layout helper. */
+  createGroupPickerAnchorTop: null,
   sync: {
     intervalId: 0,
     inFlight: false,
@@ -262,9 +272,6 @@ function cacheDOM() {
   DOM.btnGroupSettingsBack = document.getElementById('btn-group-settings-back');
   DOM.formGroupSettings = document.getElementById('form-group-settings');
   DOM.inputGroupSettingsName = document.getElementById('input-group-settings-name');
-  DOM.inputGroupMemberName = document.getElementById('input-group-member-name');
-  DOM.inputGroupMemberPhone = document.getElementById('input-group-member-phone');
-  DOM.btnAddGroupSettingsMember = document.getElementById('btn-add-group-settings-member');
   DOM.btnGroupSettingsBrowseContacts = document.getElementById('btn-group-settings-browse-contacts');
   DOM.btnSaveGroupSettings = document.getElementById('btn-save-group-settings');
   DOM.btnLeaveGroup = document.getElementById('btn-leave-group');
@@ -277,7 +284,6 @@ function cacheDOM() {
   DOM.groupSettingsSummaryTopics = document.getElementById('group-settings-summary-topics');
   DOM.groupSettingsSummaryLinks = document.getElementById('group-settings-summary-links');
   DOM.groupSettingsPeopleStrip = document.getElementById('group-settings-people-strip');
-  DOM.groupSettingsInviteCard = document.getElementById('group-settings-invite-card');
   DOM.groupSettingsLinksGrid = document.getElementById('group-settings-links-grid');
   DOM.groupSettingsBackgroundOptions = document.getElementById('group-settings-background-options');
   DOM.groupSettingsBackgroundSuggestions = document.getElementById('group-settings-background-suggestions');
@@ -520,6 +526,8 @@ function navigate(toId, direction = 'forward', { replace = false, skipTransition
 
   if (!to || from === to) return;
 
+  cancelPendingSendRecordingTimer();
+
   const fromId = from?.dataset.screen || AppState.screen;
   if (fromId === 'profile' && toId !== 'profile') {
     closeProfileAvatarPreviewOverlay();
@@ -529,6 +537,14 @@ function navigate(toId, direction = 'forward', { replace = false, skipTransition
     // Analysis UI lives under #screen-chat; leaving the screen without closing it
     // leaves `.visible` on the overlay so the next time chat opens it flashes first.
     AnalysisModal.close();
+    // Stop inline / thread playback and dismiss now playing when leaving the chat screen
+    // (e.g. chat → group settings still had audio running before).
+    closeNowPlaying();
+  }
+  if (toId === 'chats') {
+    AnalysisModal.close();
+    closeRecordingOverlay();
+    closeNowPlaying();
   }
   const eligibleForHistory = fromId && fromId !== 'splash';
   if (!replace && eligibleForHistory) {
@@ -953,7 +969,7 @@ async function backgroundRefreshChats() {
     const remoteChats = await getChatsForUser(getCurrentUserId());
     if (remoteChats && Array.isArray(remoteChats)) {
       const oldChats = AppState.chats || [];
-      const merged = applyPinnedFromLocal(remoteChats, oldChats);
+      const merged = applyPinnedFromLocal(applyManualUnreadFromLocal(remoteChats, oldChats), oldChats);
       const newChats = sortChatsForDisplay(merged);
 
       const oldIds = new Set(oldChats.map(c => c.id));
@@ -1023,8 +1039,14 @@ function renderChatsList() {
   DOM.chatsGrid.innerHTML = visibleChats.map(chat => {
     const displayName = getChatDisplayName(chat);
     const artHTML = _chatArtHTML(chat);
-    const badgeHTML = chat.unread > 0
-      ? `<span class="chat-badge" aria-label="${chat.unread} unread message${chat.unread === 1 ? '' : 's'}"></span>`
+    const showUnreadBadge = Number(chat.unread || 0) > 0 || !!chat.manualMarkedUnread;
+    const unreadCount = Math.max(0, Number(chat.unread || 0));
+    const badgeHTML = showUnreadBadge
+      ? `<span class="chat-badge" aria-label="${
+          unreadCount > 0
+            ? `${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`
+            : 'Marked unread'
+        }"></span>`
       : '';
 
     const hideAlertsIconHTML = chat.hideAlerts
@@ -1098,6 +1120,20 @@ function applyPinnedFromLocal(chats, ...sources) {
   });
 }
 
+/** Preserve local “mark unread” badge when merging remote chat list. */
+function applyManualUnreadFromLocal(chats, ...sources) {
+  const manualIds = new Set();
+  for (const list of sources) {
+    for (const c of list || []) {
+      if (c?.id && c.manualMarkedUnread) manualIds.add(c.id);
+    }
+  }
+  return (Array.isArray(chats) ? chats : []).map(chat => {
+    if (!chat?.id) return chat;
+    return { ...chat, manualMarkedUnread: manualIds.has(chat.id) };
+  });
+}
+
 function sortChatsForDisplay(chats) {
   return [...(Array.isArray(chats) ? chats : [])].sort((a, b) => {
     const ap = a.pinned ? 1 : 0;
@@ -1131,12 +1167,18 @@ async function markLatestOtherVoiceMemoUnread(chatId) {
   if (!bestMsg) return;
 
   const voiceMessageId = bestMsg.voiceMessageId || bestMsg.id;
-  const targetId = bestMsg.id;
+  const targetIds = new Set(
+    [bestMsg.id, bestMsg.voiceMessageId, voiceMessageId]
+      .filter(Boolean)
+      .map(v => String(v)),
+  );
 
   const updated = threads.map(thread => ({
     ...thread,
     messages: (thread.messages || []).map(m => {
-      if (m.id !== targetId) return m;
+      const mid = String(m?.id || '');
+      const mvid = String(m?.voiceMessageId || m?.id || '');
+      if (!targetIds.has(mid) && !targetIds.has(mvid)) return m;
       return {
         ...m,
         heardByCurrentUser: false,
@@ -1173,6 +1215,8 @@ async function markEntireChatAsRead(chatId) {
   const threads = Store.getCachedThreads(chatId);
   if (!threads.length) {
     updateChatsUnreadCounts();
+    const emptyChat = AppState.chats.find(c => c.id === chatId);
+    if (emptyChat) emptyChat.manualMarkedUnread = false;
     writeCachedChatsForUser(AppState.chats, uid);
     scheduleChatsListRender();
     return;
@@ -1210,6 +1254,8 @@ async function markEntireChatAsRead(chatId) {
     await Promise.all(heardPromises);
   }
   updateChatsUnreadCounts();
+  const cleared = AppState.chats.find(c => c.id === chatId);
+  if (cleared) cleared.manualMarkedUnread = false;
   writeCachedChatsForUser(AppState.chats, uid);
   scheduleChatsListRender();
 }
@@ -1222,20 +1268,21 @@ function syncChatContextMenuLabels(chat) {
   const pinLabel = pinBtn?.querySelector('.ctx-menu-label');
   if (pinIcon && pinLabel) {
     pinLabel.textContent = chat.pinned ? 'Unpin' : 'Pin';
-    const nextSrc = chat.pinned ? 'assets/unpin.svg' : 'assets/pin.svg';
+    const nextSrc = chat.pinned ? 'assets/pin-full.svg' : 'assets/pin.svg';
     if (pinIcon instanceof HTMLImageElement) {
       pinIcon.src = nextSrc;
     }
   }
 
   const unreadBtn = document.getElementById('ctx-mark-unread');
-  const unreadIcon = unreadBtn?.querySelector('.chat-context-menu__icon');
+  const unreadImg = document.getElementById('ctx-mark-unread-icon');
   const unreadLabel = unreadBtn?.querySelector('.ctx-menu-label');
-  const hasUnread = Number(chat.unread || 0) > 0;
-  if (unreadIcon && unreadLabel) {
+  const hasUnread = Number(chat.unread || 0) > 0 || !!chat.manualMarkedUnread;
+  if (unreadLabel) {
     unreadLabel.textContent = hasUnread ? 'Mark as Read' : 'Mark as Unread';
-    unreadIcon.classList.remove('chat-context-menu__icon--unread', 'chat-context-menu__icon--read');
-    unreadIcon.classList.add(hasUnread ? 'chat-context-menu__icon--read' : 'chat-context-menu__icon--unread');
+  }
+  if (unreadImg instanceof HTMLImageElement) {
+    unreadImg.src = hasUnread ? 'assets/mark-as-read.svg' : 'assets/mark-as-unread.svg';
   }
 
   const alertsBtn = document.getElementById('ctx-hide-alerts');
@@ -1426,10 +1473,18 @@ async function handleChatContextAction(action) {
       }
       case 'mark-unread': {
         const fresh = AppState.chats.find(c => c.id === chatId);
-        if (fresh && Number(fresh.unread || 0) > 0) {
+        const treatAsUnread =
+          Number(fresh?.unread || 0) > 0 || !!fresh?.manualMarkedUnread;
+        if (treatAsUnread) {
           await markEntireChatAsRead(chatId);
         } else {
           await markLatestOtherVoiceMemoUnread(chatId);
+          const after = AppState.chats.find(c => c.id === chatId);
+          if (after && Number(after.unread || 0) === 0) {
+            after.manualMarkedUnread = true;
+          }
+          writeCachedChatsForUser(AppState.chats, getCurrentUserId());
+          scheduleChatsListRender();
         }
         break;
       }
@@ -2033,6 +2088,72 @@ function openChatsSearch() {
   requestAnimationFrame(() => DOM.inputChatSearch?.focus());
 }
 
+function resetCreateGroupPickerAnchorLayout() {
+  const screen = DOM.screens?.createGroup;
+  const picker = screen?.querySelector('.create-chat-picker');
+  screen?.classList.remove('create-picker--anchor-group-settings');
+  picker?.style.removeProperty('--create-picker-slide-y');
+}
+
+function scheduleCreateGroupPickerAlignToGroupSettingsBack(anchorTop) {
+  if (typeof anchorTop !== 'number' || Number.isNaN(anchorTop)) return;
+
+  const prefersReduced =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const runAlign = () => {
+    AppState.createGroupPickerAnchorTop = null;
+    const screen = DOM.screens?.createGroup;
+    const picker = screen?.querySelector('.create-chat-picker');
+    if (!screen?.classList.contains('active') || !picker) return;
+
+    const pickerTop = picker.getBoundingClientRect().top;
+    const delta = anchorTop - pickerTop;
+    if (Math.abs(delta) < 0.5) return;
+
+    screen.classList.add('create-picker--anchor-group-settings');
+
+    if (prefersReduced) {
+      picker.style.setProperty('--create-picker-slide-y', `${delta}px`);
+      return;
+    }
+
+    picker.style.setProperty('--create-picker-slide-y', '0px');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        picker.style.setProperty('--create-picker-slide-y', `${delta}px`);
+      });
+    });
+  };
+
+  const panel = DOM.screens?.createGroup?.querySelector('#screen-create-group .entry-screen--compose');
+
+  if (!panel || prefersReduced) {
+    window.setTimeout(runAlign, prefersReduced ? 60 : 560);
+    return;
+  }
+
+  let settled = false;
+  let timerId = null;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    if (timerId) clearTimeout(timerId);
+    panel.removeEventListener('transitionend', onTransitionEnd);
+    requestAnimationFrame(runAlign);
+  };
+
+  const onTransitionEnd = e => {
+    if (e.target !== panel) return;
+    if (e.propertyName !== 'transform') return;
+    finish();
+  };
+
+  panel.addEventListener('transitionend', onTransitionEnd);
+  timerId = window.setTimeout(finish, 620);
+}
+
 function closeChatsSearch() {
   AppState.chatsSearchOpen = false;
   AppState.chatsSearchQuery = '';
@@ -2044,6 +2165,13 @@ function closeChatsSearch() {
 function openCreateGroupComposer(addToExistingChat = false) {
   const sheet = DOM.screens?.createGroup;
   const chatsScreen = DOM.screens?.chats;
+  const anchorTop = addToExistingChat ? AppState.createGroupPickerAnchorTop : null;
+
+  resetCreateGroupPickerAnchorLayout();
+  if (!addToExistingChat) {
+    AppState.createGroupPickerAnchorTop = null;
+  }
+
   if (sheet) {
     sheet.classList.remove('screen-sheet-closing');
     resetScreenTransitionState(sheet);
@@ -2055,12 +2183,17 @@ function openCreateGroupComposer(addToExistingChat = false) {
   }
 
   AppState.addingMembersToExistingChat = addToExistingChat;
+  AppState.onboarding.contactsTarget = addToExistingChat ? 'group-settings' : 'create-group';
   AppState.screen = 'chats';
   navigate('create-group', 'forward');
 
   renderPendingGroupMembers();
   renderCreateGroupPicker();
   scheduleViewportMetricsUpdate();
+
+  if (addToExistingChat && typeof anchorTop === 'number' && !Number.isNaN(anchorTop)) {
+    scheduleCreateGroupPickerAlignToGroupSettingsBack(anchorTop);
+  }
 }
 
 function _hexToRgb(hex) {
@@ -2196,6 +2329,27 @@ function buildMemberAvatarMarkup(member, extraClass = '') {
   `;
 }
 
+/** Multi-member cluster (same layout in chat list, header pips, group hero). Max 6 avatars. */
+function buildChatArtBestiesStackHTML(members = [], extraWrapperClasses = '') {
+  const list = (Array.isArray(members) ? members : []).filter(Boolean).slice(0, 6);
+  const n = list.length;
+  if (n === 0) return '';
+  if (n === 1) {
+    const tail = extraWrapperClasses ? ` ${extraWrapperClasses}` : '';
+    return `
+      <div class="chat-art-besties chat-art-besties--single${tail}">
+        ${buildMemberAvatarMarkup(list[0], 'chat-art-besties__avatar chat-art-besties__avatar--single')}
+      </div>
+    `;
+  }
+  const tail = extraWrapperClasses ? ` ${extraWrapperClasses}` : '';
+  return `
+    <div class="chat-art-besties chat-art-besties--stack chat-art-besties--n${n}${tail}">
+      ${list.map(member => buildMemberAvatarMarkup(member, 'chat-art-besties__avatar')).join('')}
+    </div>
+  `;
+}
+
 function getLocalPresencePayload() {
   const isInActiveChat = AppState.screen === 'chat' && !!AppState.activeChat?.id;
   return {
@@ -2327,24 +2481,15 @@ function _chatArtHTML(chat) {
   }
 
   if (chat.visual === 'besties') {
-    const bestiesMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 4);
-    if (bestiesMembers.length) {
-      return `
-        <div class="chat-art-besties">
-          ${bestiesMembers.map((member, index) => buildMemberAvatarMarkup(
-            member,
-            `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
-          )).join('')}
-        </div>
-      `;
+    const pool = otherMembers.length ? otherMembers : (chat.members || []);
+    const bestiesMembers = pool.slice(0, 6);
+    if (bestiesMembers.length >= 2) {
+      return buildChatArtBestiesStackHTML(bestiesMembers, '');
     }
-
-    return `
-      <div class="chat-art-besties">
-        <div class="chat-art-besties__avatar chat-art-besties__avatar--main" style="background-image:url('${USERS.chloe.avatarUrl}')"></div>
-        <div class="chat-art-besties__avatar chat-art-besties__avatar--secondary" style="background-image:url('${USERS.maria.avatarUrl}')"></div>
-      </div>
-    `;
+    if (bestiesMembers.length === 1) {
+      return buildChatArtBestiesStackHTML(bestiesMembers, '');
+    }
+    return buildChatArtBestiesStackHTML([USERS.chloe, USERS.maria], '');
   }
 
   if (chat.visual === 'heart') {
@@ -2372,16 +2517,12 @@ function _chatArtHTML(chat) {
     return `<div class="chat-art-circle chat-art-circle--mushroom"></div>`;
   }
 
-  const artMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 4);
-  if (artMembers.length) {
-    return `
-      <div class="chat-art-besties">
-        ${artMembers.map((member, index) => buildMemberAvatarMarkup(
-          member,
-          `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
-        )).join('')}
-      </div>
-    `;
+  const artMembers = (otherMembers.length ? otherMembers : (chat.members || [])).slice(0, 6);
+  if (artMembers.length >= 2) {
+    return buildChatArtBestiesStackHTML(artMembers, '');
+  }
+  if (artMembers.length === 1) {
+    return buildChatArtBestiesStackHTML(artMembers, '');
   }
 
   const fallbackLabel = buildUserInitials(chat.name || chat.emoji || 'Y');
@@ -2395,15 +2536,8 @@ function renderActiveChatShell(chat) {
   const otherMembers = getChatOtherMembers(chat);
   if (DOM.chatMemberPips) {
     if (otherMembers.length > 1) {
-      const pipMembers = otherMembers.slice(0, 4);
-      DOM.chatMemberPips.innerHTML = `
-        <div class="chat-art-besties chat-art-besties--pips">
-          ${pipMembers.map((member, index) => buildMemberAvatarMarkup(
-            member,
-            `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
-          )).join('')}
-        </div>
-      `;
+      const pipMembers = otherMembers.slice(0, 6);
+      DOM.chatMemberPips.innerHTML = buildChatArtBestiesStackHTML(pipMembers, 'chat-art-besties--pips');
     } else {
       DOM.chatMemberPips.innerHTML = (chat.members || [])
         .filter(member => member.id !== currentUserId)
@@ -2420,46 +2554,51 @@ function renderActiveChatShell(chat) {
   DOM.chatEmpty?.classList.toggle('is-single-member', otherMembers.length === 1);
 
   const featuredMembers = otherMembers.slice(0, otherMembers.length);
-  const firstMember = featuredMembers[0];
-  const secondMember = featuredMembers[1];
 
-  // Hide placeholder avatars and render real floating avatars
+  // Hide placeholder avatars; empty-state floats are only for a single other member.
   if (DOM.floatingAvatarPrimary) DOM.floatingAvatarPrimary.style.display = 'none';
   if (DOM.floatingAvatarSecondary) DOM.floatingAvatarSecondary.style.display = 'none';
-  
-  if (featuredMembers.length > 0) {
+
+  if (otherMembers.length > 1) {
+    // Header already renders overlapping pip avatars (chat-art-besties--pips).
+    // Body floats used the same polar math as two people → 0° and 360° (identical), so only one showed.
+    DOM.chatEmpty?.querySelector('.floating-avatars-container')?.remove();
+  } else if (featuredMembers.length > 0) {
     let existingContainer = DOM.chatEmpty?.querySelector('.floating-avatars-container');
     if (!existingContainer) {
       existingContainer = document.createElement('div');
       existingContainer.className = 'floating-avatars-container';
       DOM.chatEmpty?.insertBefore(existingContainer, DOM.chatEmpty.firstChild);
     }
-    
+
     existingContainer.innerHTML = '';
-    const spacing = 120; // pixels between avatars
-    featuredMembers.forEach((member, index) => {
-      const avatarEl = document.createElement('div');
-      avatarEl.className = 'floating-avatar floating-avatar--dynamic';
-      avatarEl.id = `floating-avatar-${index}`;
-      avatarEl.style.zIndex = 1000 - index;
-      // Spread avatars horizontally and vertically
-      const angle = (index / Math.max(1, featuredMembers.length - 1)) * 360;
-      const radius = 100;
-      const x = Math.cos(angle * Math.PI / 180) * radius;
-      const y = Math.sin(angle * Math.PI / 180) * radius;
-      avatarEl.style.transform = `translate(${x}px, ${y}px)`;
-      
-      const labelEl = document.createElement('div');
+      const count = featuredMembers.length;
+      featuredMembers.forEach((member, index) => {
+        const avatarEl = document.createElement('div');
+        avatarEl.className = 'floating-avatar floating-avatar--dynamic';
+        avatarEl.id = `floating-avatar-${index}`;
+        avatarEl.style.zIndex = 1000 - index;
+        if (count > 1) {
+          const angle = (index / count) * 360;
+          const radius = 100;
+          const x = Math.cos(angle * Math.PI / 180) * radius;
+          const y = Math.sin(angle * Math.PI / 180) * radius;
+          avatarEl.style.transform = `translate(${x}px, ${y}px)`;
+        } else {
+          avatarEl.style.removeProperty('transform');
+        }
+
+        const labelEl = document.createElement('div');
       labelEl.className = 'floating-avatar__label';
       labelEl.textContent = member.name || member.phoneE164 || 'User';
-      
+
       const photoEl = document.createElement('div');
       photoEl.className = 'floating-avatar__photo';
-      
+
       avatarEl.appendChild(labelEl);
       avatarEl.appendChild(photoEl);
       existingContainer.appendChild(avatarEl);
-      
+
       renderFloatingProfile(avatarEl, labelEl, photoEl, member, '');
     });
   }
@@ -2469,7 +2608,7 @@ function renderActiveChatShell(chat) {
 function updateChatsUnreadCounts() {
   const currentUserId = getCurrentUserId();
   for (const chat of AppState.chats || []) {
-    const threads = readCachedThreadsForChat(chat.id);
+    const threads = Store.getCachedThreads(chat.id);
     let unreadCount = 0;
     for (const thread of threads || []) {
       for (const message of thread.messages || []) {
@@ -2479,6 +2618,9 @@ function updateChatsUnreadCounts() {
       }
     }
     chat.unread = unreadCount;
+    if (unreadCount > 0) {
+      chat.manualMarkedUnread = false;
+    }
   }
 }
 
@@ -2506,6 +2648,7 @@ async function markChatMessagesAsHeard(chatId) {
     const chat = AppState.chats.find(c => c.id === chatId);
     if (chat) {
       chat.unread = 0;
+      chat.manualMarkedUnread = false;
       refreshChats();
     }
   }
@@ -2524,6 +2667,7 @@ async function closeActiveChatAndNavigateToList({ skipTransition = false } = {})
 }
 
 async function openChat(chat) {
+  cancelPendingSendRecordingTimer();
   AppState.activeChat = chat;
   Store.setActiveChat(chat.id);
   // Close analysis overlay and reset recording state when switching chats
@@ -2672,8 +2816,8 @@ function _startNowPlayingPlayback() {
 }
 
 function stopPlaybackOnChatExit() {
-  if (PlaybackController.audio && !PlaybackController.audio.paused) {
-    PlaybackController.audio.pause();
+  PlaybackController.stop();
+  if (AppState.nowPlaying.active) {
     AppState.nowPlaying.isPlaying = false;
     _syncNowPlayingPauseIcon(false);
   }
@@ -2792,22 +2936,42 @@ function _setNowPlayingTopicTitle(title, direction = null) {
     return;
   }
 
-  const outX = direction === 'prev' ? '28px' : '-28px';
-  const inX = direction === 'prev' ? '-28px' : '28px';
+  const slide = 'var(--np-title-slide, clamp(1.75rem, 14vw, 5.25rem))';
+  const outX = direction === 'prev' ? slide : `calc(-1 * ${slide})`;
+  const inX = direction === 'prev' ? `calc(-1 * ${slide})` : slide;
   DOM.npTopicTitle.style.setProperty('--np-title-out-x', outX);
   DOM.npTopicTitle.style.setProperty('--np-title-in-x', inX);
   DOM.npTopicTitle.classList.remove('is-swiping-in', 'is-visible');
   DOM.npTopicTitle.classList.add('is-swiping-out');
 
-  setTimeout(() => {
+  const afterOut = () => {
     if (!DOM.npTopicTitle) return;
     DOM.npTopicTitle.textContent = title;
     DOM.npTopicTitle.classList.remove('is-swiping-out');
     DOM.npTopicTitle.classList.add('is-swiping-in');
     requestAnimationFrame(() => {
-      DOM.npTopicTitle?.classList.add('is-visible');
+      requestAnimationFrame(() => {
+        DOM.npTopicTitle?.classList.add('is-visible');
+      });
     });
-  }, 160);
+  };
+
+  let done = false;
+  const finishOut = () => {
+    if (done) return;
+    done = true;
+    DOM.npTopicTitle.removeEventListener('transitionend', onEnd);
+    afterOut();
+  };
+
+  const onEnd = ev => {
+    if (ev.target !== DOM.npTopicTitle) return;
+    if (ev.propertyName !== 'transform') return;
+    finishOut();
+  };
+
+  DOM.npTopicTitle.addEventListener('transitionend', onEnd);
+  window.setTimeout(finishOut, 340);
 }
 
 function _buildNowPlayingAvatars(thread) {
@@ -2861,6 +3025,14 @@ function _buildNowPlayingAvatars(thread) {
   }).join('');
 }
 
+/** STYLE_GUIDE lime #DFFFB8 reads faint on np-dot progress — use brighter green for dots. */
+function _npDotReadableGreen(color) {
+  if (!color || typeof color !== 'string') return color;
+  const t = color.trim().toLowerCase().replace(/\s/g, '');
+  if (t === '#dfffb8' || t === 'rgb(223,255,184)' || t === 'rgba(223,255,184,1)') return '#C4EE90';
+  return color;
+}
+
 function _renderNowPlayingDots(threads, activeIndex) {
   if (!DOM.npDots) return;
   const total = Array.isArray(threads) ? threads.length : 0;
@@ -2868,7 +3040,8 @@ function _renderNowPlayingDots(threads, activeIndex) {
   DOM.npDots.innerHTML = threads.map((thread, i) => {
     const isActive = i === activeIndex;
     const isComplete = i < activeIndex || AppState.nowPlaying.completedAll;
-    const color = AppState.nowPlaying.topicDotColors?.[thread.id] || _getNowPlayingTopicDotColor(thread);
+    const raw = AppState.nowPlaying.topicDotColors?.[thread.id] || _getNowPlayingTopicDotColor(thread);
+    const color = (isActive || isComplete) ? _npDotReadableGreen(raw) : raw;
     const progress = isActive || isComplete ? 1 : 0;
     return `<span class="np-dot${isActive ? ' is-active' : ''}${isComplete ? ' is-complete' : ''}" style="--np-dot-progress:${progress};--np-dot-color:${escapeHtml(color)}" aria-hidden="true"></span>`;
   }).join('');
@@ -3164,6 +3337,8 @@ function _buildNowPlayingAvatar(person, className, options = {}) {
 }
 
 function _getNowPlayingFloatingStyle(index, total) {
+  /** Push orbitals farther from the centered speaker (px presets + fallback grid). */
+  const spread = 1.22;
   const presets = {
     1: [[-86, 28]],
     2: [[-94, 20], [92, 56]],
@@ -3173,16 +3348,18 @@ function _getNowPlayingFloatingStyle(index, total) {
   };
   const point = presets[total]?.[index];
   if (point) {
-    return `--np-other-x:${point[0]}px;--np-other-y:${point[1]}px;--np-float-delay:${index * -0.7}s;`;
+    const x = Math.round(point[0] * spread);
+    const y = Math.round(point[1] * spread);
+    return `--np-other-x:${x}px;--np-other-y:${y}px;--np-float-delay:${index * -0.7}s;`;
   }
 
   const columns = Math.min(4, Math.max(1, total));
   const col = index % columns;
   const row = Math.floor(index / columns);
   const center = (columns - 1) / 2;
-  const offsetX = (col - center) * 76;
-  const offsetY = 22 + row * 72 + (col % 2) * 16;
-  return `--np-other-x:${Math.max(-136, Math.min(136, offsetX))}px;--np-other-y:${offsetY}px;--np-float-delay:${index * -0.7}s;`;
+  const offsetX = (col - center) * 90;
+  const offsetY = 30 + row * 82 + (col % 2) * 18;
+  return `--np-other-x:${Math.max(-158, Math.min(158, offsetX))}px;--np-other-y:${offsetY}px;--np-float-delay:${index * -0.7}s;`;
 }
 
 function _getInitialNowPlayingSpeakerId(thread) {
@@ -3319,11 +3496,57 @@ function _buildNowPlayingSegmentedRingLayers(thread) {
 }
 
 function _syncNowPlayingSegmentedRing() {
-  // Segmented ring removed - keeping function for compatibility
+  // Legacy segmented conic ring — replaced by unified memo progress on the current avatar.
 }
 
 function _syncNowPlayingAvatarProgress() {
   _syncNowPlayingSegmentedRing();
+  if (!AppState.nowPlaying.active || !DOM.npAvatars) return;
+  const threads = Store.getThreads();
+  const thread = threads[AppState.nowPlaying.topicIndex];
+  if (!thread) return;
+
+  const sequence = _resolveNowPlayingRingSequence(thread);
+  const totalMs = sequence.reduce((sum, item) => sum + Math.max(0, Number(item.durationMs) || 0), 0);
+  const meta = PlaybackController.activeMeta;
+  let elapsedMs = 0;
+  if (
+    meta?.mode === 'thread' &&
+    String(meta.threadId || '') === String(thread.id || '') &&
+    Array.isArray(meta.sequence) &&
+    meta.sequence.length
+  ) {
+    const idx = Math.max(0, Number(meta.sequenceIndex) || 0);
+    const priorMs = meta.sequence
+      .slice(0, idx)
+      .reduce((sum, item) => sum + Math.max(0, Number(item.durationMs) || 0), 0);
+    const segElapsedMs = Math.max(0, (PlaybackController.audio?.currentTime - Number(meta.startAt || 0)) * 1000);
+    elapsedMs = priorMs + segElapsedMs;
+  }
+
+  const p = totalMs > 0 ? Math.min(1, Math.max(0, elapsedMs / totalMs)) : 0;
+  const deg = p * 360;
+  const idx = Math.max(0, Number(meta?.sequenceIndex) || 0);
+  const cur = meta?.mode === 'thread' && Array.isArray(meta?.sequence) ? meta.sequence[idx] : null;
+  const accent = _npRingGradientSafeColor(
+    cur?.author?.color || pickUserColor(cur?.author?.name || cur?.authorId || '')
+  );
+  const fill = `color-mix(in srgb, ${accent} 72%, white 28%)`;
+
+  const currentWrap = DOM.npAvatars.querySelector('.np-avatar--current .np-avatar__ring-wrap');
+  if (currentWrap) {
+    currentWrap.style.setProperty('--np-ring-fill', fill);
+    currentWrap.style.setProperty('--np-ring-deg', `${deg}deg`);
+    currentWrap.style.removeProperty('--np-ring-track-bg');
+    currentWrap.style.removeProperty('--np-ring-progress-bg');
+  }
+
+  DOM.npAvatars.querySelectorAll('.np-avatar:not(.np-avatar--current) .np-avatar__ring-wrap').forEach(w => {
+    w.style.removeProperty('--np-ring-deg');
+    w.style.removeProperty('--np-ring-fill');
+    w.style.removeProperty('--np-ring-track-bg');
+    w.style.removeProperty('--np-ring-progress-bg');
+  });
 }
 function _showRecRow(which) {
   // which: 'recording' | 'stopped' | 'sending'
@@ -3647,9 +3870,15 @@ function updateContactsHubChrome() {
 }
 
 // ── Recording flow ────────────────────────────────────
-// Debug helpers for animation iteration (do not ship enabled).
-const YAP_DEBUG_HOLD_ANALYSIS_AFTER_SEND = false;
-const YAP_DEBUG_SEND_TRANSITION_MS = 2400;
+/** Short handoff from recording sheet to analysis overlay / pipeline. */
+const YAP_DEBUG_SEND_TRANSITION_MS = 380;
+
+function cancelPendingSendRecordingTimer() {
+  if (AppState.recording.sendScheduledTimer) {
+    clearTimeout(AppState.recording.sendScheduledTimer);
+    AppState.recording.sendScheduledTimer = null;
+  }
+}
 
 async function startRecording() {
   const mgr = new RecordingManager({
@@ -3661,7 +3890,9 @@ async function startRecording() {
   AppState.recording.manager = mgr;
 
   try {
-    await mgr.start();
+    await mgr.start({
+      onStreamReady: () => openRecordingOverlay(),
+    });
     AppState.recording.phase = 'recording';
     PresenceManager.setRecordingState('recording').catch(e => console.warn('[yap] Presence update failed:', e));
     window.__yapVoiceVisualizerBridge?.setRecording?.(true);
@@ -3670,7 +3901,7 @@ async function startRecording() {
   } catch (err) {
     const message = err?.message || 'We could not start recording on this device.';
     console.warn('[yap] startRecording failed:', err);
-    const isPermissionError = err?.message?.includes('permission');
+    const isPermissionError = /permission|secure page|Privacy & Security → Microphone/i.test(message);
     const title = isPermissionError ? 'Enable Microphone' : 'Microphone Unavailable';
     showIOSAlert(message, { title });
     _setRecordingIdleState();
@@ -3803,8 +4034,10 @@ async function sendRecording() {
     scrollChatToLatest();
   }
 
-  // Brief dots animation, then hand off to analysis modal
-  setTimeout(async () => {
+  // Brief handoff from recording sheet, then full-screen topic analysis while the pipeline runs.
+  cancelPendingSendRecordingTimer();
+  AppState.recording.sendScheduledTimer = setTimeout(async () => {
+    AppState.recording.sendScheduledTimer = null;
     closeRecordingOverlay();
 
     mgr.discard();
@@ -3823,19 +4056,15 @@ async function sendRecording() {
         clearReplyTarget();
         renderTopics();
         addReplyToTopic(replyTargetThreadId, replyMessage);
+        scrollChatToLatest();
         refreshChatsAndRender();
         return;
       }
 
-      // Memo send: show analysis overlay while pipeline runs.
       AnalysisModal.open(blob);
-
-      if (YAP_DEBUG_HOLD_ANALYSIS_AFTER_SEND) {
-        // For visual iteration: keep the analysis overlay up and do not send.
-        return;
-      }
-
       await Pipeline.run(blob, durationMs, chatId, authorId, audioUrl, seedMessageId);
+      renderTopics();
+      scrollChatToLatest();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err || 'Something went wrong');
       console.error('[yap] Pipeline error:', {
@@ -3845,7 +4074,9 @@ async function sendRecording() {
       if (replyTargetThreadId) {
         showIOSAlert(errorMessage, { title: 'Message Not Sent' });
       } else {
-        AnalysisModal.open();
+        if (!DOM.analysisOverlay?.classList.contains('visible')) {
+          AnalysisModal.open();
+        }
         AnalysisModal.showError(errorMessage);
       }
     } finally {
@@ -3857,6 +4088,7 @@ async function sendRecording() {
 }
 
 function discardRecording() {
+  cancelPendingSendRecordingTimer();
   const mgr = AppState.recording.manager;
   if (mgr) mgr.discard();
   clearReplyTarget();
@@ -3865,6 +4097,7 @@ function discardRecording() {
 }
 
 function cancelRecording() {
+  cancelPendingSendRecordingTimer();
   const mgr = AppState.recording.manager;
   if (!mgr) {
     closeRecordingOverlay();
@@ -3892,7 +4125,7 @@ function setFeedback(element, message = '', tone = '') {
 }
 
 function formatVerifyFailureMessage() {
-  return 'Incorrect code entered\nPlease check the code and try again';
+  return 'Incorrect code entered. Please check the code and try again.';
 }
 
 function setButtonBusy(button, isBusy, busyLabel) {
@@ -4066,6 +4299,50 @@ async function getCreateGroupContacts() {
   }));
 }
 
+function isPhoneLikeCreateGroupSearchQuery(q) {
+  const t = String(q || '').replace(/[\s\-+().]/g, '');
+  return t.length >= 3 && /^\d+$/.test(t);
+}
+
+async function loadCreateGroupContactPool(directoryQuery) {
+  const imported = await getCreateGroupContacts();
+  if (!AppState.supabaseOk || typeof searchAppUsersByNameDirectory !== 'function') {
+    return buildCreateGroupContactIndex(imported);
+  }
+
+  const ownerId = getCurrentUserId();
+  const q = String(directoryQuery || '').trim();
+  const extras = [];
+
+  if (
+    ownerId
+    && q.length >= 2
+    && !isPhoneLikeCreateGroupSearchQuery(q)
+  ) {
+    try {
+      const rows = await searchAppUsersByNameDirectory(q, ownerId);
+      for (const row of rows) {
+        const matchedUser = registerUserRecord(row);
+        const phone = matchedUser?.phoneE164;
+        if (!phone) continue;
+        extras.push({
+          id: `yap-directory-${matchedUser.id}`,
+          owner_user_id: ownerId,
+          source: 'yap_directory',
+          display_name: matchedUser.name,
+          phone_e164: phone,
+          matched_user_id: matchedUser.id,
+          matchedUser,
+        });
+      }
+    } catch (e) {
+      console.warn('[yap] directory contact search failed:', e);
+    }
+  }
+
+  return buildCreateGroupContactIndex([...imported, ...extras]);
+}
+
 function buildCreateGroupContactIndex(contacts = []) {
   const deduped = [];
   const seen = new Set();
@@ -4090,6 +4367,7 @@ function scoreCreateGroupContactMatch(contact, query) {
 
   const profileName = String(contact.matchedUser?.name || '').trim().toLowerCase();
   const importedName = String(contact.display_name || '').trim().toLowerCase();
+  const initials = String(contact.matchedUser?.initials || '').trim().toLowerCase();
   const phone = String(contact.phone_e164 || '').trim().toLowerCase();
   const nameCandidates = [profileName, importedName].filter(Boolean);
 
@@ -4097,15 +4375,28 @@ function scoreCreateGroupContactMatch(contact, query) {
   for (const name of nameCandidates) {
     if (name === normalizedQuery) return 0;
   }
+  if (initials && initials === normalizedQuery) return 0;
+
   for (const name of nameCandidates) {
     if (name.startsWith(normalizedQuery)) return 1;
   }
+  if (initials && initials.startsWith(normalizedQuery)) return 1;
+
   for (const name of nameCandidates) {
     if (name.split(/\s+/).some(part => part.startsWith(normalizedQuery))) return 2;
   }
   for (const name of nameCandidates) {
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2 && normalizedQuery.length >= 2) {
+      const acronym = parts.map(part => part[0]).join('');
+      if (acronym.startsWith(normalizedQuery)) return 2;
+    }
+  }
+
+  for (const name of nameCandidates) {
     if (name.includes(normalizedQuery)) return 3;
   }
+  if (initials && initials.includes(normalizedQuery)) return 3;
 
   // Priority 2: Phone number matches (only exact start match, scores 4)
   // This allows searching by phone but names always take priority
@@ -4158,34 +4449,32 @@ async function renderCreateGroupPicker() {
   if (!DOM.createChatContacts) return;
 
   const query = String(AppState.onboarding.createGroupSearchQuery || '').trim();
+  if (!query) {
+    DOM.createChatContacts.innerHTML = '';
+    DOM.createChatContacts.hidden = true;
+    return;
+  }
+
   const queryLower = query.toLowerCase();
-  const allContacts = buildCreateGroupContactIndex(await getCreateGroupContacts());
-  const filteredContacts = !query
-    ? []
-    : allContacts
-      .map(contact => ({
-        contact,
-        score: scoreCreateGroupContactMatch(contact, queryLower),
-        displayName: (contact.matchedUser?.name || contact.display_name || contact.phone_e164 || '').toLowerCase(),
-      }))
-      .filter(entry => Number.isFinite(entry.score))
-      .sort((a, b) => {
-        if (a.score !== b.score) return a.score - b.score;
-        return a.displayName.localeCompare(b.displayName);
-      })
-      .map(entry => entry.contact);
+  const allContacts = await loadCreateGroupContactPool(query);
+  const filteredContacts = allContacts
+    .map(contact => ({
+      contact,
+      score: scoreCreateGroupContactMatch(contact, queryLower),
+      displayName: (contact.matchedUser?.name || contact.display_name || contact.phone_e164 || '').toLowerCase(),
+    }))
+    .filter(entry => Number.isFinite(entry.score))
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+      return a.displayName.localeCompare(b.displayName);
+    })
+    .map(entry => entry.contact);
 
   const exactPhone = normalizePhoneNumber(query);
   const manualMatchedUser = exactPhone ? await getRegisteredUserByPhone(exactPhone) : null;
   const canAddManual = !!exactPhone
     && !allContacts.some(contact => contact.phone_e164 === exactPhone)
     && !AppState.onboarding.pendingMembers.some(member => member.phone === exactPhone);
-
-  if (!query) {
-    DOM.createChatContacts.innerHTML = '';
-    DOM.createChatContacts.hidden = true;
-    return;
-  }
 
   const rows = filteredContacts.map(contact => renderCreateGroupContactRow(contact)).join('');
   const manualRow = canAddManual ? `
@@ -4215,7 +4504,7 @@ async function addPendingGroupMember() {
   let resolvedName = name;
 
   if (!resolvedPhone && rawValue) {
-    const contacts = buildCreateGroupContactIndex(await getCreateGroupContacts());
+    const contacts = await loadCreateGroupContactPool(rawValue);
     const exactMatch = contacts.find(contact => {
       const displayName = (contact.display_name || contact.matchedUser?.name || '').trim().toLowerCase();
       return displayName === rawValue.toLowerCase();
@@ -4412,12 +4701,20 @@ async function refreshChats({ force = false } = {}) {
     const cachedChats = readCachedChatsForUser(getCurrentUserId());
     // Show cached chats immediately if available
     if (cachedChats.length && !AppState.chats.length) {
-      AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, []));
+      AppState.chats = sortChatsForDisplay(
+        applyPinnedFromLocal(applyManualUnreadFromLocal(cachedChats, []), []),
+      );
       scheduleChatsListRender();
     }
     if (!force && cachedChats.length && (Date.now() - lastRefreshAt) < YAP_SUPABASE_CHAT_REFRESH_MIN_MS) {
       // Keep UI snappy, but still try to pull the latest chats in the background.
-      AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, AppState.chats));
+      AppState.chats = sortChatsForDisplay(
+        applyPinnedFromLocal(
+          applyManualUnreadFromLocal(cachedChats, AppState.chats),
+          cachedChats,
+          AppState.chats,
+        ),
+      );
       backgroundRefreshChats();
       return AppState.chats;
     }
@@ -4447,7 +4744,8 @@ async function refreshChats({ force = false } = {}) {
       seenChatIds.add(chat.id);
       return true;
     });
-    const withPins = applyPinnedFromLocal(dedupedChats, cachedChats, AppState.chats);
+    const withManual = applyManualUnreadFromLocal(dedupedChats, cachedChats, AppState.chats);
+    const withPins = applyPinnedFromLocal(withManual, cachedChats, AppState.chats);
     AppState.chats = sortChatsForDisplay(withPins);
     updateChatsUnreadCounts();
     writeCachedChatsForUser(AppState.chats, getCurrentUserId());
@@ -4672,9 +4970,6 @@ function renderGroupSettings(invites = []) {
     DOM.inputGroupSettingsName.disabled = !editing;
     DOM.inputGroupSettingsName.readOnly = !editing;
   }
-  if (DOM.inputGroupMemberName) DOM.inputGroupMemberName.disabled = !editing;
-  if (DOM.inputGroupMemberPhone) DOM.inputGroupMemberPhone.disabled = !editing;
-  if (DOM.btnAddGroupSettingsMember) DOM.btnAddGroupSettingsMember.disabled = !editing;
   if (DOM.btnSaveGroupSettings) {
     DOM.btnSaveGroupSettings.disabled = !canManage;
     DOM.btnSaveGroupSettings.textContent = editing ? 'Done' : 'Edit';
@@ -4686,7 +4981,7 @@ function renderGroupSettings(invites = []) {
     const isTopbarEditing = DOM.btnGroupSettingsEdit.dataset.editing === 'true';
     if (editing && !isTopbarEditing) {
       DOM.btnGroupSettingsEdit.dataset.editing = 'true';
-      DOM.btnGroupSettingsEdit.innerHTML = '<img src="assets/done.svg" alt="" aria-hidden="true">';
+      DOM.btnGroupSettingsEdit.innerHTML = DONE_EDITING_CHECK_SVG;
       DOM.btnGroupSettingsEdit.classList.add('is-icon-only');
       DOM.btnGroupSettingsEdit.setAttribute('aria-label', 'Done editing group');
     }
@@ -4697,20 +4992,12 @@ function renderGroupSettings(invites = []) {
       DOM.btnGroupSettingsEdit.setAttribute('aria-label', 'Edit group');
     }
   }
-  DOM.groupSettingsInviteCard?.classList.toggle('is-hidden', !editing || isDirectChat);
   if (DOM.toggleGroupHideAlerts) DOM.toggleGroupHideAlerts.checked = !!AppState.groupSettingsPrefs.hideAlerts;
 
   if (DOM.groupSettingsHeroAvatars) {
     if (otherMembers.length > 1) {
-      const heroMembers = otherMembers.slice(0, 4);
-      DOM.groupSettingsHeroAvatars.innerHTML = `
-        <div class="chat-art-besties chat-art-besties--hero">
-          ${heroMembers.map((member, index) => buildMemberAvatarMarkup(
-            member,
-            `chat-art-besties__avatar ${index === 0 ? 'chat-art-besties__avatar--main' : 'chat-art-besties__avatar--secondary'}`
-          )).join('')}
-        </div>
-      `;
+      const heroMembers = otherMembers.slice(0, 6);
+      DOM.groupSettingsHeroAvatars.innerHTML = buildChatArtBestiesStackHTML(heroMembers, 'chat-art-besties--hero');
     } else {
       DOM.groupSettingsHeroAvatars.innerHTML = members
         .filter(member => member.id !== currentUserId)
@@ -4751,7 +5038,7 @@ function renderGroupSettings(invites = []) {
       ];
       const addNode = canManage ? `
         <button class="group-details-person group-details-person--add" id="btn-group-settings-browse-contacts" type="button" aria-label="Add contact">
-          <span class="group-details-person__avatar">+</span>
+          <span class="group-details-person__avatar glassNavButton">${GLASS_NAV_PLUS_SVG}</span>
           <span class="group-details-person__name">Add</span>
         </button>
       ` : '';
@@ -4858,7 +5145,7 @@ async function routeAuthenticatedUser() {
     && !AppState.auth.pendingChatId;
   if (canLeaveSplashEarly) {
     const cachedChats = readCachedChatsForUser(getCurrentUserId());
-    if (cachedChats.length) AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, []));
+    if (cachedChats.length) AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(applyManualUnreadFromLocal(cachedChats, []), []));
     navigate('chats', 'fade');
     scheduleChatsListRender();
   }
@@ -4922,7 +5209,7 @@ async function routeAuthenticatedUser() {
   let showedChatsBeforeRefresh = false;
   if (canShowChatsBeforeRefresh) {
     const cachedChats = readCachedChatsForUser(appUser.id);
-    if (cachedChats.length) AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(cachedChats, []));
+    if (cachedChats.length) AppState.chats = sortChatsForDisplay(applyPinnedFromLocal(applyManualUnreadFromLocal(cachedChats, []), []));
     AppState.sync.chatSnapshot = buildChatActivitySnapshot(AppState.chats);
     navigate('chats', cameFromVerifyStep ? 'forward' : 'fade');
     scheduleChatsListRender();
@@ -5020,6 +5307,20 @@ async function safeResolveInitialRoute() {
       'error'
     );
   }
+}
+
+/** Brief static splash (logo + tagline) before auth routing (PWA / mobile). */
+function runSplashIntroSequence() {
+  const splash = document.getElementById('screen-splash');
+  if (!splash) return Promise.resolve();
+  if (AppState.screen !== 'splash' || !splash.classList.contains('active')) {
+    return Promise.resolve();
+  }
+
+  const SPLASH_HOLD_MS = 1500;
+  return new Promise(resolve => {
+    window.setTimeout(resolve, SPLASH_HOLD_MS);
+  });
 }
 
 // ── Event wiring ──────────────────────────────────────
@@ -5160,13 +5461,16 @@ function wireEvents() {
     }
 
     if (supportsDeviceContacts()) {
-      triggerDirectContactsEntry('create-group');
+      triggerDirectContactsEntry(
+        AppState.addingMembersToExistingChat ? 'group-settings' : 'create-group'
+      );
       return;
     }
 
     DOM.inputContactFile?.click();
   });
   DOM.btnCreateGroupBack?.addEventListener('click', async () => {
+    resetCreateGroupPickerAnchorLayout();
     const target = goBack(AppState.chats.length ? 'chats' : 'profile-setup');
     if (target === 'chats') renderChatsList();
   });
@@ -5370,7 +5674,10 @@ function wireEvents() {
     setButtonBusy(DOM.btnCreateGroupSubmit, true, buttonLabel);
 
     try {
-      if (AppState.addingMembersToExistingChat && AppState.activeChat?.id) {
+      const addToExistingChat =
+        AppState.activeChat?.id
+        && (AppState.addingMembersToExistingChat || AppState.onboarding.contactsTarget === 'group-settings');
+      if (addToExistingChat) {
         // Add members to existing chat
         await addMembersToChat({
           chatId: AppState.activeChat.id,
@@ -5446,7 +5753,7 @@ function wireEvents() {
     const isEditing = DOM.btnProfileEdit.dataset.editing === 'true';
     if (!isEditing) {
       DOM.btnProfileEdit.dataset.editing = 'true';
-      DOM.btnProfileEdit.innerHTML = '<img src="assets/done.svg" alt="" aria-hidden="true">';
+      DOM.btnProfileEdit.innerHTML = DONE_EDITING_CHECK_SVG;
       DOM.btnProfileEdit.classList.add('is-icon-only');
       DOM.btnProfileEdit.setAttribute('aria-label', 'Done editing profile');
       DOM.inputManageProfileName.readOnly = false;
@@ -5687,46 +5994,19 @@ function wireEvents() {
     await saveGroupSettingsNameFromEditor();
     DOM.inputGroupSettingsName?.blur();
   });
-  DOM.btnAddGroupSettingsMember?.addEventListener('click', async () => {
-    if (!AppState.activeChat) return;
-    if (!canManageActiveChat()) {
-      setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
-      return;
-    }
-    setButtonBusy(DOM.btnAddGroupSettingsMember, true, 'Adding...');
-    setFeedback(DOM.groupSettingsFeedback, '');
-    try {
-      const result = await addMembersToChat({
-        chatId: AppState.activeChat.id,
-        ownerUserId: getCurrentUserId(),
-        members: [{
-          name: DOM.inputGroupMemberName.value,
-          phone: DOM.inputGroupMemberPhone.value,
-        }],
-      });
-      DOM.inputGroupMemberName.value = '';
-      DOM.inputGroupMemberPhone.value = '';
-      await refreshActiveChatAndSettings();
-      const addedCount = result?.addedUsers?.length || 0;
-      const inviteCount = result?.invitesCreated || 0;
-      const message = inviteCount && !addedCount
-        ? 'SMS invite sent.'
-        : inviteCount
-          ? 'Member added and SMS invite sent.'
-          : 'Member added.';
-      setFeedback(DOM.groupSettingsFeedback, message, 'success');
-    } catch (error) {
-      setFeedback(DOM.groupSettingsFeedback, error.message || 'We could not add that member.', 'error');
-    } finally {
-      setButtonBusy(DOM.btnAddGroupSettingsMember, false);
-    }
-  });
   DOM.groupSettingsPeopleStrip?.addEventListener('click', event => {
     const addContactsButton = event.target.closest('#btn-group-settings-browse-contacts');
     if (!addContactsButton) return;
     if (!canManageActiveChat()) {
       setFeedback(DOM.groupSettingsFeedback, 'Only joined group members can add people.', 'error');
       return;
+    }
+    const backBtn = DOM.btnGroupSettingsBack;
+    if (backBtn) {
+      const { top } = backBtn.getBoundingClientRect();
+      AppState.createGroupPickerAnchorTop = top;
+    } else {
+      AppState.createGroupPickerAnchorTop = null;
     }
     openCreateGroupComposer(true);
   });
@@ -5793,7 +6073,7 @@ function wireEvents() {
     }
   });
 
-  // When a full thread finishes playing, auto-advance to next topic
+  // When a full thread finishes playing, auto-advance to next topic; when the last topic ends, return to threads list.
   window.onThreadPlaybackComplete = () => {
     if (!AppState.nowPlaying.active) return;
     const threads = Store.getThreads();
@@ -5805,13 +6085,20 @@ function wireEvents() {
       _syncNowPlayingPauseIcon(false);
       AppState.nowPlaying.isPlaying = false;
       _syncNowPlayingTopicProgress({ completeAll: true });
+      setTimeout(() => {
+        if (typeof collapseChatTopicLayout === 'function') {
+          collapseChatTopicLayout();
+        }
+        closeNowPlaying();
+        renderTopics();
+        DOM.chatBody?.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 380);
     }
   };
 
   DOM.btnMic.addEventListener('click', async () => {
     try {
       clearReplyTarget();
-      openRecordingOverlay();
       await startRecording();
     } catch (err) {
       console.error('[yap] Mic button failed:', err);
@@ -5861,20 +6148,9 @@ function wireEvents() {
 
 // ── Pipeline event listeners ──────────────────────────
 function wirePipelineEvents() {
-  document.addEventListener('yap:pipeline:started', () => {
-    // Only show analysis UI when we're sending a full memo (not reply),
-    // which is the only flow that needs segmentation feedback.
-    if (AppState.replyTargetThreadId) return;
-    // Only open modal if we're in the recording phase (actively sending a recording)
-    if (AppState.recording.phase !== 'sending') return;
-    if (!DOM.analysisOverlay?.classList.contains('visible')) {
-      AnalysisModal.open();
-    }
-  });
-
-  // Segments arrive from API → render immediately with no animation
+  // Segments arrive from API → topic breakdown animation while analysis overlay is open
   document.addEventListener('yap:pipeline:segments', e => {
-    if (!AppState.replyTargetThreadId && DOM.analysisOverlay?.classList.contains('visible')) {
+    if (DOM.analysisOverlay?.classList.contains('visible')) {
       AnalysisModal.animateSegments(e.detail?.segments || [], () => {
         // Re-render when modal closes so updated message displays immediately
         renderTopics();
@@ -5888,6 +6164,10 @@ function wirePipelineEvents() {
 
   document.addEventListener('yap:pipeline:done', () => {
     refreshChatsAndRender();
+    if (AppState.screen === 'chat' && AppState.activeChat?.id) {
+      renderTopics();
+      scrollChatToLatest();
+    }
   });
 
   // A Chloe/Maria response arrived → add bar to matching topic card
@@ -5898,7 +6178,6 @@ function wirePipelineEvents() {
 
   document.addEventListener('yap:thread:reply', e => {
     AppState.replyTargetThreadId = e.detail.threadId;
-    openRecordingOverlay();
     startRecording();
   });
 }
@@ -5951,7 +6230,21 @@ async function boot() {
     });
   }
 
-  // Splash auto-advance - resolve immediately for instant loading
+  await runSplashIntroSequence();
+
+  // Local UI preview: splash + welcome without hitting phone auth (needs localhost).
+  const splashPreview =
+    typeof location !== 'undefined' &&
+    new URLSearchParams(location.search).get('splashPreview') === '1';
+  const host = location.hostname || '';
+  if (
+    splashPreview &&
+    (host === 'localhost' || host === '127.0.0.1')
+  ) {
+    navigate('welcome', 'fade');
+    return;
+  }
+
   safeResolveInitialRoute();
 }
 

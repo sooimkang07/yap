@@ -124,6 +124,7 @@ function sanitizeChatForCache(chat) {
     persistLocally: chat.persistLocally !== false,
     pinned: !!chat.pinned,
     hideAlerts: !!chat.hideAlerts,
+    manualMarkedUnread: !!chat.manualMarkedUnread,
   };
 }
 
@@ -1465,6 +1466,48 @@ async function getImportedContactsForUser(ownerUserId) {
       matchedUser,
     };
   });
+}
+
+const YAP_USER_DIRECTORY_SEARCH_LIMIT = 24;
+
+function sanitizeUserDirectorySearchFragment(raw) {
+  const t = String(raw || '').trim();
+  if (t.length < 2) return '';
+  const cleaned = t.replace(/[%_\\,]/g, '').trim().slice(0, 64);
+  return cleaned.length >= 2 ? cleaned : '';
+}
+
+async function searchAppUsersByNameDirectory(fragment, excludeUserId) {
+  if (!supabaseClient || !excludeUserId) return [];
+
+  const safe = sanitizeUserDirectorySearchFragment(fragment);
+  if (!safe) return [];
+
+  const pattern = `%${safe}%`;
+  const baseQuery = () => supabaseClient
+    .from('users')
+    .select(APP_USER_SELECT_FIELDS)
+    .neq('id', excludeUserId)
+    .not('phone_e164', 'is', null);
+
+  const [nameRes, initialsRes] = await Promise.all([
+    baseQuery().ilike('name', pattern).limit(YAP_USER_DIRECTORY_SEARCH_LIMIT),
+    baseQuery().ilike('initials', pattern).limit(YAP_USER_DIRECTORY_SEARCH_LIMIT),
+  ]);
+
+  if (nameRes.error) {
+    console.warn('[yap] searchAppUsersByNameDirectory (name) failed:', nameRes.error);
+  }
+  if (initialsRes.error) {
+    console.warn('[yap] searchAppUsersByNameDirectory (initials) failed:', initialsRes.error);
+  }
+
+  const byId = new Map();
+  for (const row of [...(nameRes.data || []), ...(initialsRes.data || [])]) {
+    if (row?.id) byId.set(row.id, row);
+  }
+
+  return [...byId.values()].slice(0, YAP_USER_DIRECTORY_SEARCH_LIMIT);
 }
 
 async function getRegisteredUserByPhone(phone) {

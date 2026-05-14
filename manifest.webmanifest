@@ -9,8 +9,8 @@
     "fullscreen",
     "standalone"
   ],
-  "background_color": "#fdfbff",
-  "theme_color": "#fdfbff",
+  "background_color": "#f6f8ff",
+  "theme_color": "#f6f8ff",
   "icons": [
     {
       "src": "/assets/icon-192.png",

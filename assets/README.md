@@ -1,13 +1,10 @@
 # Assets
 
-Only files currently referenced by the web app are kept here.
+Files in this folder are referenced by `index.html`, `css/styles.css`, `js/`, `sw.js`, or `manifest.webmanifest`.
 
-## Current Files
+## Current files
 
-- `yap-logo.png`: splash and welcome branding
-- `icon-192.png`, `icon-512.png`: PWA icons
-- `record-button.svg`: main record CTA
-- `exit-button.png`: recording exit action
-- `analyzing-icon.svg`: analysis modal accent
-- `glass-bg.png`: glass button/background texture
-- `sooim.jpg`: seeded local avatar used in demo data
+- **Branding:** `logo.png` (splash + welcome hero)
+- **PWA / browser:** `favicon.ico`, `icon-192.png`, `icon-512.png`
+- **Demo avatar fallback:** `sooim.jpg`
+- **Icons / masks:** `analyzing-icon.svg`, `contact-placeholder.svg`, `done.svg`, `hide-alerts-fill.svg`, `hide-alerts.svg`, `mark-as-read.svg`, `mark-as-unread.svg`, `pin.svg`, `pin-full.svg`, `show-alerts.svg`, `delete.svg`, `unpin.svg`

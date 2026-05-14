@@ -3,7 +3,9 @@ const { ensureLocalEnv } = require('./_env');
 ensureLocalEnv();
 
 const DEFAULT_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
+const FALLBACK_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_FALLBACK_MODEL || 'whisper-1';
 const DEFAULT_SEGMENT_MODEL = process.env.OPENAI_SEGMENT_MODEL || 'gpt-4o';
+const FALLBACK_SEGMENT_MODEL = process.env.OPENAI_SEGMENT_FALLBACK_MODEL || 'gpt-4o-mini';
 const TIMESTAMP_TRANSCRIBE_MODEL = process.env.OPENAI_TIMESTAMP_TRANSCRIBE_MODEL || 'whisper-1';
 
 module.exports = async function handler(req, res) {
@@ -25,7 +27,7 @@ module.exports = async function handler(req, res) {
     const durationMs = Number(req.headers['x-yap-duration-ms'] || 0);
     const threadContext = readThreadContext(req.headers['x-yap-thread-context']);
     const payload = await readAudioPayload(req);
-    const contentType = payload.contentType || 'audio/webm';
+    const contentType = primaryMimeType(payload.contentType || 'audio/webm');
     const body = payload.buffer;
 
     if (!body.length) {
@@ -39,9 +41,25 @@ module.exports = async function handler(req, res) {
 
     const transcription = await transcribeAudio(body, contentType);
     const transcript = transcription.text || '';
-    const segments = transcript
+    let segments = transcript
       ? await segmentTranscript(transcript, durationMs, threadContext, transcription.words || [])
       : [];
+
+    segments = maybeBoostMultiTopicSegments(
+      segments,
+      transcript,
+      durationMs,
+      transcription.words || [],
+    );
+
+    // Empty transcript or upstream bug → no segments; client would leave optimistic "Voice memo" rows.
+    if (!Array.isArray(segments) || segments.length === 0) {
+      const t = normalizeWhitespace(transcript);
+      if (!t) {
+        console.warn('[yAp] process-audio: empty transcript after transcription; single placeholder segment');
+      }
+      segments = normalizeSegments([], t, durationMs, threadContext, transcription.words || []);
+    }
 
     const topics = segments.map((segment, index) => ({
       id: segment.assigned_thread_id || `topic-${index}`,
@@ -77,9 +95,11 @@ async function readRequestBody(req) {
   if (req.body) {
     if (Buffer.isBuffer(req.body)) return req.body;
     if (req.body instanceof Uint8Array) return Buffer.from(req.body);
-    if (typeof req.body === 'string') return Buffer.from(req.body);
+    // Preserve bytes when a runtime exposes the raw body as a string (e.g. binary-as-latin1).
+    if (typeof req.body === 'string') return Buffer.from(req.body, 'latin1');
     if (req.body instanceof ArrayBuffer) return Buffer.from(req.body);
     if (Array.isArray(req.body)) return Buffer.from(req.body);
+    // Plain objects (e.g. parsed JSON) are not raw audio — read the stream.
   }
 
   const chunks = [];
@@ -91,13 +111,18 @@ async function readRequestBody(req) {
   return Buffer.concat(chunks);
 }
 
+function primaryMimeType(headerValue) {
+  const raw = String(headerValue || '');
+  return raw.split(';')[0].trim().toLowerCase();
+}
+
 async function readAudioPayload(req) {
-  const contentType = req.headers['content-type'] || '';
+  const contentType = primaryMimeType(req.headers['content-type']);
 
   if (contentType.includes('application/json')) {
     const json = await readJsonBody(req);
     const audioBase64 = typeof json.audioBase64 === 'string' ? json.audioBase64 : '';
-    const mimeType = typeof json.mimeType === 'string' && json.mimeType ? json.mimeType : 'audio/webm';
+    const mimeType = primaryMimeType(typeof json.mimeType === 'string' && json.mimeType ? json.mimeType : 'audio/webm');
 
     return {
       contentType: mimeType,
@@ -121,6 +146,84 @@ async function readJsonBody(req) {
   return JSON.parse(raw.toString('utf8') || '{}');
 }
 
+/**
+ * If the model collapses a long memo to one segment, split by sentences or even word buckets
+ * so the client always gets multiple topic cards when the memo is clearly long-form.
+ */
+function maybeBoostMultiTopicSegments(segments, transcript, durationMs, wordTimestamps) {
+  const t = normalizeWhitespace(transcript);
+  const wc = t.split(/\s+/).filter(Boolean).length;
+
+  if (!Array.isArray(segments) || segments.length === 0) {
+    const split = heuristicSplitMemo(t, durationMs, wordTimestamps);
+    if (split && split.length > 1) return split;
+    return segments;
+  }
+
+  if (segments.length !== 1 || wc < 12 || durationMs < 2500) {
+    return segments;
+  }
+  const split = heuristicSplitMemo(t, durationMs, wordTimestamps);
+  if (split && split.length > 1) return split;
+  return segments;
+}
+
+function heuristicSplitMemo(transcript, durationMs, wordTimestamps = []) {
+  const text = normalizeWhitespace(transcript);
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 12 || durationMs < 2500) return null;
+
+  let pieces = [];
+
+  const bySentence = text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => normalizeWhitespace(s))
+    .filter(s => s.length > 8);
+  if (bySentence.length >= 2 && bySentence.length <= 5) {
+    pieces = bySentence;
+  } else {
+    const numParts = Math.min(4, Math.max(2, Math.ceil(words.length / 34)));
+    const counts = [];
+    let base = Math.floor(words.length / numParts);
+    let rem = words.length % numParts;
+    for (let i = 0; i < numParts; i++) {
+      counts.push(base + (rem > 0 ? 1 : 0));
+      if (rem > 0) rem -= 1;
+    }
+    let o = 0;
+    for (const c of counts) {
+      const chunk = words.slice(o, o + c).join(' ');
+      o += c;
+      if (chunk) pieces.push(chunk);
+    }
+  }
+
+  if (pieces.length < 2) return null;
+
+  const normalizedWords = normalizeWordTimestamps(wordTimestamps);
+  const aligned =
+    normalizedWords.length >= Math.min(12, Math.floor(words.length * 0.45))
+      ? alignSegmentBoundariesFromWords(pieces, normalizedWords, durationMs)
+      : [];
+  const durationBoundaries =
+    aligned.length === pieces.length ? aligned : computeSegmentBoundaries(pieces, durationMs);
+  if (!durationBoundaries.length || durationBoundaries.length !== pieces.length) return null;
+
+  return pieces.map((segmentTranscript, index) => {
+    const startMs = durationBoundaries[index]?.start_ms ?? 0;
+    const endMs = durationBoundaries[index]?.end_ms ?? durationMs;
+    const labelWords = normalizeWhitespace(segmentTranscript).split(/\s+/).filter(Boolean).slice(0, 4);
+    return {
+      label: labelWords.length ? labelWords.join(' ') : `Topic ${index + 1}`,
+      excerpt: clipExcerpt(segmentTranscript),
+      transcript: segmentTranscript,
+      start_ms: Math.max(0, startMs),
+      end_ms: Math.max(Math.max(0, startMs), endMs),
+      assigned_thread_id: null,
+    };
+  });
+}
+
 function readThreadContext(encoded) {
   if (!encoded || typeof encoded !== 'string') return [];
 
@@ -133,28 +236,143 @@ function readThreadContext(encoded) {
   }
 }
 
+/** Chat models sometimes wrap JSON in markdown fences or prefix text — extract object for segmentation. */
+function parseJsonObjectFromAssistantContent(raw) {
+  if (typeof raw !== 'string') return null;
+  let s = raw.trim();
+  const fenced = s.match(/^```(?:json)?\s*\r?\n?([\s\S]*?)\r?\n?```\s*$/i);
+  if (fenced) s = fenced[1].trim();
+
+  try {
+    return JSON.parse(s);
+  } catch {
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      return JSON.parse(s.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Chat / Responses-style payloads may use string or [{type,text}] content. */
+function extractChatCompletionContent(message) {
+  if (!message) return '';
+  const c = message.content;
+  if (typeof c === 'string') return c.trim();
+  if (Array.isArray(c)) {
+    const parts = c
+      .map(part => {
+        if (!part || typeof part !== 'object') return '';
+        if (part.type === 'text' || part.type === 'output_text') return String(part.text || '').trim();
+        if (typeof part.text === 'string') return part.text.trim();
+        return '';
+      })
+      .filter(Boolean);
+    return parts.join('\n').trim();
+  }
+  return '';
+}
+
+function pickSegmentsArray(parsed) {
+  if (!parsed || typeof parsed !== 'object') return [];
+  const keys = ['segments', 'topics', 'topic_segments', 'TopicSegments'];
+  for (const k of keys) {
+    const v = parsed[k];
+    if (Array.isArray(v) && v.length) return v;
+  }
+  const data = parsed.data;
+  if (data && typeof data === 'object' && Array.isArray(data.segments) && data.segments.length) {
+    return data.segments;
+  }
+  if (Array.isArray(parsed.items) && parsed.items.length) return parsed.items;
+  return [];
+}
+
+/**
+ * When rebuildSegmentTranscripts fails (model paraphrased segment text vs verbatim memo),
+ * split the full transcript into ordered slices so we still ship multiple topic rows.
+ */
+function approximateTranscriptSlicesFromFullText(trimmedSegments, fullText) {
+  const full = normalizeWhitespace(fullText);
+  if (!full || !Array.isArray(trimmedSegments) || trimmedSegments.length < 2) return null;
+  const n = trimmedSegments.length;
+  const weights = trimmedSegments.map(seg => {
+    const t = normalizeWhitespace(String(seg?.transcript || seg?.excerpt || ''));
+    return Math.max(t.length, 1);
+  });
+  const total = weights.reduce((sum, w) => sum + w, 0) || 1;
+  const chars = full.length;
+  const out = [];
+  let offset = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (i === n - 1) {
+      out.push(normalizeWhitespace(full.slice(offset)));
+      continue;
+    }
+    const share = weights[i] / total;
+    const take = Math.max(1, Math.round(chars * share));
+    out.push(normalizeWhitespace(full.slice(offset, offset + take)));
+    offset += take;
+  }
+  return out.length === n ? out : null;
+}
+
 async function transcribeAudio(buffer, contentType) {
-  const [textResult, timestampResult] = await Promise.all([
-    transcribeText(buffer, contentType),
-    transcribeWordTimestamps(buffer, contentType).catch(error => {
-      console.warn('[yAp] timestamp transcription fallback failed:', error);
-      return { words: [] };
-    }),
-  ]);
+  const wordsPromise = transcribeWordTimestamps(buffer, contentType).catch(error => {
+    console.warn('[yAp] timestamp transcription fallback failed:', error);
+    return { words: [] };
+  });
+
+  const models = [DEFAULT_TRANSCRIBE_MODEL, FALLBACK_TRANSCRIBE_MODEL].filter(
+    (model, index, arr) => model && arr.indexOf(model) === index
+  );
+
+  let textResult = { text: '' };
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      textResult = await transcribeText(buffer, contentType, model);
+      if (normalizeWhitespace(textResult?.text || '')) {
+        break;
+      }
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[yAp] transcribeText failed (${model}):`, message);
+    }
+  }
+
+  const transcriptText = normalizeWhitespace(textResult?.text || '');
+  if (!transcriptText && lastError) {
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  const timestampResult = await wordsPromise;
 
   return {
-    text: normalizeWhitespace(textResult?.text || ''),
+    text: transcriptText,
     words: Array.isArray(timestampResult?.words) ? timestampResult.words : [],
   };
 }
 
-async function transcribeText(buffer, contentType) {
+async function transcribeText(buffer, contentType, modelName = DEFAULT_TRANSCRIBE_MODEL) {
   const form = new FormData();
   const extension = contentType.includes('mp4') ? 'mp4' : 'webm';
   const blob = new Blob([buffer], { type: contentType });
 
   form.append('file', blob, `recording.${extension}`);
-  form.append('model', DEFAULT_TRANSCRIBE_MODEL);
+  form.append('model', modelName);
+  const lower = String(modelName || '').toLowerCase();
+  if (lower.includes('whisper')) {
+    form.append('response_format', 'json');
+  } else {
+    /* gpt-4o-transcribe and similar return JSON with a `text` field */
+    form.append('response_format', 'json');
+  }
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -218,20 +436,14 @@ Interpretation rules for the thread metadata:
 For each segment, set "assigned_thread_id" to one of the existing ids only when it is clearly the same ongoing topic. Otherwise return null.`
     : 'There are no existing topic threads yet. Use null for every "assigned_thread_id".';
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: DEFAULT_SEGMENT_MODEL,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: `You segment voice memo transcripts into topic units for a chat app.
+  const segmentModels = [DEFAULT_SEGMENT_MODEL, FALLBACK_SEGMENT_MODEL].filter(
+    (model, index, arr) => model && arr.indexOf(model) === index
+  );
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You segment voice memo transcripts into topic units for a chat app.
 Return JSON: {"segments":[...]}.
 
 Each segment must include:
@@ -250,9 +462,10 @@ Rules:
 - split only when the speaker clearly changes subject, starts a new plan/request/story, or directly pivots into a different reply target
 - keep segments contiguous and ordered
 - cover the full transcript
-- max 4 segments
+- max 6 segments
 - do not invent content not present in the transcript
-- if the memo stays on one topic, return one segment
+- if the memo is short (under ~12 words or under ~4 seconds of speech), one segment is fine
+- for longer memos: return multiple segments whenever there are separate ideas, stories, plans, questions, tone shifts, or implied paragraph breaks — do not merge unrelated content into one segment just because the speaker did not pause
 - every segment transcript must be a verbatim contiguous span from the original transcript, with no paraphrasing or cleanup
 - excerpt should sound like real language from the memo, not a title
 - use continuity context: a follow-up memo often responds to recently heard or currently unheard friend replies
@@ -261,37 +474,87 @@ Rules:
 - total duration is ${durationMs}ms
 
 ${threadContextBlock}`,
-        },
-        { role: 'user', content: normalizedTranscript },
-      ],
-    }),
-  });
+    },
+    { role: 'user', content: normalizedTranscript },
+  ];
 
-  if (!response.ok) {
-    throw new Error(`Segmentation failed (${response.status}): ${await response.text()}`);
+  for (const model of segmentModels) {
+    for (const useJsonObject of [true, false]) {
+      try {
+        const requestBody = {
+          model,
+          temperature: 0.2,
+          max_tokens: 4096,
+          messages,
+        };
+        if (useJsonObject) {
+          requestBody.response_format = { type: 'json_object' };
+        }
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const detail = await response.text();
+          if (useJsonObject && response.status === 400 && /response_format|json_object|json mode/i.test(detail)) {
+            console.warn(`[yAp] segmentation json_object rejected (${model}); retrying without response_format`);
+            continue;
+          }
+          console.warn(`[yAp] segmentation HTTP ${response.status} (${model}):`, detail.slice(0, 500));
+          break;
+        }
+
+        const json = await response.json();
+        const message = json?.choices?.[0]?.message;
+        const content = extractChatCompletionContent(message);
+
+        if (!content.trim()) {
+          const finish = json?.choices?.[0]?.finish_reason;
+          console.warn(`[yAp] segmentation empty assistant content (${model}) finish_reason=${finish || 'unknown'}`);
+          break;
+        }
+
+        const parsed = parseJsonObjectFromAssistantContent(content);
+        if (!parsed) {
+          console.warn(`[yAp] segmentation invalid JSON from model (${model})`, content.slice(0, 240));
+          break;
+        }
+
+        const rawSegments = pickSegmentsArray(parsed);
+        if (!rawSegments.length) {
+          console.warn(`[yAp] segmentation parsed JSON but no segments/topics array (${model})`, Object.keys(parsed));
+          break;
+        }
+
+        return normalizeSegments(rawSegments, normalizedTranscript, durationMs, threadContext, wordTimestamps);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[yAp] segmentation request failed (${model}):`, message);
+        break;
+      }
+    }
   }
 
-  const json = await response.json();
-  const content = json?.choices?.[0]?.message?.content;
-
-  try {
-    const parsed = JSON.parse(content);
-    const segments = Array.isArray(parsed?.segments) ? parsed.segments : [];
-    return normalizeSegments(segments, normalizedTranscript, durationMs, threadContext, wordTimestamps);
-  } catch {
-    return normalizeSegments([], normalizedTranscript, durationMs, threadContext, wordTimestamps);
-  }
+  console.warn('[yAp] segmentation: all models failed; using single-topic fallback');
+  return normalizeSegments([], normalizedTranscript, durationMs, threadContext, wordTimestamps);
 }
 
 function normalizeSegments(segments, transcript, durationMs, threadContext, wordTimestamps = []) {
   const validThreadIds = new Set(threadContext.map(thread => thread.id));
   const normalizedTranscript = normalizeWhitespace(transcript);
-  const trimmedSegments = Array.isArray(segments) ? segments.slice(0, 4) : [];
+  const trimmedSegments = Array.isArray(segments) ? segments.slice(0, 6) : [];
 
   if (!trimmedSegments.length) {
+    const label = labelHeadFromTranscript(normalizedTranscript, 5);
     return [
       {
-        label: 'voice memo',
+        label,
         excerpt: clipExcerpt(normalizedTranscript),
         transcript: normalizedTranscript,
         start_ms: 0,
@@ -301,7 +564,13 @@ function normalizeSegments(segments, transcript, durationMs, threadContext, word
     ];
   }
 
-  const reconstructedTranscripts = rebuildSegmentTranscripts(trimmedSegments, normalizedTranscript);
+  let reconstructedTranscripts = rebuildSegmentTranscripts(trimmedSegments, normalizedTranscript);
+  if (!reconstructedTranscripts && trimmedSegments.length > 1) {
+    reconstructedTranscripts = approximateTranscriptSlicesFromFullText(trimmedSegments, normalizedTranscript);
+    if (reconstructedTranscripts) {
+      console.warn('[yAp] segmentation: anchor rebuild failed; using length-weighted full-text split for multi-topic');
+    }
+  }
   const segmentTexts = reconstructedTranscripts || trimmedSegments.map(segment => normalizeWhitespace(segment?.transcript || ''));
   const alignedBoundaries = alignSegmentBoundariesFromWords(segmentTexts, wordTimestamps, durationMs);
   const durationBoundaries = alignedBoundaries.length
@@ -338,6 +607,12 @@ function normalizeSegments(segments, transcript, durationMs, threadContext, word
   });
 }
 
+function labelHeadFromTranscript(text, maxWords = 5) {
+  const words = normalizeWhitespace(text).split(/\s+/).filter(Boolean);
+  if (!words.length) return 'Voice memo';
+  return words.slice(0, Math.min(maxWords, words.length)).join(' ');
+}
+
 function clipExcerpt(text) {
   const words = normalizeWhitespace(text).split(/\s+/).filter(Boolean);
   if (!words.length) return '';
@@ -353,11 +628,28 @@ function leadingWords(text, count = 8) {
   return words.slice(0, count).join(' ');
 }
 
-function findAnchorIndex(transcript, anchor, fromIndex = 0) {
-  const source = normalizeWhitespace(transcript).toLowerCase();
-  const needle = normalizeWhitespace(anchor).toLowerCase();
-  if (!source || !needle) return -1;
-  return source.indexOf(needle, Math.max(0, fromIndex));
+/** Try progressively shorter prefixes so model paraphrase at segment start does not collapse multi-segment output. */
+function findBestSegmentBoundary(source, cursor, segment) {
+  const src = normalizeWhitespace(source).toLowerCase();
+  const from = Math.max(0, cursor);
+  const attempts = [];
+  if (segment?.start_anchor) attempts.push(segment.start_anchor);
+  for (let n = 10; n >= 2; n -= 1) {
+    attempts.push(leadingWords(segment?.transcript, n));
+    attempts.push(leadingWords(segment?.excerpt, n));
+  }
+  const seen = new Set();
+  for (const raw of attempts) {
+    const needle = normalizeWhitespace(raw).toLowerCase();
+    if (needle.length < 4) continue;
+    if (seen.has(needle)) continue;
+    seen.add(needle);
+    const boundary = src.indexOf(needle, from);
+    if (boundary === -1) continue;
+    if (from === 0 && boundary === 0) continue;
+    if (boundary >= from) return boundary;
+  }
+  return -1;
 }
 
 function rebuildSegmentTranscripts(segments, transcript) {
@@ -370,19 +662,11 @@ function rebuildSegmentTranscripts(segments, transcript) {
 
   for (let index = 1; index < segments.length; index++) {
     const segment = segments[index] || {};
-    const candidates = [
-      segment.start_anchor,
-      leadingWords(segment.transcript, 8),
-      leadingWords(segment.excerpt, 8),
-    ].filter(Boolean);
+    const boundary = findBestSegmentBoundary(source, cursor, segment);
 
-    let boundary = -1;
-    for (const candidate of candidates) {
-      boundary = findAnchorIndex(source, candidate, cursor);
-      if (boundary > cursor) break;
-    }
-
-    if (boundary <= cursor) return null;
+    if (boundary < 0) return null;
+    if (index === 1 && boundary <= 0) return null;
+    if (index > 1 && boundary < cursor) return null;
 
     boundaries.push(boundary);
     cursor = boundary;

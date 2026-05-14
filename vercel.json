@@ -4,7 +4,7 @@
   "outputDirectory": ".",
   "public": true,
   "buildCommand": "echo 'Static site - no build needed'",
-  "devCommand": "npx http-server",
+  "devCommand": "npx http-server . -p $PORT -c-1",
   "headers": [
     {
       "source": "/(.*)",
@@ -27,5 +27,10 @@
       "path": "/api/process-notification-jobs",
       "schedule": "0 0 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/process-audio.js": {
+      "maxDuration": 60
+    }
+  }
 }

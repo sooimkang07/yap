@@ -6,14 +6,20 @@
   overflow: hidden;
   border-radius: inherit;
   background:
-    radial-gradient(circle at 18% 40%, rgba(255, 180, 92, 0.08) 0%, rgba(255, 180, 92, 0) 24%),
-    radial-gradient(circle at 34% 70%, rgba(236, 143, 255, 0.08) 0%, rgba(236, 143, 255, 0) 22%),
-    radial-gradient(circle at 82% 42%, rgba(104, 227, 255, 0.07) 0%, rgba(104, 227, 255, 0) 24%),
-    linear-gradient(180deg, rgba(248, 250, 255, 0.82) 0%, rgba(242, 243, 248, 0.58) 100%);
+    radial-gradient(circle at 18% 40%, rgba(184, 216, 255, 0.12) 0%, rgba(184, 216, 255, 0) 26%),
+    radial-gradient(circle at 34% 70%, rgba(222, 192, 248, 0.1) 0%, rgba(222, 192, 248, 0) 24%),
+    radial-gradient(circle at 82% 42%, rgba(223, 255, 184, 0.08) 0%, rgba(223, 255, 184, 0) 26%),
+    linear-gradient(180deg, rgba(248, 250, 255, 0.88) 0%, rgba(242, 246, 252, 0.62) 100%);
 }
 
 .voice-visualizer--embedded {
   min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border-radius: 0;
 }
@@ -50,12 +56,21 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .voice-visualizer-fallback,
 .voice-visualizer-react-root {
-  position: absolute;
-  inset: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .voice-visualizer-fallback {
@@ -73,4 +88,154 @@
   z-index: 2;
   opacity: 0;
   pointer-events: none;
+}
+
+.voice-visualizer-mount .vv-prism-mount {
+  flex: 0 1 auto;
+  width: 100%;
+  max-width: 40rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Recording: four neon threads only (horizontal wavelengths, no hub / incoming) ── */
+.voice-visualizer__prism-host {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.voice-visualizer-mount .vv-prism--waves-only {
+  --vv-neon-mul: 1;
+  --vv-ambient-a: 0.58;
+  isolation: isolate;
+}
+
+.voice-visualizer-mount .vv-prism {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  margin-inline: auto;
+  transform: scale(1.02);
+  transform-origin: center center;
+}
+
+/* Same four-corner color wash as `.analysis-prism::before` (analysis-visual-field prism). */
+.voice-visualizer-mount .vv-prism--waves-only::before {
+  content: '';
+  position: absolute;
+  inset: -12% -14% -8%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 58% 48% at 22% 32%, rgba(184, 216, 255, 0.42) 0%, transparent 65%),
+    radial-gradient(ellipse 52% 44% at 82% 26%, rgba(222, 192, 248, 0.34) 0%, transparent 62%),
+    radial-gradient(ellipse 48% 46% at 78% 74%, rgba(255, 222, 184, 0.26) 0%, transparent 58%),
+    radial-gradient(ellipse 44% 40% at 24% 76%, rgba(223, 255, 184, 0.2) 0%, transparent 55%);
+  filter: blur(1.75rem);
+  opacity: min(0.92, calc(0.48 + var(--vv-ambient-a, 0.58) * 0.38));
+}
+
+.voice-visualizer-mount .vv-prism__svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-width: min(100%, 40rem);
+  max-height: 100%;
+  margin-inline: auto;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 0 0.45rem rgba(255, 255, 255, 0.42));
+}
+
+/* Match `.analysis-prism__svg` lift on the whole graphic. */
+.voice-visualizer-mount .vv-prism--waves-only .vv-prism__svg {
+  filter: drop-shadow(0 0 0.55rem rgba(255, 255, 255, 0.55));
+}
+
+.voice-visualizer-mount .vv-prism__branch {
+  opacity: 1;
+}
+
+/* Hub stubs re-draw the wave start with a lighter filter vs main ribbon (double stroke); hide for recording. */
+.voice-visualizer-mount .vv-prism--waves-only .vv-prism__branch-hub {
+  display: none;
+}
+
+.voice-visualizer-mount .vv-prism__branch-hub {
+  opacity: 1;
+  pointer-events: none;
+}
+
+.voice-visualizer-mount .vv-prism__branch-hub--a {
+  filter:
+    drop-shadow(0 0 calc(0.28rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.5))
+    drop-shadow(0 0 calc(0.52rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.28))
+    drop-shadow(0 0 calc(0.85rem * var(--vv-neon-mul, 1)) rgba(184, 216, 255, 0.16));
+}
+
+.voice-visualizer-mount .vv-prism__branch-hub--b {
+  filter:
+    drop-shadow(0 0 calc(0.28rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.48))
+    drop-shadow(0 0 calc(0.52rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.26))
+    drop-shadow(0 0 calc(0.85rem * var(--vv-neon-mul, 1)) rgba(222, 192, 248, 0.14));
+}
+
+.voice-visualizer-mount .vv-prism__branch-hub--c {
+  filter:
+    drop-shadow(0 0 calc(0.28rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.48))
+    drop-shadow(0 0 calc(0.52rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.26))
+    drop-shadow(0 0 calc(0.85rem * var(--vv-neon-mul, 1)) rgba(255, 222, 184, 0.15));
+}
+
+.voice-visualizer-mount .vv-prism__branch-hub--d {
+  filter:
+    drop-shadow(0 0 calc(0.28rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.46))
+    drop-shadow(0 0 calc(0.52rem * var(--vv-neon-mul, 1)) rgba(255, 255, 255, 0.25))
+    drop-shadow(0 0 calc(0.85rem * var(--vv-neon-mul, 1)) rgba(223, 255, 184, 0.14));
+}
+
+/* Same stack as `.analysis-prism__branch--*`; radii scale with `--vv-neon-mul` for mic-driven bloom. */
+.voice-visualizer-mount .vv-prism__branch--a {
+  filter:
+    drop-shadow(0 0 calc(0.22rem * var(--vv-neon-mul, 1)) rgba(184, 216, 255, 0.95))
+    drop-shadow(0 0 calc(0.55rem * var(--vv-neon-mul, 1)) rgba(184, 216, 255, 0.78))
+    drop-shadow(0 0 calc(1.15rem * var(--vv-neon-mul, 1)) rgba(184, 216, 255, 0.55))
+    drop-shadow(0 0 calc(2.1rem * var(--vv-neon-mul, 1)) rgba(184, 216, 255, 0.32));
+}
+
+.voice-visualizer-mount .vv-prism__branch--b {
+  filter:
+    drop-shadow(0 0 calc(0.22rem * var(--vv-neon-mul, 1)) rgba(222, 192, 248, 0.92))
+    drop-shadow(0 0 calc(0.55rem * var(--vv-neon-mul, 1)) rgba(222, 192, 248, 0.74))
+    drop-shadow(0 0 calc(1.1rem * var(--vv-neon-mul, 1)) rgba(222, 192, 248, 0.52))
+    drop-shadow(0 0 calc(2rem * var(--vv-neon-mul, 1)) rgba(222, 192, 248, 0.3));
+}
+
+.voice-visualizer-mount .vv-prism__branch--c {
+  filter:
+    drop-shadow(0 0 calc(0.22rem * var(--vv-neon-mul, 1)) rgba(255, 222, 184, 0.94))
+    drop-shadow(0 0 calc(0.55rem * var(--vv-neon-mul, 1)) rgba(255, 222, 184, 0.76))
+    drop-shadow(0 0 calc(1.1rem * var(--vv-neon-mul, 1)) rgba(255, 222, 184, 0.52))
+    drop-shadow(0 0 calc(2rem * var(--vv-neon-mul, 1)) rgba(255, 222, 184, 0.3));
+}
+
+.voice-visualizer-mount .vv-prism__branch--d {
+  filter:
+    drop-shadow(0 0 calc(0.22rem * var(--vv-neon-mul, 1)) rgba(223, 255, 184, 0.92))
+    drop-shadow(0 0 calc(0.55rem * var(--vv-neon-mul, 1)) rgba(223, 255, 184, 0.72))
+    drop-shadow(0 0 calc(1.05rem * var(--vv-neon-mul, 1)) rgba(223, 255, 184, 0.5))
+    drop-shadow(0 0 calc(1.95rem * var(--vv-neon-mul, 1)) rgba(223, 255, 184, 0.28));
 }

@@ -1,27 +1,24 @@
+import { applyPrismWaveFrame, smoothstep01 } from '../core/prism-paths.js';
+
 // ═══════════════════════════════════════════════════════
 // yAp — AnalysisModal
 // Apple-style transition while AI breaks a memo into topics
 // ═══════════════════════════════════════════════════════
 //
-// Analysis visual iterations (canvas in .analysis-waveform-canvas)
+// Analysis visual — `.analysis-prism` (SVG + disc) only while `data-phase='loading'`.
 // ─────────────────────────────────────────────────────────
-// v0 — CSS: 3D orbital ribbons + wave rings (still in index.html; hidden via CSS).
-// v1 — Canvas: symmetric “Siri-like” vertical blob waveform + center line
-//      (kept as _drawSymmetricBlobWaveform).
-// v2 — Canvas: “segmenting” — one continuous mount.js ribbon (2× amplitude) merged left of the
-//      viewport-centered split, smoothstep fan into four threads to the right; hub is .analysis-core in DOM.
-//      Current mode: set ANALYSIS_VISUAL_MODE below ('segmenting' | 'symmetric-blob').
-//
+// `data-phase='segments'` hides `.analysis-visual-field` in CSS (Topics Ready / topic list).
+// Legacy: ANALYSIS_VISUAL_MODE + _drawSegmentingWaveVisual for non-phase callers.
 const ANALYSIS_VISUAL_MODE = 'segmenting';
-// Legacy orbital ribbons (CSS-only). Keep off so the newest canvas visual reads clearly.
+// Legacy orbital ribbons (CSS-only). Keep off so the prism visual reads clearly.
 const ANALYSIS_SHOW_ORBITAL_RIBBONS = false;
 // Debug: prove the canvas draw loop is running (small non-UI heartbeat).
 const ANALYSIS_DEBUG_DRAW_LOOP = false;
 
 const ANALYSIS_COPY = {
   idleLabel: 'Analyzing',
-  idleTitle: 'Breaking your yap into topics',
-  idleStatus: 'Unraveling the plot',
+  idleTitle: 'Breaking your memo into topics',
+  idleStatus: 'Sorting the voice dump',
 };
 
 const ANALYSIS_STATUS_STEPS = [
@@ -37,9 +34,8 @@ const ANALYSIS_STATUS_STEP_MS = 3400;
 const ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING = false;
 
 /**
- * Same wave stack as `components/voice-visualizer/mount.js` (canvas fallback
- * `sampleRibbonPoints`): swell + ripple + shimmer, with phase driven by
- * accumulated milliseconds `motionTimeMs` and per-ribbon frequency/speed.
+ * Same ribbon math as the recording prism (`js/core/prism-paths.js` + legacy
+ * canvas thread stack): swell + ripple + shimmer, phase from `motionTimeMs`.
  */
 function mountRibbonYDelta(u, motionTimeMs, cfg, audio, heightScale) {
   const {
@@ -84,11 +80,6 @@ const ANALYSIS_WAVE_SCROLL_MULT = 0.38;
 const ANALYSIS_SPLIT_ANGULAR_MS = 0.00009;
 /** Vertical motion + fan spread multiplier vs default mount ribbon scale. */
 const ANALYSIS_WAVE_AMPLITUDE_MULT = 2;
-
-function smoothstep01(t) {
-  const x = Math.max(0, Math.min(1, t));
-  return x * x * (3 - 2 * x);
-}
 
 /**
  * Horizontal center of the device viewport in client (CSS) pixels — same space as
@@ -178,6 +169,8 @@ const AnalysisModal = {
   _debugLoggedStart: false,
   _debugLoggedPreviewTick: false,
   _debugLoggedAudioTick: false,
+  /** Cached `#analysis-prism-*` path elements; cleared on `close`. */
+  _prismPathCache: null,
 
   _setAnalysisStatusStrip(text, showDots = true) {
     const line = DOM.analysisStatusLine;
@@ -229,6 +222,7 @@ const AnalysisModal = {
     DOM.analysisOverlay.classList.remove('visible');
     DOM.analysisOverlay.setAttribute('aria-hidden', 'true');
     DOM.analysisOverlay.dataset.phase = 'idle';
+    this._invalidatePrismPathCache();
   },
 
   animateSegments(segments, onComplete) {
@@ -238,7 +232,7 @@ const AnalysisModal = {
     container.innerHTML = '';
     DOM.analysisOverlay.dataset.phase = ANALYSIS_DEBUG_KEEP_VISUAL_PLAYING ? 'loading' : 'segments';
     DOM.analysisLabel.textContent = 'Topics Ready';
-    DOM.analysisTitle.textContent = 'Here’s how yAp is shaping the thread';
+    DOM.analysisTitle.textContent = 'Here’s how yap is shaping the thread';
     this._setAnalysisStatusStrip(`${segments.length || 0} topic${segments.length === 1 ? '' : 's'} detected`, false);
 
     const barEls = segments.map((seg, index) => {
@@ -318,6 +312,35 @@ const AnalysisModal = {
     if (!el) return;
     el.style.setProperty('--analysis-level', '0.32');
     el.style.setProperty('--analysis-glow-mul', '1');
+  },
+
+  _invalidatePrismPathCache() {
+    this._prismPathCache = null;
+  },
+
+  _updatePrismWavePaths(bands, tSec) {
+    const root = DOM.analysisOverlay;
+    if (!root) return;
+    if (!this._prismPathCache) {
+      const svg = root.querySelector('.analysis-prism__svg');
+      const incoming = root.querySelector('#analysis-prism-incoming');
+      const incomingTip = root.querySelector('#analysis-prism-incoming-tip');
+      const branches = [
+        root.querySelector('#analysis-prism-branch-0'),
+        root.querySelector('#analysis-prism-branch-1'),
+        root.querySelector('#analysis-prism-branch-2'),
+        root.querySelector('#analysis-prism-branch-3'),
+      ];
+      const branchHubs = [
+        root.querySelector('#analysis-prism-branch-0-hub'),
+        root.querySelector('#analysis-prism-branch-1-hub'),
+        root.querySelector('#analysis-prism-branch-2-hub'),
+        root.querySelector('#analysis-prism-branch-3-hub'),
+      ];
+      if (!svg || !incoming || !incomingTip || branches.some(el => !el) || branchHubs.some(el => !el)) return;
+      this._prismPathCache = { svg, incoming, incomingTip, branches, branchHubs };
+    }
+    applyPrismWaveFrame(this._prismPathCache, bands, tSec, 'analysis-prism');
   },
 
   _stepVizAudioFromBands(bands) {
@@ -445,7 +468,7 @@ const AnalysisModal = {
           master: fake,
         };
         const field = DOM.analysisVisualField;
-        if (field) {
+        if (field && phase === 'loading') {
           const L = Math.min(1, Math.max(0.1, fakeGlow));
           field.style.setProperty('--analysis-level', L.toFixed(4));
           field.style.setProperty('--analysis-glow-mul', (0.9 + L * 0.22).toFixed(4));
@@ -482,6 +505,22 @@ const AnalysisModal = {
   },
 
   _drawAnalysisVisual(bands, previewElapsedSec = null) {
+    const phase = DOM.analysisOverlay?.dataset?.phase;
+    if (phase === 'loading' || phase === 'segments') {
+      const ctx = this._ctx2d;
+      const cw = this._canvasW;
+      const ch = this._canvasH;
+      if (ctx && cw && ch) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, cw, ch);
+      }
+      if (phase === 'loading') {
+        const b = bands || { bass: 0.3, mids: 0.35, treble: 0.3, master: 0.32 };
+        const tSec = previewElapsedSec != null ? previewElapsedSec : performance.now() / 1000;
+        this._updatePrismWavePaths(b, tSec);
+      }
+      return;
+    }
     if (ANALYSIS_VISUAL_MODE === 'symmetric-blob') {
       this._drawSymmetricBlobWaveform(bands);
     } else {
@@ -509,6 +548,22 @@ const AnalysisModal = {
     ctx.shadowBlur = 0;
 
     ctx.clearRect(0, 0, w, h);
+
+    const dpr = this._canvasDpr || 1;
+
+    // Soft glass disc (after.png): luminous center behind ribbons — drawn here so prism can stay hidden in loading.
+    const discRx = Math.min(w, h) * 0.38;
+    const discRy = discRx * 0.82;
+    const discCy = cy * 0.94;
+    const discG = ctx.createRadialGradient(cx, discCy, 0, cx, discCy, discRx * 1.05);
+    discG.addColorStop(0, 'rgba(255, 255, 255, 0.58)');
+    discG.addColorStop(0.42, 'rgba(255, 252, 248, 0.22)');
+    discG.addColorStop(0.72, 'rgba(230, 244, 255, 0.08)');
+    discG.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = discG;
+    ctx.beginPath();
+    ctx.ellipse(cx, discCy, discRx * 0.88, discRy * 0.72, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     // Background subtle vignette (keeps center brighter like reference)
     const bg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.05, cx, cy, Math.min(w, h) * 0.62);
@@ -596,34 +651,62 @@ const AnalysisModal = {
     ctx.fill();
     ctx.restore();
 
-    // Dark center “void” hint
+    // Airy center pulse (after.png — no dark void)
     ctx.save();
-    const voidW = (w * 0.07) * (0.55 + (1 - level) * 0.7);
-    const voidH = (h * 0.46) * (0.55 + level * 0.65);
-    const voidG = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(voidW, voidH));
-    voidG.addColorStop(0, 'rgba(0,0,0,0.48)');
-    voidG.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = voidG;
-    ctx.filter = `blur(${(6 + level * 10) * this._canvasDpr}px)`;
+    const pulseR = Math.min(w, h) * (0.22 + level * 0.06);
+    const pulseG = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+    pulseG.addColorStop(0, 'rgba(255, 255, 255, 0.28)');
+    pulseG.addColorStop(0.55, 'rgba(244, 248, 255, 0.08)');
+    pulseG.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = pulseG;
+    ctx.filter = `blur(${(5 + level * 5) * dpr}px)`;
     ctx.beginPath();
-    ctx.ellipse(cx, cy, voidW, voidH, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, pulseR, pulseR * 0.72, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // Center line with glow (pink->blue)
+    // Primary white “spine” along upper wave (reads as the bright ribbon in after.png)
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
-    const lineGrad = ctx.createLinearGradient(0, 0, w, 0);
-    lineGrad.addColorStop(0, 'rgba(184, 216, 255, 0.82)');
-    lineGrad.addColorStop(0.33, 'rgba(222, 192, 248, 0.85)');
-    lineGrad.addColorStop(0.66, 'rgba(255, 222, 184, 0.82)');
-    lineGrad.addColorStop(1, 'rgba(223, 255, 184, 0.8)');
-    ctx.strokeStyle = lineGrad;
-    ctx.lineWidth = Math.max(1.2 * this._canvasDpr, 2.2 * this._canvasDpr);
-    ctx.filter = `blur(${(0.6 + level * 0.8) * this._canvasDpr}px)`;
     ctx.beginPath();
-    ctx.moveTo(0, cy);
-    ctx.lineTo(w, cy);
+    const step = Math.max(2 * dpr, 1.5);
+    for (let x = 0; x <= w; x += step) {
+      const nx = (x / w) * 2 - 1;
+      const y = yAt(nx);
+      const py = cy - y * ampMax * 0.74;
+      if (x === 0) ctx.moveTo(x, py);
+      else ctx.lineTo(x, py);
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.94)';
+    ctx.lineWidth = Math.max(2.75 * dpr, 3.2);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.65)';
+    ctx.shadowBlur = 14 * dpr;
+    ctx.filter = 'none';
+    ctx.stroke();
+    ctx.restore();
+
+    // Secondary colored spine (subtle trail under white)
+    ctx.save();
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += step) {
+      const nx = (x / w) * 2 - 1;
+      const y = yAt(nx);
+      const py = cy - y * ampMax * 0.74 + 5 * dpr;
+      if (x === 0) ctx.moveTo(x, py);
+      else ctx.lineTo(x, py);
+    }
+    const lineGrad = ctx.createLinearGradient(0, 0, w, 0);
+    lineGrad.addColorStop(0, 'rgba(184, 216, 255, 0.55)');
+    lineGrad.addColorStop(0.33, 'rgba(222, 192, 248, 0.5)');
+    lineGrad.addColorStop(0.66, 'rgba(255, 222, 184, 0.52)');
+    lineGrad.addColorStop(1, 'rgba(223, 255, 184, 0.5)');
+    ctx.strokeStyle = lineGrad;
+    ctx.lineWidth = Math.max(2 * dpr, 2.25);
+    ctx.shadowColor = 'rgba(184, 216, 255, 0.35)';
+    ctx.shadowBlur = 10 * dpr;
+    ctx.globalAlpha = 0.72;
     ctx.stroke();
     ctx.restore();
   },
@@ -825,7 +908,7 @@ const AnalysisModal = {
       };
 
       const field = DOM.analysisVisualField;
-      if (field) {
+      if (field && phase === 'loading') {
         const L = Math.min(1, Math.max(0.08, this._smoothedGlowLevel));
         field.style.setProperty('--analysis-level', L.toFixed(4));
         field.style.setProperty('--analysis-glow-mul', (0.88 + L * 0.28).toFixed(4));
@@ -890,3 +973,5 @@ function clipAnalysisError(message) {
   if (!normalized) return 'Something went wrong';
   return normalized.length > 92 ? `${normalized.slice(0, 89)}...` : normalized;
 }
+
+window.AnalysisModal = AnalysisModal;

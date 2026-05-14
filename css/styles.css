@@ -199,6 +199,15 @@ button {
   fill: none;
 }
 
+.glassNavButton:active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
 
 /* ── App Shell ────────────────────────────────────────── */
 #app {
@@ -207,7 +216,8 @@ button {
   left: 0;
   width: 100%;
   height: var(--app-height);
-  background: transparent;
+  /* Match page gradient so iOS PWA / home-indicator overscan never flashes flat white */
+  background: var(--screen-background);
   overflow: hidden;
 }
 
@@ -245,6 +255,14 @@ button {
   z-index: 3;
 }
 
+/* Fixed overlays live inside #screen-chat; when the list is active they must not steal taps (iOS). */
+#screen-chat:not(.active) #analysis-overlay.recording-overlay,
+#screen-chat:not(.active) #recording-overlay,
+#screen-chat:not(.active) #now-playing-overlay {
+  pointer-events: none !important;
+  visibility: hidden;
+}
+
 #screen-create-group.active,
 #screen-contacts-hub.active,
 #recording-overlay.active,
@@ -254,35 +272,6 @@ button {
 
 /* Utility */
 .hidden { display: none !important; }
-
-/* ═══════════════════════════════════════════════════════
-   SCREEN: SPLASH
-   ═══════════════════════════════════════════════════════ */
-#screen-splash {
-  display: grid;
-  place-items: center;
-}
-
-.splash-content {
-  text-align: center;
-  user-select: none;
-}
-
-.splash-logo {
-  display: block;
-  width: 10.75rem;
-  max-width: 100%;
-  height: auto;
-  margin-bottom: 0.875rem;
-}
-
-.splash-tagline {
-  font-size: 1.062rem;
-  font-weight: 400;
-  color: var(--text-secondary);
-  letter-spacing: -0.013rem;
-  text-align: center;
-}
 
 /* ═══════════════════════════════════════════════════════
    SCREEN: ENTRY FLOW
@@ -360,10 +349,6 @@ button {
   align-items: flex-start;
 }
 
-#screen-auth-phone .entry-screen__hero {
-  padding-top: 0;
-}
-
 #screen-auth-phone .entry-screen,
 #screen-auth-verify .entry-screen,
 #screen-profile-setup .entry-screen {
@@ -395,7 +380,7 @@ button {
 #screen-auth-phone .entry-screen__hero,
 #screen-auth-verify .entry-screen__hero,
 #screen-profile-setup .entry-screen__hero {
-  padding-top: clamp(0.25rem, 1.5vh, 1.125rem);
+  padding-top: clamp(0.5rem, 2.25vh, 1.375rem);
   gap: 0.625rem;
 }
 
@@ -415,7 +400,7 @@ button {
 }
 
 .entry-screen__logo {
-  width: clamp(8.25rem, 34vw, 10.75rem);
+  width: clamp(9.5rem, 40vw, 13rem);
   height: auto;
 }
 
@@ -427,6 +412,14 @@ button {
   letter-spacing: -0.06em;
   font-weight: 700;
   text-align: left;
+}
+
+@media (min-width: 390px) {
+  #screen-welcome .entry-screen__title {
+    font-size: clamp(2.45rem, 9vw, 3.95rem);
+    width: min(100%, 14ch);
+    max-width: 14ch;
+  }
 }
 
 .entry-screen__body,
@@ -794,19 +787,22 @@ button {
   padding: 0 var(--screen-gutter) 0.875rem;
   margin: 0 0 -0.875rem 0;
   opacity: 0;
-  height: 0;
+  /* height: 0 → auto does not interpolate reliably; clips content mid/after transition (esp. WebKit). */
+  max-height: 0;
   pointer-events: none;
   transition:
     opacity 220ms ease,
     margin 320ms cubic-bezier(0.32, 0.72, 0, 1),
-    height 320ms cubic-bezier(0.32, 0.72, 0, 1);
+    max-height 320ms cubic-bezier(0.32, 0.72, 0, 1);
   overflow: hidden;
 }
 
 .chats-search.is-open {
   opacity: 1;
-  height: auto;
+  /* Row + vertical padding + Dynamic Type / iOS search chrome; avoid max-height clip */
+  max-height: 18rem;
   margin: 0;
+  overflow: visible;
   pointer-events: auto;
 }
 
@@ -818,7 +814,7 @@ button {
 
 .chats-search__field {
   flex: 1 1 auto;
-  min-height: 2.625rem;
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -848,6 +844,8 @@ button {
   background: transparent;
   font: inherit;
   font-size: 0.98rem;
+  line-height: 1.3;
+  padding: 0.125rem 0;
   color: var(--text-primary);
   outline: none;
   appearance: none;
@@ -1218,6 +1216,12 @@ button {
   overscroll-behavior-y: contain;
   padding-top: var(--chats-header-reserved);
   scroll-padding-top: var(--chats-header-reserved);
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0rem));
+  scroll-padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0rem));
+}
+
+#screen-chats .chats-scroll .chats-search {
+  flex-shrink: 0;
 }
 
 #screen-chats .chats-scroll .chats-grid {
@@ -1242,6 +1246,7 @@ button {
 }
 
 .top-bar__title {
+  margin: 0;
   font-size: clamp(2rem, 7vw, 2.45rem);
   font-weight: 700;
   letter-spacing: -0.06em;
@@ -1458,8 +1463,8 @@ button {
 
 .chat-card__unread-alerts-icon {
   background-color: #d1d1d6;
-  -webkit-mask-image: url('../assets/hide-alerts-fill.svg');
-  mask-image: url('../assets/hide-alerts-fill.svg');
+  -webkit-mask-image: url('../assets/hide-alerts-fill.svg?v=20260514');
+  mask-image: url('../assets/hide-alerts-fill.svg?v=20260514');
   -webkit-mask-size: contain;
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;
@@ -1498,8 +1503,8 @@ button {
   background-color: #d1d1d6;
   transform: rotate(45deg);
   transform-origin: center;
-  -webkit-mask-image: url('../assets/pin-fill.svg');
-  mask-image: url('../assets/pin-fill.svg');
+  -webkit-mask-image: url('../assets/pin-full.svg');
+  mask-image: url('../assets/pin-full.svg');
   -webkit-mask-size: contain;
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;
@@ -1614,7 +1619,15 @@ button {
 .chat-member-pips {
   display: flex;
   justify-content: center;
-  gap: 0.25rem;
+  align-items: center;
+  min-height: 3.25rem;
+  line-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.chat-member-pips .chat-art-besties {
+  flex-shrink: 0;
 }
 
 .member-pip {
@@ -1833,13 +1846,44 @@ button {
   top: 20%;
   background: transparent;
   box-shadow: none;
-  animation: besties-float-dynamic 9s ease-in-out infinite;
   pointer-events: auto;
 }
 
-@keyframes besties-float-dynamic {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-20px); }
+#screen-chat .chat-empty .floating-avatar--dynamic {
+  animation: besties-float-photo-dynamic 5.25s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes besties-float-photo-dynamic {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  25% { transform: translate3d(0.22rem, -1.05rem, 0); }
+  50% { transform: translate3d(-0.18rem, -1.85rem, 0); }
+  75% { transform: translate3d(0.2rem, -0.95rem, 0); }
+}
+
+/* Single other member: center the stack; float animates the whole avatar (photo + label) */
+.chat-empty.is-single-member .floating-avatar--dynamic {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+}
+
+#screen-chat .chat-empty.is-single-member .floating-avatar--dynamic {
+  animation: besties-float-photo-dynamic-centered 5s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes besties-float-photo-dynamic-centered {
+  0%, 100% {
+    transform: translate(-50%, -50%) translate3d(0, 0, 0);
+  }
+  33% {
+    transform: translate(-50%, -50%) translate3d(0.2rem, -1.35rem, 0);
+  }
+  66% {
+    transform: translate(-50%, -50%) translate3d(-0.16rem, -2.1rem, 0);
+  }
 }
 
 .chat-footer {
@@ -1948,6 +1992,7 @@ button {
   left: 0;
   right: 0;
   height: 100%;
+  --np-title-slide: clamp(1.75rem, 14vw, 5.25rem);
   background: var(--screen-background);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   display: flex;
@@ -2012,6 +2057,7 @@ button {
 }
 
 /* Topic title */
+/* Topic title — swipe on topic change (see _setNowPlayingTopicTitle) */
 .now-playing-topic-title {
   text-align: center;
   font-size: 1.375rem;
@@ -2022,23 +2068,27 @@ button {
   flex-shrink: 0;
   min-height: calc(1.375rem * 1.2 + 0.5rem);
   will-change: transform, opacity;
+  transform: translateX(0);
+  opacity: 1;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 240ms ease;
 }
 
 .now-playing-topic-title.is-swiping-out {
   transform: translateX(var(--np-title-out-x, -100%));
   opacity: 0;
-  transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease;
 }
 
 .now-playing-topic-title.is-swiping-in {
   transform: translateX(var(--np-title-in-x, 100%));
   opacity: 0;
+  transition: none;
 }
 
 .now-playing-topic-title.is-swiping-in.is-visible {
   transform: translateX(0);
   opacity: 1;
-  transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1), opacity 200ms ease;
+  transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1), opacity 240ms ease;
 }
 
 /* Avatar stage */
@@ -2230,14 +2280,14 @@ button {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--np-dot-color, var(--color-lime, #DFFFB8));
+  background: var(--np-dot-color, #C4EE90);
   transform: scale(var(--np-dot-progress, 0));
   transform-origin: center;
   transition: transform 0.16s linear;
 }
 
 .np-dot.is-complete {
-  background: var(--np-dot-color, var(--color-lime, #DFFFB8));
+  background: var(--np-dot-color, #C4EE90);
 }
 
 
@@ -2364,7 +2414,7 @@ button {
   --np-other-y: 0rem;
   --np-float-delay: 0s;
   position: absolute !important;
-  top: calc(63% + var(--np-other-y)) !important;
+  top: calc(65% + var(--np-other-y)) !important;
   left: calc(50% + var(--np-other-x)) !important;
   transform: translate(-50%, -50%);
   width: auto;
@@ -2445,7 +2495,7 @@ button {
   }
 
   .np-avatar--other {
-    top: calc(61% + var(--np-other-y)) !important;
+    top: calc(63% + var(--np-other-y)) !important;
   }
 
   .np-avatar--other .np-avatar__photo {
@@ -2459,7 +2509,8 @@ button {
 .recording-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  /* Above #screen-chat .chat-footer (z-index 60) so mic / now-playing never show through the sheet */
+  z-index: 80;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.22s ease;
@@ -2732,11 +2783,11 @@ button {
   --radius-shell: 2.125rem;
   --radius-pill: 62.438rem;
   --size-control-md: 2.625rem;
-  /* Matches .top-bar row: safe-area top pad + max(controls, title line) + bottom pad */
+  /* Matches .top-bar row: safe-area + max(controls, title line) + bottom pad (+ slack for UA h1 margins) */
   --chats-header-reserved: calc(
     max(0.75rem, calc(env(safe-area-inset-top) + 0.25rem))
-    + max(var(--size-control-md), calc(clamp(2rem, 7vw, 2.45rem) * 0.96))
-    + 0.625rem
+    + max(var(--size-control-md), calc(clamp(2rem, 7vw, 2.45rem) * 1.06))
+    + 0.875rem
   );
   --size-control-lg: 2.75rem;
   --size-avatar-md: 2.625rem;
@@ -2801,25 +2852,41 @@ html, body {
 }
 
 #screen-splash {
+  overflow: hidden;
+}
+
+/* Active splash: true vertical center in the live viewport (not just #app box quirks). */
+#screen-splash.splash.active {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 1.625rem;
+  min-height: var(--layout-height);
+  min-height: 100svh;
+  padding-inline: 1.625rem;
+  padding-block: max(0px, env(safe-area-inset-top, 0rem))
+    max(0px, env(safe-area-inset-bottom, 0rem));
+  box-sizing: border-box;
 }
 
 .splash-content {
   text-align: center;
+  user-select: none;
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  max-width: 100%;
 }
 
 .splash-logo {
-  /* Keep splash hero large on iPhone (avoid shrinking with root rem clamp) */
+  display: block;
   width: clamp(220px, 62vw, 270px);
-  margin-bottom: 0.5rem;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 0.5rem;
 }
 
 .splash-tagline {
+  margin: 0;
   font-size: clamp(17px, 4.6vw, 20px);
   line-height: 1.18;
   font-weight: 400;
@@ -3046,9 +3113,14 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .chat-card .chat-art-besties__avatar {
+  box-shadow: none;
+}
+
+.chat-card .chat-art-besties--stack > .chat-art-besties__avatar {
   box-shadow: none;
 }
 
@@ -3058,6 +3130,8 @@ html, body {
   height: auto;
   border-radius: 62.438rem;
   position: relative;
+  overflow: hidden;
+  isolation: isolate;
   background: rgba(255, 255, 255, 0.44);
   backdrop-filter: blur(1.5rem) saturate(150%);
   -webkit-backdrop-filter: blur(1.5rem) saturate(150%);
@@ -3103,18 +3177,267 @@ html, body {
   filter: invert(1) brightness(0.22);
 }
 
-.chat-art-besties__avatar--main {
-  width: 54.2%;
-  height: 54.2%;
-  left: 9.9%;
-  top: 14.1%;
+/* Stacked group cluster: proportional avatar sizes (like the original pile), scaled ~86% with
+   positions nudged so disks stay inside the glass and do not overlap (list, header pips, group hero). */
+.chat-art-besties--stack {
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: chat-besties-stack;
 }
 
-.chat-art-besties__avatar--secondary {
-  width: 31.25%;
-  height: 31.25%;
-  left: 55.2%;
-  top: 54.7%;
+.chat-art-besties--stack > .chat-art-besties__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  box-sizing: border-box;
+  border: none;
+  box-shadow: none;
+}
+
+.chat-art-besties--stack .chat-art-besties__avatar.avatar-fallback {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--avatar-accent, #8aa6d4) 72%, white 18%) 0%,
+      color-mix(in srgb, var(--avatar-accent, #5c78b0) 58%, #1a2230 12%) 100%);
+  color: rgba(255, 255, 255, 0.96);
+  text-shadow: 0 0.062rem 0.125rem rgba(0, 0, 0, 0.18);
+}
+
+.chat-art-besties--stack .chat-art-besties__avatar.avatar-fallback .avatar-fallback__icon {
+  opacity: 0.9;
+  filter: invert(1) brightness(1.05);
+}
+
+.chat-art-besties--stack > .chat-art-besties__avatar.avatar-fallback > span {
+  font-size: clamp(0.45rem, 16cqi, 0.95rem);
+  line-height: 1;
+}
+
+.chat-art-besties--n2 .chat-art-besties__avatar:nth-child(1) {
+  width: 50%;
+  height: 50%;
+  left: 8%;
+  top: 16%;
+  z-index: 1;
+}
+
+.chat-art-besties--n2 .chat-art-besties__avatar:nth-child(2) {
+  width: 36%;
+  height: 36%;
+  left: 52%;
+  top: 50%;
+  z-index: 3;
+}
+
+.chat-art-besties--n2 .chat-art-besties__avatar:nth-child(1).avatar-fallback > span {
+  font-size: clamp(0.36rem, 14cqi, 0.78rem);
+}
+
+.chat-art-besties--n2 .chat-art-besties__avatar:nth-child(2).avatar-fallback > span {
+  font-size: clamp(0.3rem, 11cqi, 0.65rem);
+}
+
+/* n3: large TL, medium TR, small bottom-center — whole trio nudged right (pips + hero). */
+.chat-art-besties--n3 .chat-art-besties__avatar:nth-child(1) {
+  width: 46%;
+  height: 46%;
+  left: 8.25%;
+  top: 16.5%;
+  z-index: 1;
+}
+
+.chat-art-besties--n3 .chat-art-besties__avatar:nth-child(2) {
+  width: 33%;
+  height: 33%;
+  left: 57%;
+  top: 23.5%;
+  z-index: 2;
+}
+
+.chat-art-besties--n3 .chat-art-besties__avatar:nth-child(3) {
+  width: 29%;
+  height: 29%;
+  left: 37.5%;
+  top: 63%;
+  z-index: 4;
+}
+
+.chat-art-besties--n3 .chat-art-besties__avatar:nth-child(2).avatar-fallback > span,
+.chat-art-besties--n3 .chat-art-besties__avatar:nth-child(3).avatar-fallback > span {
+  font-size: clamp(0.3rem, 11cqi, 0.65rem);
+}
+
+.chat-art-besties--n3 .chat-art-besties__avatar:nth-child(1).avatar-fallback > span {
+  font-size: clamp(0.38rem, 15cqi, 0.82rem);
+}
+
+/* n4: large TL + large BR, two small corners */
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(1) {
+  width: 38%;
+  height: 38%;
+  left: 7%;
+  top: 11%;
+  z-index: 2;
+}
+
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(2) {
+  width: 33%;
+  height: 33%;
+  left: 54%;
+  top: 50%;
+  z-index: 1;
+}
+
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(3) {
+  width: 21%;
+  height: 21%;
+  left: 68%;
+  top: 9%;
+  z-index: 4;
+}
+
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(4) {
+  width: 21%;
+  height: 21%;
+  left: 9%;
+  top: 59%;
+  z-index: 3;
+}
+
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(2).avatar-fallback > span,
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(3).avatar-fallback > span {
+  font-size: clamp(0.26rem, 10cqi, 0.56rem);
+}
+
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(1).avatar-fallback > span,
+.chat-art-besties--n4 .chat-art-besties__avatar:nth-child(4).avatar-fallback > span {
+  font-size: clamp(0.28rem, 10cqi, 0.58rem);
+}
+
+/* n5: stepped sizes (large → small) in a loose cluster */
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(1) {
+  width: 34%;
+  height: 34%;
+  left: 7%;
+  top: 11%;
+  z-index: 2;
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(2) {
+  width: 28%;
+  height: 28%;
+  left: 56%;
+  top: 9%;
+  z-index: 1;
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(3) {
+  width: 24%;
+  height: 24%;
+  left: 9%;
+  top: 58%;
+  z-index: 3;
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(4) {
+  width: 26%;
+  height: 26%;
+  left: 40%;
+  top: 54%;
+  z-index: 4;
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(5) {
+  width: 19%;
+  height: 19%;
+  left: 70%;
+  top: 58%;
+  z-index: 5;
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(5).avatar-fallback > span {
+  font-size: clamp(0.22rem, 8cqi, 0.48rem);
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(3).avatar-fallback > span,
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(4).avatar-fallback > span {
+  font-size: clamp(0.26rem, 9cqi, 0.54rem);
+}
+
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(1).avatar-fallback > span,
+.chat-art-besties--n5 .chat-art-besties__avatar:nth-child(2).avatar-fallback > span {
+  font-size: clamp(0.3rem, 10cqi, 0.6rem);
+}
+
+/* n6: hero TL, tall right, bottom center, small corners + micro top */
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(1) {
+  width: 40%;
+  height: 40%;
+  left: 4%;
+  top: 10%;
+  z-index: 1;
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(2) {
+  width: 29%;
+  height: 29%;
+  left: 62%;
+  top: 34%;
+  z-index: 2;
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(3) {
+  width: 24%;
+  height: 24%;
+  left: 38%;
+  top: 64%;
+  z-index: 5;
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(4) {
+  width: 17%;
+  height: 17%;
+  left: 74%;
+  top: 8%;
+  z-index: 4;
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(5) {
+  width: 17%;
+  height: 17%;
+  left: 6%;
+  top: 68%;
+  z-index: 3;
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(6) {
+  width: 13%;
+  height: 13%;
+  left: 44%;
+  top: 3%;
+  z-index: 6;
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(3).avatar-fallback > span,
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(4).avatar-fallback > span {
+  font-size: clamp(0.22rem, 8cqi, 0.48rem);
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(6).avatar-fallback > span {
+  font-size: clamp(0.18rem, 7cqi, 0.4rem);
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(1).avatar-fallback > span {
+  font-size: clamp(0.34rem, 13cqi, 0.72rem);
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(2).avatar-fallback > span {
+  font-size: clamp(0.28rem, 11cqi, 0.6rem);
+}
+
+.chat-art-besties--n6 .chat-art-besties__avatar:nth-child(5).avatar-fallback > span {
+  font-size: clamp(0.2rem, 8cqi, 0.46rem);
 }
 
 .chat-art-besties--single .chat-art-besties__avatar--single {
@@ -3303,11 +3626,6 @@ html, body {
   z-index: 1;
 }
 
-.chat-member-pips {
-  gap: 0;
-  justify-content: center;
-}
-
 .member-pip {
   width: 3.25rem;
   height: 3.25rem;
@@ -3356,7 +3674,6 @@ html, body {
   left: 17%;
   background: transparent;
   box-shadow: none;
-  animation: besties-float-chloe 8.8s ease-in-out infinite;
 }
 
 .floating-avatar--maria,
@@ -3366,7 +3683,18 @@ html, body {
   bottom: auto;
   background: transparent;
   box-shadow: none;
-  animation: besties-float-maria 9.6s ease-in-out infinite;
+}
+
+#screen-chat .chat-empty .floating-avatar--primary .floating-avatar__photo,
+#screen-chat .chat-empty .floating-avatar--chloe .floating-avatar__photo {
+  animation: besties-float-chloe 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+#screen-chat .chat-empty .floating-avatar--secondary .floating-avatar__photo,
+#screen-chat .chat-empty .floating-avatar--maria .floating-avatar__photo {
+  animation: besties-float-maria 6.35s ease-in-out infinite;
+  will-change: transform;
 }
 
 .chat-empty.is-single-member .floating-avatar--chloe,
@@ -3375,7 +3703,13 @@ html, body {
   left: 50%;
   right: auto;
   bottom: auto;
-  animation: besties-float-single 8.8s ease-in-out infinite;
+  transform: translate(-50%, -50%);
+}
+
+#screen-chat .chat-empty.is-single-member .floating-avatar--primary .floating-avatar__photo,
+#screen-chat .chat-empty.is-single-member .floating-avatar--chloe .floating-avatar__photo {
+  animation: besties-float-single 5.75s ease-in-out infinite;
+  will-change: transform;
 }
 
 .floating-avatar__photo {
@@ -3592,24 +3926,24 @@ html, body {
 
 @keyframes besties-float-chloe {
   0%, 100% { transform: translate3d(0, 0, 0); }
-  25% { transform: translate3d(0.375rem, -0.5rem, 0); }
-  50% { transform: translate3d(0.625rem, 0.25rem, 0); }
-  75% { transform: translate3d(-0.25rem, 0.625rem, 0); }
+  25% { transform: translate3d(0.6rem, -0.82rem, 0); }
+  50% { transform: translate3d(1rem, 0.42rem, 0); }
+  75% { transform: translate3d(-0.42rem, 1rem, 0); }
 }
 
 @keyframes besties-float-maria {
   0%, 100% { transform: translate3d(0, 0, 0); }
-  25% { transform: translate3d(-0.5rem, 0.375rem, 0); }
-  50% { transform: translate3d(-0.625rem, -0.25rem, 0); }
-  75% { transform: translate3d(0.25rem, -0.625rem, 0); }
+  25% { transform: translate3d(-0.82rem, 0.6rem, 0); }
+  50% { transform: translate3d(-1rem, -0.42rem, 0); }
+  75% { transform: translate3d(0.42rem, -1rem, 0); }
 }
 
 @keyframes besties-float-single {
-  0%, 100% { transform: translate3d(-50%, -50%, 0); }
-  20% { transform: translate3d(calc(-50% + 0.28rem), calc(-50% - 0.36rem), 0); }
-  40% { transform: translate3d(calc(-50% + 0.52rem), calc(-50% - 0.06rem), 0); }
-  60% { transform: translate3d(calc(-50% + 0.4rem), calc(-50% + 0.32rem), 0); }
-  80% { transform: translate3d(calc(-50% - 0.18rem), calc(-50% + 0.48rem), 0); }
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20% { transform: translate3d(0.48rem, -0.58rem, 0); }
+  40% { transform: translate3d(0.82rem, -0.12rem, 0); }
+  60% { transform: translate3d(0.65rem, 0.52rem, 0); }
+  80% { transform: translate3d(-0.32rem, 0.78rem, 0); }
 }
 
 .recording-backdrop {
@@ -4861,6 +5195,19 @@ html, body {
   filter: drop-shadow(var(--glass-nav-drop-shadow));
 }
 
+/* Playable reply play: slight blue tint vs idle (topic row play uses neutral glass like is-playing) */
+.reply-row__play.is-playable:not(.is-playing) {
+  background: linear-gradient(
+    180deg,
+    rgba(232, 241, 255, 0.98) 0%,
+    rgba(210, 228, 255, 0.92) 100%
+  );
+  box-shadow:
+    var(--shadow-glass-btn),
+    0 0.625rem 1.625rem rgba(184, 216, 255, 0.34),
+    inset 0 0.062rem 0 rgba(255, 255, 255, 0.78);
+}
+
 .glassNavButton.topic-row__play.is-playing {
   box-shadow: var(--shadow-glass-btn);
   filter: drop-shadow(var(--glass-nav-drop-shadow));
@@ -4891,8 +5238,8 @@ html, body {
 
 /* Reply rows: slightly larger icon for thumb taps */
 .reply-row__play .topic-row__play-icon {
-  width: calc(var(--glass-nav-icon-secondary) * 0.72);
-  height: calc(var(--glass-nav-icon-secondary) * 0.72);
+  width: calc(var(--glass-nav-icon-secondary) * 0.84);
+  height: calc(var(--glass-nav-icon-secondary) * 0.84);
 }
 
 .topic-row__play-icon-pause {
@@ -4904,6 +5251,10 @@ html, body {
   transform: scale(0.58);
   transform-origin: 50% 50%;
   transform-box: fill-box;
+}
+
+.reply-row__play .topic-row__play-icon-play {
+  transform: scale(0.68);
 }
 
 .topic-row__play.is-playing .topic-row__play-icon-play,
@@ -5167,7 +5518,6 @@ select,
   font-weight: 600;
 }
 
-.splash-logo,
 .perm-heading,
 .top-bar__title,
 .chat-title,
@@ -5202,11 +5552,17 @@ select,
   left: var(--recording-sheet-inset);
   right: var(--recording-sheet-inset);
   top: var(--recording-sheet-top);
-  /* Anchor to the real viewport bottom across Safari/PWA/keyboard states */
-  bottom: var(--visual-viewport-bottom-inset);
-  max-height: calc(var(--app-height) - var(--recording-sheet-top) - var(--visual-viewport-bottom-inset));
+  /* Bottom gutter: horizontal inset + safe area + dynamic viewport (keyboard) inset */
+  bottom: calc(
+    var(--recording-sheet-inset) + env(safe-area-inset-bottom, 0rem) + var(--visual-viewport-bottom-inset)
+  );
+  max-height: calc(
+    var(--app-height) - var(--recording-sheet-top) - var(--recording-sheet-inset)
+    - env(safe-area-inset-bottom, 0rem) - var(--visual-viewport-bottom-inset)
+  );
+  --recording-sheet-pad-x: clamp(0.875rem, 4vw, 1.25rem);
   border-radius: calc(var(--radius-shell) + 0.625rem) calc(var(--radius-shell) + 0.625rem) 2.25rem 2.25rem;
-  padding: clamp(1.5rem, 5vw, 2.75rem) clamp(0.875rem, 4vw, 1.25rem) calc(1.375rem + env(safe-area-inset-bottom) + var(--visual-viewport-bottom-inset));
+  padding: clamp(1.5rem, 5vw, 2.75rem) var(--recording-sheet-pad-x) calc(1.375rem + env(safe-area-inset-bottom) + var(--visual-viewport-bottom-inset));
   background: rgba(239, 238, 242, 0.92);
   backdrop-filter: blur(2rem);
   -webkit-backdrop-filter: blur(2rem);
@@ -5248,8 +5604,8 @@ select,
 #recording-overlay .waveform-wrap {
   position: relative;
   height: clamp(17.5rem, 48vh, 26.25rem);
-  margin: 0.5rem calc(clamp(0.875rem, 4vw, 1.25rem) * -1) clamp(1rem, 4vw, 1.375rem);
-  overflow: hidden;
+  margin: 0.5rem calc(var(--recording-sheet-pad-x, clamp(0.875rem, 4vw, 1.25rem)) * -1) clamp(1rem, 4vw, 1.375rem);
+  overflow: visible;
   border-radius: 0;
   background: transparent;
 }
@@ -5303,7 +5659,9 @@ select,
 }
 
 #recording-overlay .rec-live-transcript {
-  margin: 0 0 clamp(1.5rem, 9vw, 3.625rem) clamp(0.5rem, 3vw, 1rem);
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 clamp(1.5rem, 9vw, 3.625rem);
   min-height: 1.5rem;
   font-size: 1.062rem;
   line-height: 1.35;
@@ -5313,13 +5671,12 @@ select,
   overflow: hidden;
   text-overflow: clip;
   text-align: right;
-  padding-right: 0;
-  mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 12%, rgba(0,0,0,0.92) 28%, rgba(0,0,0,1) 100%);
-  -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 12%, rgba(0,0,0,0.92) 28%, rgba(0,0,0,1) 100%);
+  /* Tail + word-level clipping in JS; no full-bleed — stays inside sheet padding-inline */
+  mask-image: none;
+  -webkit-mask-image: none;
 }
 
 #recording-overlay .rec-live-transcript.is-placeholder {
-  margin-left: 0;
   text-align: center;
   mask-image: none;
   -webkit-mask-image: none;
@@ -5445,32 +5802,69 @@ select,
   height: 2.625rem;
 }
 
-/* Profile: match chat settings header layout (hero + edit in nav) */
+/* Profile header: row1 = back | avatar | edit (tops aligned); row2 = name centered */
 #screen-profile .ios-settings-nav--profile {
-  /* Keep hero perfectly centered even when Edit ↔ Done button width changes */
   grid-template-columns: 2.625rem minmax(0, 1fr) 3.625rem;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "profile-back profile-avatar profile-edit"
+    ".              profile-name   .";
   align-items: start;
+  column-gap: 0.5rem;
+  row-gap: 0.375rem;
+  /* Extra breathing room below status bar / Dynamic Island (safe-area alone was tight on some devices). */
+  padding: max(1rem, calc(env(safe-area-inset-top, 0rem) + 0.5rem)) 1rem 0.75rem;
 }
 
-#screen-profile .profile-details-hero {
-  grid-column: 2;
+#screen-profile .ios-settings-nav--profile > #btn-profile-back {
+  grid-area: profile-back;
   align-self: start;
+  justify-self: start;
+}
+
+#screen-profile .ios-settings-nav--profile > .profile-details-hero {
+  grid-area: profile-avatar;
   justify-self: center;
+  align-self: start;
   min-width: 0;
-  padding: 0 0.375rem 0.25rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  padding: 0;
+  margin: 0;
+  display: block;
+}
+
+#screen-profile .ios-settings-nav--profile > #btn-profile-edit {
+  grid-area: profile-edit;
+  align-self: start;
+  justify-self: end;
+}
+
+#screen-profile .ios-settings-nav--profile > .profile-nav-name {
+  grid-area: profile-name;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
+  padding: 0 0.375rem;
+  margin: 0;
 }
 
 #screen-profile .profile-details-hero .ios-profile-photo-button {
-  justify-self: center;
+  width: auto;
+  display: flex;
+  justify-content: center;
 }
 
-#screen-profile .profile-details-hero .group-details-hero__name {
-  /* Match group settings title field behavior inside profile header */
-  max-width: 12ch;
+/* Single profile photo: not stacked-group absolute positioning */
+#screen-profile .profile-details-hero .group-details-hero__avatar {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  transform: none;
+}
+
+#screen-profile .ios-settings-nav--profile .profile-nav-name .group-details-hero__name {
+  max-width: 14ch;
   margin-inline: auto;
 }
 
@@ -5740,7 +6134,10 @@ select,
 
 .group-details-topbar {
   display: grid;
-  grid-template-columns: 2.625rem minmax(0, 1fr) auto;
+  /* Equal side tracks so the hero column stays truly centered when the Edit pill
+     switches width (text vs icon-only Done); `auto` on the right column used to
+     widen/narrow the center `1fr` and shift the hero. */
+  grid-template-columns: 4.25rem minmax(0, 1fr) 4.25rem;
   align-items: start;
   gap: 0.5rem;
   padding: max(0.75rem, calc(env(safe-area-inset-top) + 0.25rem)) 1rem 0.625rem;
@@ -5777,19 +6174,18 @@ select,
   font-weight: 400;
 }
 
-/* Icon-only profile edit state uses done.svg */
-#btn-profile-edit img {
-  width: 1.5rem;
-  height: 1.5rem;
-  display: block;
-}
-
-/* When showing done.svg, turn the pill into the circular nav control */
-#btn-profile-edit.is-icon-only {
+/* Icon-only “Done” state: circular pill + inline checkmark SVG */
+.group-details-topbar__pill.is-icon-only {
   min-width: 2.625rem;
   width: 2.625rem;
   padding: 0;
   border-radius: 50%;
+}
+
+.group-details-topbar__pill.is-icon-only svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: block;
 }
 
 /* Ensure the action column alignment doesn't reflow hero centering */
@@ -5824,7 +6220,7 @@ select,
 .group-details-hero::before {
   content: "";
   position: absolute;
-  inset: 7rem 1.125rem -2.25rem;
+  inset: 4.25rem 1.125rem -1.75rem;
   border-radius: 2.375rem;
   background:
     radial-gradient(circle at 18% 24%, rgba(194, 228, 255, 0.62), transparent 28%),
@@ -5837,12 +6233,37 @@ select,
 
 .group-details-hero__avatars {
   position: relative;
-  width: 12rem;
-  height: 12rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 5.75rem;
+  margin-inline: auto;
+  width: fit-content;
+  height: fit-content;
+  min-height: 0;
+  line-height: 0;
+}
+
+/* Multi-member hero: wrap the chat-art circle exactly (no extra vertical slack). */
+.group-details-hero__avatars:has(.chat-art-besties--hero) {
+  width: auto;
+  height: auto;
+}
+
+.group-details-hero__avatars:has(.chat-art-besties--hero) .chat-art-besties--hero {
+  display: block;
+}
+
+/* ≤1 other member: box matches one hero avatar diameter; stacked disks scale down to fit inside. */
+.group-details-hero__avatars:not(:has(.chat-art-besties)) {
+  width: 5.75rem;
+  height: 5.75rem;
+  flex-shrink: 0;
+}
+
+.group-details-hero__avatars:not(:has(.chat-art-besties)) .group-details-hero__avatar {
+  width: 2.875rem;
+  height: 2.875rem;
+  font-size: 1rem;
 }
 
 .group-details-hero__avatar {
@@ -5862,7 +6283,7 @@ select,
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(1) {
-  top: 0;
+  top: 0.125rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 4;
@@ -5870,20 +6291,20 @@ select,
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(2) {
   top: 50%;
-  right: 0;
-  transform: translate(0, -50%);
+  right: 0.125rem;
+  transform: translateY(-50%);
   z-index: 3;
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(3) {
   top: 50%;
-  left: 0;
-  transform: translate(0, -50%);
+  left: 0.125rem;
+  transform: translateY(-50%);
   z-index: 2;
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(4) {
-  bottom: 0;
+  bottom: 0.125rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
@@ -5959,7 +6380,8 @@ select,
 }
 
 .group-details-panel {
-  padding: 0.125rem 1rem 0;
+  --group-details-panel-pad-x: 1rem;
+  padding: 0.125rem var(--group-details-panel-pad-x) 0;
 }
 
 .group-details-summary-card,
@@ -6030,7 +6452,11 @@ select,
   display: flex;
   gap: 1rem;
   overflow-x: auto;
-  padding: 0 0.125rem 1rem;
+  margin-inline: calc(-1 * var(--group-details-panel-pad-x));
+  padding-inline-start: env(safe-area-inset-left, 0px);
+  padding-inline-end: env(safe-area-inset-right, 0px);
+  padding-top: 0;
+  padding-bottom: 1rem;
   margin-bottom: 0;
   -webkit-overflow-scrolling: touch;
 }
@@ -6059,13 +6485,14 @@ select,
 }
 
 .group-details-person--add .group-details-person__avatar {
-  display: grid;
-  place-items: center;
-  background: #EFEEF2;
-  color: #111111;
-  font-size: 3.625rem;
-  font-weight: 300;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.group-details-person--add .group-details-person__avatar.glassNavButton {
+  width: 6.125rem;
+  height: 6.125rem;
 }
 
 .group-details-person__name {
@@ -6101,10 +6528,6 @@ select,
 
 .group-details-card--toggles {
   padding: 0 1rem;
-}
-
-.group-details-edit-block.is-hidden {
-  display: none;
 }
 
 .group-details-toggle-row {
@@ -6433,6 +6856,17 @@ select,
     height: 5.5rem;
   }
 
+  .group-details-hero__avatars:not(:has(.chat-art-besties)) {
+    width: 5.5rem;
+    height: 5.5rem;
+  }
+
+  .group-details-hero__avatars:not(:has(.chat-art-besties)) .group-details-hero__avatar {
+    width: 2.625rem;
+    height: 2.625rem;
+    font-size: 0.9rem;
+  }
+
   .group-details-tab {
     padding: 0 0.75rem;
     font-size: 1rem;
@@ -6654,10 +7088,11 @@ select,
 }
 
 #analysis-overlay .recording-sheet--analysis {
+  --analysis-sheet-inline-pad: 1.125rem;
   gap: 0;
-  padding: 1.25rem 1.125rem var(--analysis-sheet-bottom, 1rem);
+  padding: 1.25rem var(--analysis-sheet-inline-pad) var(--analysis-sheet-bottom, 1rem);
   overflow-x: visible;
-  overflow-y: hidden;
+  overflow-y: auto;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.985) 0%, rgba(250,251,255,0.96) 48%, rgba(244,248,252,0.98) 100%);
 }
@@ -6705,25 +7140,28 @@ select,
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 0.875rem;
-  padding: 0.5rem 0 0;
+  gap: 1rem;
+  padding: 0.375rem 0 0;
   width: 100%;
   max-width: 100%;
+  overflow-x: visible;
 }
 
 .analysis-visual-field {
   /* Driven by AnalysisModal: looping memo → analyser → --analysis-level / --analysis-glow-mul */
   --analysis-level: 0.32;
   --analysis-glow-mul: 1;
-  /* Bleed past analysis sheet horizontal padding so waves reach card edges */
-  width: calc(100% + 2.25rem);
+  /* Edge-to-edge: cancel recording-sheet horizontal padding (inherits --analysis-sheet-inline-pad). */
+  width: calc(100% + 2 * var(--analysis-sheet-inline-pad, 1.125rem));
   max-width: none;
-  margin-left: -1.125rem;
-  margin-right: -1.125rem;
+  margin-left: calc(-1 * var(--analysis-sheet-inline-pad, 1.125rem));
+  margin-right: calc(-1 * var(--analysis-sheet-inline-pad, 1.125rem));
   min-height: 0;
-  height: clamp(10.5rem, 24vh, 16.25rem);
+  /* Fixed slot; prism graphic is scaled inside (loading) — see `#analysis-overlay[data-phase='loading'] .analysis-prism`. */
+  height: clamp(12.25rem, 28vh, 19rem);
   position: relative;
-  margin-top: 0.25rem;
+  z-index: 1;
+  margin-top: 0;
   margin-bottom: 0.125rem;
   display: flex;
   align-items: center;
@@ -6731,15 +7169,37 @@ select,
   perspective: 56.25rem;
   transform-style: preserve-3d;
   overflow: visible;
+  isolation: isolate;
+}
+
+/* Loading + topics-ready: one visual (prism SVG + disc, after.png); canvas stays off. */
+#analysis-overlay[data-phase='loading'] .analysis-waveform-canvas,
+#analysis-overlay[data-phase='segments'] .analysis-waveform-canvas {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#analysis-overlay[data-phase='loading'] .analysis-prism,
+#analysis-overlay[data-phase='segments'] .analysis-prism {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+}
+
+/* 2× graphic inside fixed `.analysis-visual-field` slot (loading only). */
+#analysis-overlay[data-phase='loading'] .analysis-prism {
+  transform: scale(2);
+  transform-origin: center center;
 }
 
 /* Short mobile heights: keep sheet fully on-screen with no internal scrolling. */
 @media (max-height: 740px) {
   .analysis-visual-field {
-    height: clamp(9rem, 22vh, 13.75rem);
+    height: clamp(10.5rem, 24vh, 15.5rem);
   }
   .analysis-hero {
-    gap: 0.75rem;
+    gap: 0.875rem;
   }
 }
 
@@ -6749,11 +7209,171 @@ select,
   width: 100%;
   height: 100%;
   display: block;
-  opacity: 1;
+  opacity: 0;
   pointer-events: none;
   border-radius: 0;
-  z-index: 5;
+  z-index: 0;
   mix-blend-mode: normal;
+}
+
+/* Prism: soft disc + thick white wave → colored threads (after.png; loading + segments). */
+.analysis-prism {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.analysis-prism::before {
+  content: '';
+  position: absolute;
+  inset: -12% -14% -8%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 58% 48% at 22% 32%, rgba(184, 216, 255, 0.42) 0%, transparent 65%),
+    radial-gradient(ellipse 52% 44% at 82% 26%, rgba(222, 192, 248, 0.34) 0%, transparent 62%),
+    radial-gradient(ellipse 48% 46% at 78% 74%, rgba(255, 222, 184, 0.26) 0%, transparent 58%),
+    radial-gradient(ellipse 44% 40% at 24% 76%, rgba(223, 255, 184, 0.2) 0%, transparent 55%);
+  filter: blur(1.75rem);
+  opacity: 0.88;
+}
+
+.analysis-prism__disc {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  /* Compact hub; % scales with enlarged prism box. */
+  width: min(36%, 6.25rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #ffffff;
+  box-shadow:
+    0 0.375rem 1.5rem rgba(200, 210, 228, 0.35),
+    0 0 2.25rem rgba(255, 255, 255, 0.55),
+    inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.95);
+  filter: none;
+  opacity: 1;
+  animation: analysis-prism-disc-pulse 5.75s ease-in-out infinite;
+}
+
+@keyframes analysis-prism-disc-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow:
+      0 0.375rem 1.5rem rgba(200, 210, 228, 0.32),
+      0 0 2.1rem rgba(255, 255, 255, 0.48),
+      inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.95);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.04);
+    box-shadow:
+      0 0.5rem 1.85rem rgba(200, 210, 228, 0.42),
+      0 0 2.65rem rgba(255, 255, 255, 0.62),
+      inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analysis-prism__disc {
+    animation: none;
+  }
+}
+
+.analysis-prism__svg {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  max-width: min(100%, 36rem);
+  max-height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0 0.55rem rgba(255, 255, 255, 0.55));
+}
+
+.analysis-prism__incoming {
+  opacity: 1;
+  /* Barely-there lift off the solid white hub (still reads as white stroke). */
+  filter: drop-shadow(0 0.08rem 0.28rem rgba(90, 105, 135, 0.12));
+}
+
+.analysis-prism__incoming-tip {
+  stroke: none;
+  filter: drop-shadow(0 0.08rem 0.28rem rgba(90, 105, 135, 0.12));
+}
+
+.analysis-prism__branch {
+  opacity: 1;
+}
+
+/* Softer read at split only: hub retraces branch start above heavy neon stack. */
+.analysis-prism__branch-hub {
+  opacity: 1;
+  pointer-events: none;
+}
+
+.analysis-prism__branch-hub--a {
+  filter: drop-shadow(0 0 0.38rem rgba(184, 216, 255, 0.28));
+}
+
+.analysis-prism__branch-hub--b {
+  filter: drop-shadow(0 0 0.38rem rgba(222, 192, 248, 0.26));
+}
+
+.analysis-prism__branch-hub--c {
+  filter: drop-shadow(0 0 0.38rem rgba(255, 222, 184, 0.28));
+}
+
+.analysis-prism__branch-hub--d {
+  filter: drop-shadow(0 0 0.38rem rgba(223, 255, 184, 0.26));
+}
+
+/* Neon-soft segment glows — palette only: #B8D8FF, #DEC0F8, #FFDEB8, #DFFFB8. */
+.analysis-prism__branch--a {
+  filter:
+    drop-shadow(0 0 0.22rem rgba(184, 216, 255, 0.95))
+    drop-shadow(0 0 0.55rem rgba(184, 216, 255, 0.78))
+    drop-shadow(0 0 1.15rem rgba(184, 216, 255, 0.55))
+    drop-shadow(0 0 2.1rem rgba(184, 216, 255, 0.32));
+}
+
+.analysis-prism__branch--b {
+  filter:
+    drop-shadow(0 0 0.22rem rgba(222, 192, 248, 0.92))
+    drop-shadow(0 0 0.55rem rgba(222, 192, 248, 0.74))
+    drop-shadow(0 0 1.1rem rgba(222, 192, 248, 0.52))
+    drop-shadow(0 0 2rem rgba(222, 192, 248, 0.3));
+}
+
+.analysis-prism__branch--c {
+  filter:
+    drop-shadow(0 0 0.22rem rgba(255, 222, 184, 0.94))
+    drop-shadow(0 0 0.55rem rgba(255, 222, 184, 0.76))
+    drop-shadow(0 0 1.1rem rgba(255, 222, 184, 0.52))
+    drop-shadow(0 0 2rem rgba(255, 222, 184, 0.3));
+}
+
+.analysis-prism__branch--d {
+  filter:
+    drop-shadow(0 0 0.22rem rgba(223, 255, 184, 0.92))
+    drop-shadow(0 0 0.55rem rgba(223, 255, 184, 0.72))
+    drop-shadow(0 0 1.05rem rgba(223, 255, 184, 0.5))
+    drop-shadow(0 0 1.95rem rgba(223, 255, 184, 0.28));
+}
+
+.analysis-visual-field .analysis-visual-field__glow,
+.analysis-visual-field .analysis-core,
+.analysis-visual-field .analysis-wave-cluster,
+.analysis-visual-field .analysis-ribbon {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* Orbital ribbons are still in DOM for rollback/experiments. Keep hidden by default. */
@@ -6771,10 +7391,15 @@ select,
   display: none;
 }
 
-#analysis-overlay[data-phase='segments'] .analysis-visual-field {
+#analysis-overlay[data-phase='loading'] .analysis-visual-field {
   display: flex;
-  min-height: 12.5rem;
-  opacity: 0.92;
+  min-height: 13.75rem;
+  opacity: 1;
+}
+
+/* Topics-ready: hide prism / waveform so the headline sits under “Topics Ready”. */
+#analysis-overlay[data-phase='segments'] .analysis-visual-field {
+  display: none;
 }
 
 .analysis-visual-field__glow,
@@ -7156,12 +7781,15 @@ select,
 }
 
 .analysis-hero__title {
-  max-width: 12ch;
+  position: relative;
+  z-index: 4;
+  max-width: min(19rem, calc(100% - 0.75rem));
   font-size: 1.938rem;
-  line-height: 1.02;
+  line-height: 1.06;
   font-weight: 700;
   letter-spacing: -0.05em;
   color: #111111;
+  text-wrap: balance;
 }
 
 .analysis-status-strip {
@@ -7256,6 +7884,10 @@ select,
   min-height: 9.75rem;
 }
 
+#analysis-overlay[data-phase='segments'] .analysis-bars {
+  margin-top: 1.25rem;
+}
+
 #analysis-overlay .analysis-bar {
   padding: 0.875rem 0.875rem 0.75rem;
   border-radius: 1.25rem;
@@ -7318,8 +7950,8 @@ select,
     box-shadow: none;
   }
 
-  #screen-splash {
-    padding: 0 var(--screen-gutter-wide);
+  #screen-splash.splash.active {
+    padding-inline: var(--screen-gutter-wide);
   }
 
   .sheet {
@@ -8507,10 +9139,8 @@ select,
   min-width: 0;
   margin-top: var(--compose-sheet-top-pad);
   gap: 0.75rem;
-  padding:
-    calc(env(safe-area-inset-top, 0rem) + 0.25rem)
-    0
-    0;
+  /* Sheet already sits below the status bar via margin-top; avoid doubling safe-area here. */
+  padding: 0.5rem 0 0;
   justify-content: flex-start;
   background: #ffffff;
   border-radius: 2.25rem 2.25rem 0 0;
@@ -8546,11 +9176,24 @@ select,
   overflow: hidden;
 }
 
+/* After opening from group settings: align picker top to the prior screen’s back chevron */
+#screen-create-group.create-picker--anchor-group-settings .create-chat-picker {
+  will-change: transform;
+  transition: transform 0.42s cubic-bezier(0.34, 1.02, 0.64, 1);
+  transform: translate3d(0, var(--create-picker-slide-y, 0px), 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #screen-create-group.create-picker--anchor-group-settings .create-chat-picker {
+    transition: none;
+  }
+}
+
 #screen-create-group .create-chat-picker__header {
   position: relative;
   display: grid;
   place-items: center;
-  min-height: 3.25rem;
+  min-height: 2.75rem;
   padding-top: 0;
   margin: 0;
   padding-inline: 4.5rem;
@@ -9036,10 +9679,15 @@ select,
   right: auto;
   bottom: auto;
   margin: 0;
-  /* Match chat empty-state motion: slower + smoother to avoid jitter. */
-  animation: besties-float-single 8.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-  will-change: transform;
+  transform: translate(-50%, -50%);
+  animation: none;
+  will-change: auto;
   backface-visibility: hidden;
+}
+
+.chat-context-preview-empty__floating.floating-avatar--primary .floating-avatar__photo {
+  animation: besties-float-single 5.75s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
 }
 
 .chat-context-preview-empty__photo {
@@ -9168,8 +9816,9 @@ select,
 }
 
 .chat-context-menu__icon.chat-context-menu__icon--show-alerts {
-  mask-image: url("../assets/show-alerts.svg");
-  -webkit-mask-image: url("../assets/show-alerts.svg");
+  /* Muted state: filled “alerts off” glyph (same asset family as hide-alerts-full request) */
+  mask-image: url("../assets/hide-alerts-fill.svg?v=20260514");
+  -webkit-mask-image: url("../assets/hide-alerts-fill.svg?v=20260514");
 }
 
 /* Delete sheet: white card (not glass popover chrome) */
@@ -9361,56 +10010,4 @@ select,
   text-align: center;
   max-width: 3rem;
   word-break: break-word;
-}
-
-/* Splash video animation */
-.splash-video {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  z-index: 10;
-}
-
-.splash-content--delayed {
-  opacity: 0;
-  animation: splash-fade-in 0.6s ease-in-out 2.8s forwards;
-}
-
-@keyframes splash-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-/* Fix splash screen video layering */
-#screen-splash {
-  position: relative;
-  background: #f8faffffff;
-}
-
-.splash-video {
-  position: absolute !important;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  z-index: 5;
-  background: transparent;
-}
-
-.splash-content--delayed {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 10;
-  opacity: 0;
-  animation: splash-fade-in 0.6s ease-in-out 2.8s forwards;
 }

@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'yap-shell-v6';
+const SHELL_CACHE = 'yap-shell-v10';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -14,7 +14,7 @@ const STATIC_ASSETS = [
   '/js/features/analysis.js',
   '/assets/icon-192.png',
   '/assets/icon-512.png',
-  '/assets/yap-logo.png',
+  '/assets/logo.png?v=20260514',
 ];
 
 self.addEventListener('install', event => {

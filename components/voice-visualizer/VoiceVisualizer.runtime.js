@@ -1,242 +1,95 @@
-import React, { useMemo, useRef } from 'https://esm.sh/react@18.3.1';
-import { Canvas, useFrame } from 'https://esm.sh/@react-three/fiber@8.17.10?external=react,react-dom,three';
-import { AdditiveBlending, Color, DoubleSide, MathUtils } from 'https://esm.sh/three@0.160.0';
+import React, { useEffect, useRef } from 'https://esm.sh/react@18.3.1';
 import {
-  backdropFragmentShader,
-  backdropVertexShader,
-  ribbonFragmentShader,
-  ribbonVertexShader,
-} from './shaders.runtime.js';
+  applyPrismWaveFrame,
+  collectPrismPathCache,
+  createPrismSvgShellHTML,
+  prismBandsFromVizAudio,
+} from '../../js/core/prism-paths.js';
+import { vizAnalysisInput } from './viz-input.js';
 
 const h = React.createElement;
 
-const YAP_RIBBON_STROKE_HEX = ['#b8d8ff', '#dec0f8', '#ffdeb8', '#dfffb8'];
+function lerp(from, to, alpha) {
+  return from + (to - from) * alpha;
+}
 
-const monoRibbonColors = hex => [hex, hex, hex, hex];
-
-const BACKDROP_UNIFORMS = () => ({
-  uTime: { value: 0 },
-  uEnvelope: { value: 0 },
-  uBass: { value: 0 },
-  uMid: { value: 0 },
-  uHigh: { value: 0 },
-  uWake: { value: 0 },
-  uGlowA: { value: new Color('#ffdeb8') },
-  uGlowB: { value: new Color('#dec0f8') },
-  uGlowC: { value: new Color('#b8d8ff') },
-});
-
-const RIBBON_THICKNESS = 0.34;
-const RIBBON_OPACITY = 0.68;
-
-const RIBBONS = [
-  {
-    offsetY: 0.18,
-    offsetZ: -0.55,
-    rotationZ: -0.11,
-    scale: [4.8, 1.45, 1],
-    amplitudeMultiplier: 1.12,
-    frequencyMultiplier: 0.18,
-    thickness: RIBBON_THICKNESS,
-    opacity: RIBBON_OPACITY,
-    layerOffset: 0.16,
-    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[0]),
-  },
-  {
-    offsetY: 0.0,
-    offsetZ: 0.0,
-    rotationZ: 0.04,
-    scale: [5.0, 1.25, 1],
-    amplitudeMultiplier: 0.88,
-    frequencyMultiplier: 0.42,
-    thickness: RIBBON_THICKNESS,
-    opacity: RIBBON_OPACITY,
-    layerOffset: 0.48,
-    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[1]),
-  },
-  {
-    offsetY: -0.16,
-    offsetZ: 0.42,
-    rotationZ: 0.12,
-    scale: [5.2, 1.0, 1],
-    amplitudeMultiplier: 0.66,
-    frequencyMultiplier: 0.82,
-    thickness: RIBBON_THICKNESS,
-    opacity: RIBBON_OPACITY,
-    layerOffset: 0.84,
-    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[2]),
-  },
-  {
-    offsetY: -0.22,
-    offsetZ: 0.55,
-    rotationZ: 0.14,
-    scale: [5.0, 1.05, 1],
-    amplitudeMultiplier: 0.62,
-    frequencyMultiplier: 0.95,
-    thickness: RIBBON_THICKNESS,
-    opacity: RIBBON_OPACITY,
-    layerOffset: 1.02,
-    colors: monoRibbonColors(YAP_RIBBON_STROKE_HEX[3]),
-  },
-];
-
-const createRibbonUniforms = config => ({
-  uTime: { value: 0 },
-  uEnvelope: { value: 0 },
-  uBass: { value: 0 },
-  uMid: { value: 0 },
-  uHigh: { value: 0 },
-  uAttack: { value: 0 },
-  uWake: { value: 0 },
-  uLayerOffset: { value: config.layerOffset },
-  uIdleStrength: { value: 0.06 },
-  uAmplitudeMultiplier: { value: config.amplitudeMultiplier },
-  uFrequencyMultiplier: { value: config.frequencyMultiplier },
-  uThickness: { value: config.thickness },
-  uEdgePx: { value: 14.0 },
-  uOpacity: { value: config.opacity },
-  uColorA: { value: new Color(config.colors[0]) },
-  uColorB: { value: new Color(config.colors[1]) },
-  uColorC: { value: new Color(config.colors[2]) },
-  uColorD: { value: new Color(config.colors[3]) },
-});
-
-const lerp = (from, to, alpha) => from + (to - from) * alpha;
-
-function ReactiveScene({ isRecording, analysis }) {
-  const backdropRef = useRef(null);
-  const ribbonRefs = useRef([]);
-  const wakeRef = useRef(0);
-  const motionTimeRef = useRef(0);
-  const visualState = useRef({
-    envelope: 0,
+/** Mic-driven prism; `isRecording` only from React — levels read from `vizAnalysisInput` each frame. */
+export function VoiceVisualizer({ isRecording }) {
+  const hostRef = useRef(null);
+  const cacheRef = useRef(null);
+  const motionRef = useRef(0);
+  const smoothRef = useRef({
+    envelope: 0.18,
     bass: 0,
     mid: 0,
     high: 0,
     attack: 0,
+    wake: 0,
   });
+  const rafRef = useRef(0);
+  const lastFrameRef = useRef(0);
+  const recRef = useRef(isRecording);
+  recRef.current = isRecording;
 
-  const ribbonUniforms = useMemo(
-    () => RIBBONS.map(config => createRibbonUniforms(config)),
-    []
-  );
-  const backdropUniforms = useMemo(() => BACKDROP_UNIFORMS(), []);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    host.innerHTML = createPrismSvgShellHTML('vv-prism', { branchesOnly: true });
+    cacheRef.current = collectPrismPathCache(host.firstElementChild, 'vv-prism', { branchesOnly: true });
 
-  useFrame((state, delta) => {
-    const dt = Math.min(delta, 1 / 30);
-    const wakeTarget = isRecording ? 1 : 0;
-    wakeRef.current = lerp(wakeRef.current, wakeTarget, isRecording ? 0.1 : 0.045);
-    if (isRecording) {
-      motionTimeRef.current += delta;
-    }
+    const loop = time => {
+      if (!lastFrameRef.current) lastFrameRef.current = time;
+      const deltaMs = Math.min(32, time - lastFrameRef.current);
+      lastFrameRef.current = time;
+      motionRef.current += deltaMs;
 
-    visualState.current.envelope = lerp(
-      visualState.current.envelope,
-      isRecording ? Math.max(0.18, analysis.envelope || 0) : visualState.current.envelope,
-      (analysis.envelope || 0) > visualState.current.envelope ? 0.16 : 0.05
-    );
-    visualState.current.bass = lerp(visualState.current.bass, isRecording ? (analysis.bass || 0) : visualState.current.bass, 0.1);
-    visualState.current.mid = lerp(visualState.current.mid, isRecording ? (analysis.mid || 0) : visualState.current.mid, 0.1);
-    visualState.current.high = lerp(visualState.current.high, isRecording ? (analysis.high || 0) : visualState.current.high, 0.12);
-    visualState.current.attack = lerp(visualState.current.attack, isRecording ? (analysis.attack || 0) : visualState.current.attack, 0.14);
+      const rec = recRef.current;
+      const an = vizAnalysisInput;
+      const s = smoothRef.current;
+      if (rec) {
+        s.wake = lerp(s.wake, 1, 0.08);
+        s.envelope = lerp(
+          s.envelope,
+          Math.max(0.12, an.envelope || 0),
+          (an.envelope || 0) > s.envelope ? 0.55 : 0.12,
+        );
+        s.bass = lerp(s.bass, an.bass || 0, (an.bass || 0) > s.bass ? 0.38 : 0.14);
+        s.mid = lerp(s.mid, an.mid || 0, (an.mid || 0) > s.mid ? 0.34 : 0.14);
+        s.high = lerp(s.high, an.high || 0, (an.high || 0) > s.high ? 0.38 : 0.14);
+        s.attack = lerp(s.attack, an.attack || 0, (an.attack || 0) > s.attack ? 0.48 : 0.14);
+      } else {
+        s.wake = lerp(s.wake, 0, 0.06);
+        s.envelope = lerp(s.envelope, 0.2, 0.05);
+        s.bass = lerp(s.bass, 0.12, 0.05);
+        s.mid = lerp(s.mid, 0.1, 0.05);
+        s.high = lerp(s.high, 0.1, 0.05);
+        s.attack = lerp(s.attack, 0, 0.08);
+      }
 
-    const envelope = visualState.current.envelope;
-    const bass = visualState.current.bass;
-    const mid = visualState.current.mid;
-    const high = visualState.current.high;
-    const attack = visualState.current.attack;
-    const wake = wakeRef.current;
+      const cache = cacheRef.current;
+      if (cache) {
+        applyPrismWaveFrame(cache, prismBandsFromVizAudio(s), motionRef.current * 0.001, 'vv-prism', {
+          branchesOnly: true,
+          wavelength: true,
+          viz: s,
+        });
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      cacheRef.current = null;
+    };
+  }, []);
 
-    if (backdropRef.current) {
-      const uniforms = backdropRef.current.uniforms;
-      uniforms.uTime.value = motionTimeRef.current;
-      uniforms.uEnvelope.value = envelope;
-      uniforms.uBass.value = bass;
-      uniforms.uMid.value = mid;
-      uniforms.uHigh.value = high;
-      uniforms.uWake.value = wake;
-    }
-
-    ribbonRefs.current.forEach(material => {
-      if (!material) return;
-      const uniforms = material.uniforms;
-      uniforms.uTime.value = motionTimeRef.current;
-      uniforms.uEnvelope.value = envelope;
-      uniforms.uBass.value = bass;
-      uniforms.uMid.value = mid;
-      uniforms.uHigh.value = high;
-      uniforms.uAttack.value = attack;
-      uniforms.uWake.value = wake;
-    });
-
-    state.camera.position.x = MathUtils.damp(state.camera.position.x, (mid - 0.18) * 0.16, 4.2, dt);
-    state.camera.position.y = MathUtils.damp(state.camera.position.y, (bass - 0.18) * 0.08, 4.2, dt);
-    state.camera.lookAt(0, 0, 0);
-  });
-
-  return h(
-    React.Fragment,
-    null,
-    h(
-      'mesh',
-      { position: [0, 0, -1.5], scale: [5.8, 3.3, 1] },
-      h('planeGeometry', { args: [1, 1, 1, 1] }),
-      h('shaderMaterial', {
-        ref: backdropRef,
-        args: [{
-          uniforms: backdropUniforms,
-          vertexShader: backdropVertexShader,
-          fragmentShader: backdropFragmentShader,
-          transparent: true,
-          depthWrite: false,
-          depthTest: false,
-          blending: AdditiveBlending,
-        }],
-      })
-    ),
-    ...RIBBONS.map((config, index) =>
-      h(
-        'mesh',
-        {
-          key: config.layerOffset,
-          position: [0, config.offsetY, config.offsetZ],
-          rotation: [0, 0, config.rotationZ],
-          scale: config.scale,
-        },
-        h('planeGeometry', { args: [1, 1, 220, 48] }),
-        h('shaderMaterial', {
-          ref: material => {
-            ribbonRefs.current[index] = material;
-          },
-          args: [{
-            uniforms: ribbonUniforms[index],
-            vertexShader: ribbonVertexShader,
-            fragmentShader: ribbonFragmentShader,
-            transparent: true,
-            depthWrite: false,
-            extensions: { derivatives: true },
-            blending: AdditiveBlending,
-            side: DoubleSide,
-          }],
-        })
-      )
-    )
-  );
-}
-
-export function VoiceVisualizer({ isRecording, analysis }) {
   return h(
     'div',
     { className: 'voice-visualizer voice-visualizer--embedded' },
-    h(
-      Canvas,
-      {
-        className: 'voice-visualizer__canvas',
-        dpr: [1, 2],
-        gl: { alpha: true, antialias: true, powerPreference: 'high-performance' },
-        camera: { position: [0, 0, 4.6], fov: 32 },
-      },
-      h(ReactiveScene, { isRecording, analysis })
-    )
+    h('div', {
+      ref: hostRef,
+      className: 'voice-visualizer__prism-host',
+      'aria-hidden': 'true',
+    }),
   );
 }

@@ -372,7 +372,7 @@ work unless the user explicitly asks for a different visual direction.
 Universal yAp styling rules:
 
 - Use the existing shared gradient as the background fill across screens.
-- Use `assets/y.png` as the logo.
+- Use `assets/logo.png` as the logo.
 - Use only `#B8D8FF`, `#DEC0F8`, `#FFDEB8`, and `#DFFFB8` for user glows.
 - Navigation and playback buttons must use CSS/SwiftUI-styled glass, not
   `glass-bg.png` image backgrounds.

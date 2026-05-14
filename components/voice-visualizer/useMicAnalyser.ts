@@ -221,6 +221,16 @@ export function useMicAnalyser({
         return;
       }
 
+      if (!window.isSecureContext) {
+        setAnalysis(current => ({
+          ...current,
+          permission: 'denied',
+          error:
+            'Microphone requires a secure page (https:// or http://localhost). Open yap from a secure URL.',
+        }));
+        return;
+      }
+
       setAnalysis(current => ({
         ...current,
         permission: 'prompting',
@@ -228,13 +238,94 @@ export function useMicAnalyser({
       }));
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
+        let stream = null;
+        const attempts = [
+          { audio: true },
+          { video: false, audio: true },
+          { audio: {} },
+          { audio: { channelCount: 1 } },
+          { audio: { channelCount: { ideal: 1 } } },
+          {
+            audio: {
+              echoCancellation: { ideal: true },
+              noiseSuppression: { ideal: true },
+              autoGainControl: { ideal: true },
+            },
           },
-        });
+          {
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          },
+        ];
+        let lastErr: unknown = null;
+        const recoverable = (name: string) =>
+          name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'AbortError';
+
+        for (const constraints of attempts) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+          } catch (error) {
+            lastErr = error;
+            const name = error instanceof DOMException ? error.name : '';
+            if (!recoverable(name)) {
+              throw error;
+            }
+          }
+        }
+        if (!stream) {
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputs = devices.filter(d => d.kind === 'audioinput');
+            for (const d of inputs) {
+              if (!d.deviceId) continue;
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: { deviceId: { ideal: d.deviceId } },
+                });
+                break;
+              } catch (error) {
+                lastErr = error;
+                const name = error instanceof DOMException ? error.name : '';
+                if (!recoverable(name)) throw error;
+              }
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: { deviceId: { exact: d.deviceId } },
+                });
+                break;
+              } catch (error) {
+                lastErr = error;
+                const name = error instanceof DOMException ? error.name : '';
+                if (!recoverable(name)) throw error;
+              }
+            }
+            if (!stream && inputs.length > 0) {
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              } catch (error) {
+                lastErr = error;
+              }
+            }
+          } catch (error) {
+            lastErr = error;
+            const name = error instanceof DOMException ? error.name : '';
+            if (name && !recoverable(name)) throw error;
+          }
+        }
+        if (!stream) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (error) {
+            lastErr = error;
+          }
+        }
+        if (!stream) {
+          throw lastErr instanceof Error ? lastErr : new Error('No microphone input is available.');
+        }
 
         if (cancelled) {
           stream.getTracks().forEach(track => track.stop());

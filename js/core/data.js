@@ -2491,6 +2491,7 @@ function repairVoiceMemoSegmentPlayWindows(totalDurationMs, rows, threadMap) {
   const spans = messages.map(spanOf);
   const anyNearFull = spans.some(span => span >= dur - 400);
   const anyEmpty = spans.some(span => span <= 0);
+  const allZeroOrSmall = spans.every(span => span <= 100);
   const sumSpans = spans.reduce((a, b) => a + b, 0);
   const windowsIdentical =
     messages.length > 1 &&
@@ -2504,6 +2505,7 @@ function repairVoiceMemoSegmentPlayWindows(totalDurationMs, rows, threadMap) {
   const mustRedistribute =
     anyNearFull ||
     anyEmpty ||
+    allZeroOrSmall ||
     sumSpans > dur * 1.2 ||
     (windowsIdentical && messages.length > 1);
 

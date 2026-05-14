@@ -185,6 +185,12 @@ const PlaybackController = {
       _syncThreadPlaybackProgress();
       if (!this.activeMeta?.endAt) return;
       if (this.audio.currentTime >= this.activeMeta.endAt) {
+        console.log('[yAp] SEGMENT CUTOFF TRIGGERED', {
+          currentTime: this.audio.currentTime,
+          endAt: this.activeMeta.endAt,
+          threadId: this.activeMeta.threadId,
+          itemId: this.activeItemId,
+        });
         this._handleFinished(true);
       }
     });
@@ -397,6 +403,14 @@ const PlaybackController = {
     this.activeItemId = item.id;
     this.activeRowEl = rowEl;
     rowEl?.closest('.topic-row, .reply-row')?.classList.add('is-playback-session');
+    const segmentStartMs = Number(item.startMs || 0);
+    const segmentEndMs = Number(item.endMs || 0);
+    const segmentDurationMs = Number(item.durationMs || 0);
+    const startAtSeconds = Math.max(0, segmentStartMs / 1000);
+    const endAtSeconds = segmentEndMs > segmentStartMs
+      ? Math.max(0, segmentEndMs / 1000)
+      : null;
+
     this.activeMeta = {
       mode: 'thread',
       threadId: thread?.id || item.threadId,
@@ -404,15 +418,25 @@ const PlaybackController = {
       sequenceIndex: index,
       playToken,
       voiceMessageId: item.voiceMessageId || item.id,
-      durationSeconds: Math.max(0, Number(item.durationMs || 0) / 1000),
-      startAt: Math.max(0, Number(item.startMs || 0) / 1000),
-      endAt: Math.max(0, Number(item.endMs || 0)) > Math.max(0, Number(item.startMs || 0))
-        ? Math.max(0, Number(item.endMs || 0) / 1000)
-        : null,
+      durationSeconds: Math.max(0, segmentDurationMs / 1000),
+      startAt: startAtSeconds,
+      endAt: endAtSeconds,
     };
 
     this.audio.src = source.url;
     this.audio.load();
+
+    console.log('[yAp] SEGMENT PLAYBACK SETUP', {
+      threadId: thread?.id,
+      itemId: item.id,
+      index,
+      segmentStartMs,
+      segmentEndMs,
+      segmentDurationMs,
+      startAtSeconds,
+      endAtSeconds,
+      willEnforceBoundary: !!endAtSeconds,
+    });
 
     await _prepareAudioBeforePlay(this.audio, item, this.activeMeta, playToken);
 
@@ -1282,6 +1306,15 @@ function _applySegmentWindowToElement(audio, item, activeMeta, playToken) {
   activeMeta.startAt = clampedStart;
   activeMeta.endAt = clampedEnd > clampedStart ? clampedEnd : null;
   activeMeta.durationSeconds = durationSeconds || audioDuration;
+
+  console.log('[yAp] SEGMENT WINDOW APPLIED', {
+    audioDuration,
+    clampedStart,
+    clampedEnd,
+    startAt: activeMeta.startAt,
+    endAt: activeMeta.endAt,
+    durationSeconds,
+  });
 
   try {
     const cur = Number(audio.currentTime);

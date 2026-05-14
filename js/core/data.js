@@ -2483,6 +2483,50 @@ function repairVoiceMemoSegmentPlayWindows(totalDurationMs, rows, threadMap) {
   const messages = rows.map(entry => entry.message).filter(Boolean);
   if (messages.length <= 1) return;
 
+  // ALWAYS redistribute for multiple segments - enforce proper boundaries
+  if (messages.length > 1) {
+    const weights = messages.map(message =>
+      Math.max(1, normalizeWhitespace(message.transcript || message.label || '').length)
+    );
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+    let consumed = 0;
+
+    console.log('[yAp] REPAIRING SEGMENT WINDOWS', {
+      messageCount: messages.length,
+      totalDurationMs: dur,
+      weights,
+      totalWeight,
+    });
+
+    messages.forEach((message, index) => {
+      const weight = weights[index];
+      const startMs = Math.round((consumed / totalWeight) * dur);
+      consumed += weight;
+      const endMs = index === messages.length - 1 ? dur : Math.round((consumed / totalWeight) * dur);
+      message.startMs = startMs;
+      message.endMs = Math.max(startMs + 1, endMs);
+      message.durationMs = message.endMs - message.startMs;
+
+      console.log('[yAp] SEGMENT REDISTRIBUTED', {
+        index,
+        label: message.label,
+        oldStartMs: rows[index]?.message?.startMs,
+        oldEndMs: rows[index]?.message?.endMs,
+        newStartMs: message.startMs,
+        newEndMs: message.endMs,
+        newDurationMs: message.durationMs,
+      });
+
+      if (threadMap && message.threadId) {
+        const thread = threadMap.get(message.threadId);
+        if (thread && Array.isArray(thread.messages) && thread.messages.length === 1) {
+          thread.rangeLabel = `${formatDurationClock(message.startMs)}-${formatDurationClock(message.endMs)}`;
+        }
+      }
+    });
+    return;
+  }
+
   const spanOf = (message) => {
     const start = Math.max(0, Number(message.startMs) || 0);
     const end = Math.max(0, Number(message.endMs) || 0);
@@ -2664,6 +2708,18 @@ async function hydrateChatFromSupabase(chatId) {
       thread.messages.push(message);
       segmentHydrationRows.push({ index, message });
       thread.lastActivityAt = Math.max(thread.lastActivityAt || 0, sentAt);
+
+      console.log('[yAp] SEGMENT CREATED', {
+        voiceMessageId: voiceMessage.id,
+        threadId: thread.id,
+        index,
+        segmentLabel: segment.label || clipWords(segment.transcript, 8),
+        databaseStartMs: segStartRaw,
+        databaseEndMs: segEndRaw,
+        initialStartMs: message.startMs,
+        initialEndMs: message.endMs,
+        vmTotalMs,
+      });
 
       if (!thread.parentMemoId && voiceMessage.author_id === getCurrentUserId()) {
         thread.parentMemoId = voiceMessage.id;

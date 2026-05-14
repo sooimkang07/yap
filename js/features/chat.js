@@ -789,7 +789,15 @@ function _handleTopicInteraction(event) {
     event.stopPropagation();
     if (playableRow.dataset.threadPlaylist) {
       const thread = Store.getThread(playableRow.dataset.threadPlaylist);
-      PlaybackController.playThread(thread, playableRow);
+      const playableId = String(playableRow.dataset.playableId || '');
+      const sequence = _threadPlaybackSequence(thread);
+      const startIndex = playableId ? sequence.findIndex(message => message.id === playableId) : 0;
+      const safeIndex = startIndex >= 0 ? startIndex : 0;
+      if (sequence.length) {
+        PlaybackController.playThreadAt(thread, safeIndex, playableRow);
+      } else {
+        console.warn('[yAp] No playable sequence for thread', { threadId: thread?.id });
+      }
       return;
     }
     const item = Store.findPlayableItem(playableRow.dataset.playableId)?.item || null;

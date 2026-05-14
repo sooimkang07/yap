@@ -1998,6 +1998,11 @@ async function ensureTopicThread(thread) {
 async function saveTopicSegmentRecord({ voiceMessageId, topicThreadId, label, transcript, startMs, endMs }) {
   if (!supabaseClient || !voiceMessageId || !topicThreadId || !transcript) return null;
 
+  const startRounded = Number.isFinite(Number(startMs)) ? Math.max(0, Math.round(Number(startMs))) : 0;
+  const endRounded = Number.isFinite(Number(endMs))
+    ? Math.max(startRounded, Math.round(Number(endMs)))
+    : startRounded;
+
   const { data, error } = await supabaseClient
     .from('topic_segments')
     .insert({
@@ -2005,8 +2010,8 @@ async function saveTopicSegmentRecord({ voiceMessageId, topicThreadId, label, tr
       topic_thread_id: topicThreadId,
       label,
       transcript,
-      start_ms: startMs || 0,
-      end_ms: endMs || 0,
+      start_ms: startRounded,
+      end_ms: endRounded,
     })
     .select('id, voice_message_id, topic_thread_id, label, transcript, start_ms, end_ms, created_at')
     .single();
@@ -2464,6 +2469,53 @@ async function getTopicThreads(chatId) {
   return data || [];
 }
 
+/**
+ * When multiple topic rows reference the same voice memo but DB windows are missing or
+ * each claim the full duration, redistribute [startMs,endMs) by transcript length so
+ * playback can seek/stop within one shared audio file.
+ */
+function repairVoiceMemoSegmentPlayWindows(totalDurationMs, rows, threadMap) {
+  if (!Array.isArray(rows) || rows.length <= 1) return;
+  const dur = Math.max(0, Math.round(Number(totalDurationMs) || 0));
+  if (!(dur > 250)) return;
+
+  rows.sort((a, b) => (a.index || 0) - (b.index || 0));
+  const messages = rows.map(entry => entry.message).filter(Boolean);
+  if (messages.length <= 1) return;
+
+  const badWindow = (message) => {
+    const start = Math.max(0, Number(message.startMs) || 0);
+    const end = Math.max(0, Number(message.endMs) || 0);
+    const span = end - start;
+    return span <= 0 || span >= dur - 200;
+  };
+
+  if (!messages.every(badWindow)) return;
+
+  const weights = messages.map(message =>
+    Math.max(1, normalizeWhitespace(message.transcript || message.label || '').length)
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  let consumed = 0;
+
+  messages.forEach((message, index) => {
+    const weight = weights[index];
+    const startMs = Math.round((consumed / totalWeight) * dur);
+    consumed += weight;
+    const endMs = index === messages.length - 1 ? dur : Math.round((consumed / totalWeight) * dur);
+    message.startMs = startMs;
+    message.endMs = Math.max(startMs + 1, endMs);
+    message.durationMs = message.endMs - message.startMs;
+
+    if (threadMap && message.threadId) {
+      const thread = threadMap.get(message.threadId);
+      if (thread && Array.isArray(thread.messages) && thread.messages.length === 1) {
+        thread.rangeLabel = `${formatDurationClock(message.startMs)}-${formatDurationClock(message.endMs)}`;
+      }
+    }
+  });
+}
+
 async function hydrateChatFromSupabase(chatId) {
   if (!chatId) return [];
   if (!supabaseClient) return Store.getCachedThreads(chatId);
@@ -2527,6 +2579,7 @@ async function hydrateChatFromSupabase(chatId) {
       ? normalizeWhitespace(voiceMessage.transcripts.find(entry => entry?.full_text)?.full_text || '')
       : '';
     const threadedSegments = segments.filter(segment => segment?.topic_thread_id);
+    const segmentHydrationRows = [];
 
     for (let index = 0; index < threadedSegments.length; index++) {
       const segment = threadedSegments[index];
@@ -2547,10 +2600,18 @@ async function hydrateChatFromSupabase(chatId) {
         messages: [],
       };
 
-      const durationMs = Math.max(
-        0,
-        (segment.end_ms || 0) - (segment.start_ms || 0)
-      ) || voiceMessage.duration_ms || 0;
+      const vmTotalMs = Math.max(0, Number(voiceMessage.duration_ms) || 0);
+      const segStartRaw = Number(segment.start_ms);
+      const segEndRaw = Number(segment.end_ms);
+      const segStart = Number.isFinite(segStartRaw) ? Math.max(0, Math.round(segStartRaw)) : 0;
+      const segEndFinite = Number.isFinite(segEndRaw);
+      const segEnd = segEndFinite ? Math.max(segStart, Math.round(segEndRaw)) : segStart;
+      const spanFromDb = segEndFinite ? Math.max(0, segEnd - segStart) : 0;
+      const durationMs = spanFromDb > 0 ? spanFromDb : vmTotalMs || 0;
+      const endMs =
+        segEnd > segStart
+          ? segEnd
+          : segStart + (vmTotalMs > 0 ? vmTotalMs : Math.max(1, durationMs));
       const sentAt = new Date(voiceMessage.sent_at).getTime() + index;
 
       const message = {
@@ -2565,8 +2626,8 @@ async function hydrateChatFromSupabase(chatId) {
         label: segment.label || clipWords(segment.transcript, 8),
         transcript: segment.transcript,
         excerpt: clipWords(segment.transcript, 8),
-        startMs: segment.start_ms || 0,
-        endMs: segment.end_ms || durationMs,
+        startMs: segStart,
+        endMs,
         sentAt,
         parentMemoId: voiceMessage.id,
         heardByCurrentUser: voiceMessage.author_id === getCurrentUserId() ? true : !!progress?.heard,
@@ -2575,13 +2636,14 @@ async function hydrateChatFromSupabase(chatId) {
       };
 
       thread.messages.push(message);
+      segmentHydrationRows.push({ index, message });
       thread.lastActivityAt = Math.max(thread.lastActivityAt || 0, sentAt);
 
       if (!thread.parentMemoId && voiceMessage.author_id === getCurrentUserId()) {
         thread.parentMemoId = voiceMessage.id;
         thread.excerpt = clipWords(segment.transcript, 8);
         thread.transcript = segment.transcript;
-        thread.rangeLabel = `${formatDurationClock(segment.start_ms)}-${formatDurationClock(segment.end_ms)}`;
+        thread.rangeLabel = `${formatDurationClock(message.startMs)}-${formatDurationClock(message.endMs)}`;
         thread.parentMemoMessage = {
           id: `memo-${thread.id}-${voiceMessage.id}`,
           voiceMessageId: voiceMessage.id,
@@ -2604,6 +2666,8 @@ async function hydrateChatFromSupabase(chatId) {
 
       threadMap.set(thread.id, thread);
     }
+
+    repairVoiceMemoSegmentPlayWindows(voiceMessage.duration_ms, segmentHydrationRows, threadMap);
 
     if (threadedSegments.length) continue;
 

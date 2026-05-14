@@ -1903,9 +1903,9 @@ button {
   background: transparent;
 }
 
+/* Dimensions from .glassNavButton--primary (var(--mic-size)) — do not fix width/height here
+   or the mic can outgrow the chat-footer grid track and overlap the now-playing button. */
 .mic-btn {
-  width: 6.375rem;
-  height: 6.375rem;
   border-radius: var(--r-full);
   background:
     linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(247,247,247,0.68) 100%);

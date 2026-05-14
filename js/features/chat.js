@@ -236,7 +236,7 @@ const PlaybackController = {
     this.audio.src = source.url;
     this.audio.load();
 
-    _syncPlaybackWindow(this.audio, item, this.activeMeta, playToken);
+    await _prepareAudioBeforePlay(this.audio, item, this.activeMeta, playToken);
 
     console.log('[yAp] resolved playable source', {
       itemId: item.id,
@@ -413,7 +413,8 @@ const PlaybackController = {
 
     this.audio.src = source.url;
     this.audio.load();
-    _syncPlaybackWindow(this.audio, item, this.activeMeta, playToken);
+
+    await _prepareAudioBeforePlay(this.audio, item, this.activeMeta, playToken);
 
     console.log('[yAp] resolved stitched source', {
       threadId: thread?.id,
@@ -1266,34 +1267,96 @@ async function _markMessageHeard(messageId, voiceMessageId, durationSeconds) {
   }).catch(error => console.warn('[yAp] Playback progress save failed:', error));
 }
 
+function _applySegmentWindowToElement(audio, item, activeMeta, playToken) {
+  if (PlaybackController._playToken !== playToken || PlaybackController.activeMeta !== activeMeta) {
+    return false;
+  }
+  const audioDuration = Number(audio.duration) || 0;
+  if (!(audioDuration > 0)) return false;
+
+  const clampedStart = Math.min(Math.max(0, activeMeta.startAt || 0), audioDuration);
+  const requestedEnd = activeMeta.endAt != null ? Math.max(clampedStart, activeMeta.endAt) : audioDuration;
+  const clampedEnd = Math.min(requestedEnd, audioDuration);
+  const durationSeconds = Math.max(0, clampedEnd - clampedStart) || Math.max(0, audioDuration - clampedStart);
+
+  activeMeta.startAt = clampedStart;
+  activeMeta.endAt = clampedEnd > clampedStart ? clampedEnd : null;
+  activeMeta.durationSeconds = durationSeconds || audioDuration;
+
+  try {
+    const cur = Number(audio.currentTime);
+    if (!Number.isFinite(cur) || Math.abs(cur - clampedStart) > 0.03) {
+      audio.currentTime = clampedStart;
+    }
+  } catch (_) {}
+
+  if (!item.durationMs || item.durationMs <= 0) {
+    item.durationMs = Math.round((activeMeta.durationSeconds || audioDuration) * 1000);
+  }
+  if (!item.endMs || item.endMs < item.startMs) {
+    item.endMs = Math.round((activeMeta.endAt ?? audioDuration) * 1000);
+  }
+  return true;
+}
+
+/**
+ * Wait for duration, clamp segment window, seek to start — must complete before play()
+ * or Safari starts at 0 while loadedmetadata/seek races behind playback.
+ */
+async function _prepareAudioBeforePlay(audio, item, activeMeta, playToken) {
+  const stale = () => PlaybackController._playToken !== playToken || PlaybackController.activeMeta !== activeMeta;
+
+  await new Promise(resolve => {
+    if (audio.readyState >= 1) {
+      resolve();
+      return;
+    }
+    const timeoutMs = 12000;
+    const t = window.setTimeout(resolve, timeoutMs);
+    audio.addEventListener(
+      'loadedmetadata',
+      () => {
+        window.clearTimeout(t);
+        resolve();
+      },
+      { once: true }
+    );
+  });
+
+  if (stale()) return;
+
+  if (!_applySegmentWindowToElement(audio, item, activeMeta, playToken)) return;
+
+  const targetStart = Math.max(0, activeMeta.startAt || 0);
+  if (targetStart <= 0.02) return;
+
+  await new Promise(resolve => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      audio.removeEventListener('seeked', onSeeked);
+      resolve();
+    };
+    const onSeeked = () => finish();
+    audio.addEventListener('seeked', onSeeked, { once: true });
+    try {
+      audio.currentTime = targetStart;
+    } catch (_) {
+      finish();
+      return;
+    }
+    if (Math.abs(audio.currentTime - targetStart) < 0.08) {
+      window.setTimeout(finish, 0);
+    }
+    window.setTimeout(finish, 450);
+  });
+}
+
 function _syncPlaybackWindow(audio, item, activeMeta, playToken) {
   const applyWindow = () => {
     if (PlaybackController._playToken !== playToken || PlaybackController.activeMeta !== activeMeta) return;
-
-    const audioDuration = Number(audio.duration) || 0;
-    if (audioDuration > 0) {
-      const clampedStart = Math.min(Math.max(0, activeMeta.startAt || 0), audioDuration);
-      const requestedEnd = activeMeta.endAt != null ? Math.max(clampedStart, activeMeta.endAt) : audioDuration;
-      const clampedEnd = Math.min(requestedEnd, audioDuration);
-      const durationSeconds = Math.max(0, clampedEnd - clampedStart) || Math.max(0, audioDuration - clampedStart);
-
-      activeMeta.startAt = clampedStart;
-      activeMeta.endAt = clampedEnd > clampedStart ? clampedEnd : null;
-      activeMeta.durationSeconds = durationSeconds || audioDuration;
-
-      try {
-        if (Math.abs(audio.currentTime - clampedStart) > 0.05) {
-          audio.currentTime = clampedStart;
-        }
-      } catch {}
-
-      if (!item.durationMs || item.durationMs <= 0) {
-        item.durationMs = Math.round((activeMeta.durationSeconds || audioDuration) * 1000);
-      }
-      if (!item.endMs || item.endMs < item.startMs) {
-        item.endMs = Math.round((activeMeta.endAt ?? audioDuration) * 1000);
-      }
-    }
+    _applySegmentWindowToElement(audio, item, activeMeta, playToken);
   };
 
   if (audio.readyState >= 1) {

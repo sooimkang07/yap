@@ -526,6 +526,9 @@ function navigate(toId, direction = 'forward', { replace = false, skipTransition
   }
   if (fromId === 'chat' && toId !== 'chat') {
     cancelRecording();
+    // Analysis UI lives under #screen-chat; leaving the screen without closing it
+    // leaves `.visible` on the overlay so the next time chat opens it flashes first.
+    AnalysisModal.close();
   }
   const eligibleForHistory = fromId && fromId !== 'splash';
   if (!replace && eligibleForHistory) {
@@ -2523,6 +2526,10 @@ async function closeActiveChatAndNavigateToList({ skipTransition = false } = {})
 async function openChat(chat) {
   AppState.activeChat = chat;
   Store.setActiveChat(chat.id);
+  // Close analysis overlay and reset recording state when switching chats
+  if (DOM.analysisOverlay?.classList.contains('visible')) {
+    AnalysisModal.close();
+  }
   if (DOM.btnNowPlaying) DOM.btnNowPlaying.style.visibility = 'hidden';
 
   renderActiveChatShell(chat);

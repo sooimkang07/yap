@@ -3540,7 +3540,7 @@ html, body {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 40;
+  z-index: 60;
   background: var(--chat-chrome-gradient);
 }
 
@@ -3577,7 +3577,7 @@ html, body {
   left: 0;
   right: 0;
   bottom: var(--visual-viewport-bottom-inset);
-  z-index: 40;
+  z-index: 60;
   background: var(--chat-chrome-gradient-footer);
 }
 
@@ -5859,28 +5859,33 @@ select,
   font-size: 2.125rem;
   font-weight: 700;
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(1) {
-  transform: translate(calc(-50% + 0px), calc(-50% - 40px));
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 4;
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(2) {
-  transform: translate(calc(-50% + 35px), calc(-50% + 20px));
+  top: 50%;
+  right: 0;
+  transform: translate(0, -50%);
   z-index: 3;
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(3) {
-  transform: translate(calc(-50% - 35px), calc(-50% + 20px));
+  top: 50%;
+  left: 0;
+  transform: translate(0, -50%);
   z-index: 2;
 }
 
 .group-details-hero__avatars .group-details-hero__avatar:nth-child(4) {
-  transform: translate(calc(-50% + 0px), calc(-50% + 50px));
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 1;
 }
 
@@ -9401,7 +9406,10 @@ select,
 }
 
 .splash-content--delayed {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 10;
   opacity: 0;
   animation: splash-fade-in 0.6s ease-in-out 2.8s forwards;

@@ -2483,14 +2483,31 @@ function repairVoiceMemoSegmentPlayWindows(totalDurationMs, rows, threadMap) {
   const messages = rows.map(entry => entry.message).filter(Boolean);
   if (messages.length <= 1) return;
 
-  const badWindow = (message) => {
+  const spanOf = (message) => {
     const start = Math.max(0, Number(message.startMs) || 0);
     const end = Math.max(0, Number(message.endMs) || 0);
-    const span = end - start;
-    return span <= 0 || span >= dur - 200;
+    return Math.max(0, end - start);
   };
+  const spans = messages.map(spanOf);
+  const anyNearFull = spans.some(span => span >= dur - 400);
+  const anyEmpty = spans.some(span => span <= 0);
+  const sumSpans = spans.reduce((a, b) => a + b, 0);
+  const windowsIdentical =
+    messages.length > 1 &&
+    messages.every((m, i) => {
+      if (i === 0) return true;
+      return (
+        (Number(m.startMs) || 0) === (Number(messages[0].startMs) || 0) &&
+        (Number(m.endMs) || 0) === (Number(messages[0].endMs) || 0)
+      );
+    });
+  const mustRedistribute =
+    anyNearFull ||
+    anyEmpty ||
+    sumSpans > dur * 1.2 ||
+    (windowsIdentical && messages.length > 1);
 
-  if (!messages.every(badWindow)) return;
+  if (!mustRedistribute) return;
 
   const weights = messages.map(message =>
     Math.max(1, normalizeWhitespace(message.transcript || message.label || '').length)

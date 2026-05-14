@@ -68,6 +68,8 @@
   --compose-sheet-offset: 3.5rem;
   --chat-footer-reserved: calc(var(--mic-size, 6.5rem) + 3.375rem + env(safe-area-inset-bottom, 0rem) + var(--visual-viewport-bottom-inset));
   --footer-rec-control-gap: 0.875rem;
+  /* Extra space between “Play all” and mic (glass drop-shadow bleeds past the box; grid gap alone was still overlapping on narrow phones) */
+  --chat-footer-inline-gap: max(1.125rem, calc(var(--footer-rec-control-gap) + 0.75rem));
   --glass-nav-secondary-size: 3.375rem;
   --glass-nav-icon-primary: clamp(2.125rem, 12.25vw, 2.75rem);
   --glass-nav-icon-secondary: clamp(1.1875rem, 5.75vw, 1.4375rem);
@@ -3842,7 +3844,7 @@ html, body {
   grid-template-columns: minmax(0, 1fr) var(--mic-size) minmax(0, 1fr);
   align-items: center;
   justify-content: normal;
-  gap: var(--footer-rec-control-gap);
+  gap: var(--chat-footer-inline-gap);
   padding-left: var(--screen-gutter);
   padding-right: var(--screen-gutter);
 }
@@ -3856,6 +3858,8 @@ html, body {
 .chat-footer .now-playing-btn {
   grid-column: 1;
   justify-self: end;
+  /* Pull play left of the mic column; complements --chat-footer-inline-gap against filter/shadow bleed */
+  margin-inline-end: 0.5rem;
 }
 
 .chat-footer .mic-btn {
@@ -3897,7 +3901,8 @@ html, body {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  contain: layout paint;
+  /* layout only — paint containment clips descendant box-shadows (topic glow) on WebKit */
+  contain: layout;
   z-index: 1;
 }
 
@@ -5340,10 +5345,10 @@ html, body {
   align-items: stretch;
   overflow: visible;
   gap: 0.375rem;
-  /* Same radii/stops as .floating-avatar__photo; --topic-track-glow set from JS for the active speaker */
+  /* rgba vars set from JS (--topic-track-glow-soft / --topic-track-glow-far) — avoids WebKit dropping color-mix() in box-shadow */
   box-shadow:
-    0 0 1.125rem color-mix(in srgb, var(--topic-track-glow, transparent) 34%, transparent),
-    0 0 2.5rem color-mix(in srgb, var(--topic-track-glow, transparent) 28%, transparent);
+    0 0 1.125rem var(--topic-track-glow-soft, transparent),
+    0 0 2.5rem var(--topic-track-glow-far, transparent);
 }
 
 .topic-row__segment-cell {
@@ -5372,10 +5377,10 @@ html, body {
 .topic-row:has(.topic-row__play.is-playing) .topic-row__segment-progress,
 .reply-row.is-playing .topic-row__segment-progress,
 .reply-row.is-playback-session .topic-row__segment-progress {
-  /* Subtle speaker-tinted halo under the playing segment bar */
+  /* Inherits --topic-track-glow-* from .topic-row__track (set when playing) */
   box-shadow:
-    0 0 0.75rem color-mix(in srgb, var(--topic-track-glow, transparent) 28%, transparent),
-    0 0 1.5rem color-mix(in srgb, var(--topic-track-glow, transparent) 18%, transparent);
+    0 0 0.75rem var(--topic-track-glow-mid, transparent),
+    0 0 1.5rem var(--topic-track-glow-faint, transparent);
 }
 
 .topic-row:has(.topic-row__play.is-playing) .topic-row__segment-progress,

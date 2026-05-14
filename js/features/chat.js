@@ -1000,6 +1000,70 @@ function _defaultTopicTrackGlowColor() {
   return 'rgb(184, 216, 255)';
 }
 
+/** Parse author accent (#hex, rgb()) to RGB; default Sooim blue. */
+function _authorAccentToRgbTuple(colorStr) {
+  const s = String(colorStr || '').trim();
+  if (!s) return { r: 184, g: 216, b: 255 };
+  if (s.startsWith('#')) {
+    let h = s.slice(1);
+    if (h.length === 3) {
+      h = h.split('').map(ch => ch + ch).join('');
+    }
+    if (h.length === 6) {
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      if ([r, g, b].every(n => Number.isFinite(n) && n >= 0 && n <= 255)) {
+        return { r, g, b };
+      }
+    }
+  }
+  const m = s.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (m) {
+    const r = Math.round(Number(m[1]));
+    const g = Math.round(Number(m[2]));
+    const b = Math.round(Number(m[3]));
+    if ([r, g, b].every(n => Number.isFinite(n) && n >= 0 && n <= 255)) {
+      return { r, g, b };
+    }
+  }
+  return { r: 184, g: 216, b: 255 };
+}
+
+function _setTopicRowTrackGlowVars(trackEl, rawAccent) {
+  if (!trackEl) return;
+  const base = rawAccent && String(rawAccent).trim() ? String(rawAccent).trim() : _defaultTopicTrackGlowColor();
+  const { r, g, b } = _authorAccentToRgbTuple(base);
+  trackEl.style.setProperty('--topic-track-glow-soft', `rgba(${r}, ${g}, ${b}, 0.32)`);
+  trackEl.style.setProperty('--topic-track-glow-far', `rgba(${r}, ${g}, ${b}, 0.19)`);
+  trackEl.style.setProperty('--topic-track-glow-mid', `rgba(${r}, ${g}, ${b}, 0.26)`);
+  trackEl.style.setProperty('--topic-track-glow-faint', `rgba(${r}, ${g}, ${b}, 0.15)`);
+}
+
+function _clearTopicRowTrackGlowVars(trackEl) {
+  if (!trackEl) return;
+  ['--topic-track-glow-soft', '--topic-track-glow-far', '--topic-track-glow-mid', '--topic-track-glow-faint', '--topic-track-glow'].forEach(
+    prop => trackEl.style.removeProperty(prop)
+  );
+}
+
+/** Topic list row (or topic header when playback started from immersive cluster). */
+function _playbackGlowScopeContainer(rowEl, meta) {
+  if (!rowEl) return null;
+  let scope = rowEl.closest?.('.topic-row, .reply-row');
+  if (scope) return scope;
+  if (
+    meta &&
+    rowEl.classList?.contains?.('immersive-cluster') &&
+    meta.threadId &&
+    DOM.chatTopics
+  ) {
+    const tid = String(meta.threadId);
+    scope = DOM.chatTopics.querySelector(`.topic-card[data-thread-id="${CSS.escape(tid)}"] .topic-row`);
+  }
+  return scope || null;
+}
+
 function _resetThreadPlaybackProgress(rowEl) {
   const container = rowEl?.closest?.('.topic-row, .reply-row');
   if (!container) return;
@@ -1008,7 +1072,8 @@ function _resetThreadPlaybackProgress(rowEl) {
   const elapsedLabel = container.querySelector('[data-track-elapsed]');
   const remainingLabel = container.querySelector('[data-track-remaining]');
 
-  container.querySelector('.topic-row__track')?.style.removeProperty('--topic-track-glow');
+  const tr = container.querySelector('.topic-row__track');
+  if (tr) _clearTopicRowTrackGlowVars(tr);
   container.querySelectorAll('.topic-row__segment-progress').forEach(fill => {
     fill.style.transform = 'scaleX(0)';
     fill.style.removeProperty('--segment-fill');
@@ -1020,7 +1085,7 @@ function _resetThreadPlaybackProgress(rowEl) {
 function _syncThreadPlaybackProgress() {
   const activeContainer =
     PlaybackController.activeRowEl && PlaybackController.activeMeta
-      ? PlaybackController.activeRowEl.closest?.('.topic-row, .reply-row')
+      ? _playbackGlowScopeContainer(PlaybackController.activeRowEl, PlaybackController.activeMeta)
       : null;
 
   DOM.chatTopics?.querySelectorAll('.topic-row, .reply-row').forEach(container => {
@@ -1030,7 +1095,8 @@ function _syncThreadPlaybackProgress() {
     const remainingLabel = container.querySelector('[data-track-remaining]');
     const totalMs = Number(container.dataset.totalMs || 0);
 
-    container.querySelector('.topic-row__track')?.style.removeProperty('--topic-track-glow');
+    const trClear = container.querySelector('.topic-row__track');
+    if (trClear) _clearTopicRowTrackGlowVars(trClear);
     container.querySelectorAll('.topic-row__segment-progress').forEach(fill => {
       fill.style.transform = 'scaleX(0)';
       fill.style.removeProperty('--segment-fill');
@@ -1064,7 +1130,8 @@ function _syncThreadPlaybackProgress() {
       threadCard.querySelectorAll('.reply-row').forEach(btn => {
         if (btn === activeReplyRow) return;
         btn.classList.remove('is-playback-session', 'is-playing');
-        btn.querySelector('.topic-row__track')?.style.removeProperty('--topic-track-glow');
+        const trb = btn.querySelector('.topic-row__track');
+        if (trb) _clearTopicRowTrackGlowVars(trb);
         btn.querySelectorAll('.topic-row__segment-progress').forEach(fill => {
           fill.style.transform = 'scaleX(0)';
           fill.style.removeProperty('--segment-fill');
@@ -1129,8 +1196,8 @@ function _syncThreadPlaybackProgress() {
       const track = activeReplyRow.querySelector('.topic-row__track');
       if (track) {
         const raw = curItem?.author?.color && String(curItem.author.color).trim();
-        if (isPlaying) track.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
-        else track.style.removeProperty('--topic-track-glow');
+        if (isPlaying) _setTopicRowTrackGlowVars(track, raw || _defaultTopicTrackGlowColor());
+        else _clearTopicRowTrackGlowVars(track);
       }
     }
   } else {
@@ -1166,13 +1233,13 @@ function _syncThreadPlaybackProgress() {
       const idx = Math.max(0, Number(meta.sequenceIndex) || 0);
       const cur = meta.sequence[idx];
       const raw = cur?.author?.color && String(cur.author.color).trim();
-      if (isPlaying) trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
-      else trackEl.style.removeProperty('--topic-track-glow');
+      if (isPlaying) _setTopicRowTrackGlowVars(trackEl, raw || _defaultTopicTrackGlowColor());
+      else _clearTopicRowTrackGlowVars(trackEl);
     } else {
       const item = Store.findPlayableItem(PlaybackController.activeItemId)?.item || null;
       const raw = item?.author?.color && String(item.author.color).trim();
-      if (isPlaying) trackEl.style.setProperty('--topic-track-glow', raw || _defaultTopicTrackGlowColor());
-      else trackEl.style.removeProperty('--topic-track-glow');
+      if (isPlaying) _setTopicRowTrackGlowVars(trackEl, raw || _defaultTopicTrackGlowColor());
+      else _clearTopicRowTrackGlowVars(trackEl);
     }
   }
 }
@@ -1220,7 +1287,7 @@ function _syncPlaybackWindow(audio, item, activeMeta, playToken) {
         }
       } catch {}
 
-      if (!item.durationMs || item.durationMs <= 0 || item.startMs === 0) {
+      if (!item.durationMs || item.durationMs <= 0) {
         item.durationMs = Math.round((activeMeta.durationSeconds || audioDuration) * 1000);
       }
       if (!item.endMs || item.endMs < item.startMs) {
